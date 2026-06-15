@@ -18,23 +18,18 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
+// TEMP DEMO BYPASS — remove before final submit
+// Auth disabled: send all traffic straight to the dashboard for demo/video.
 export function proxy(request: NextRequest) {
-  const session = request.cookies.get("session")?.value;
   const { pathname } = request.nextUrl;
 
-  // Logged-in user trying to access sign-in page -> redirect to dashboard
-  if (pathname === "/" && session === "authenticated") {
+  if (pathname === "/") {
     return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
-  // Logged-out user trying to access protected routes -> redirect to sign-in
-  if (pathname.startsWith("/dashboard") && session !== "authenticated") {
-    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*"],
+  matcher: ["/", "/dashboard", "/dashboard/:path*"],
 };

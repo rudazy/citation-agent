@@ -26,10 +26,29 @@ const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
   : "http://localhost:3000";
 
+const siteTitle = "Citation Agent";
+const siteDescription =
+  "Pay-per-citation research agent with x402 nanopayments, creator royalties, and verifiable attribution on Arc Testnet.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "Arc Nanopayments Demo",
-  description: "Arc nanopayments demo application",
+  title: siteTitle,
+  description: siteDescription,
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
+  },
+  openGraph: {
+    type: "website",
+    title: siteTitle,
+    description: siteDescription,
+    siteName: siteTitle,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteTitle,
+    description: siteDescription,
+  },
 };
 
 const geistSans = Geist({
