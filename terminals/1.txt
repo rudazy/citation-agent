@@ -1,0 +1,23 @@
+---
+pid: 4712
+cwd: "C:\Users\RIKI\citation-agent"
+command: "Set-Location C:\\Users\\RIKI\\citation-agent
+npm.cmd run dev"
+started_at: 2026-06-15T11:58:53.510Z
+running_for_ms: 27460006 
+---
+
+> dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack, Cache Components)
+- Local:         http://localhost:3000
+- Network:       http://10.157.144.214:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 3.7s
+ GET /api/premium/citation/index 200 in 1843ms (compile: 1775ms, render: 68ms)
+[x402] 402 Payment Required: /api/premium/citation
+ GET /api/premium/citation?id=trust-infrastructure 402 in 2.2s (compile: 2.2s, render: 25ms)
+  Reload env: .env.local

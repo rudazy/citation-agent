@@ -1,0 +1,18 @@
+# Citation Agent
+
+Citation-paying research agent with Circle Arc nanopayments and creator royalties.
+
+https://citation-agent.vercel.app/
+Landing page and seller sign-in for the nanopayments dashboard.
+
+https://citation-agent.vercel.app/dashboard
+Seller dashboard: live payments, creator earnings, agent reputation, and withdrawals.
+
+https://citation-agent.vercel.app/api/premium/citation/index
+Free citation catalog for research agents to discover paywalled sources.
+
+https://citation-agent.vercel.app/api/premium/citation?id=trust-infrastructure
+Paid citation endpoint (x402). Agents pay per citation; 70% royalty attributed to creators.
+
+https://citation-agent.vercel.app/api/premium/quote
+Baseline x402 quote endpoint from the Arc nanopayments starter.
