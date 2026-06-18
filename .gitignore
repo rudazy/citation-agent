@@ -20,8 +20,18 @@
 # production
 /build
 
-# internal task tracking
+# internal — never commit
 /tasks/
+/tasks/**
+*todo.md
+*TODO.md
+*lessons.md
+*-TASK.md
+*-UPDATE.md
+TASKS.md
+/terminals/
+/mcps/
+/docs/internal/
 
 # misc
 .DS_Store
@@ -44,11 +54,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# foundry
+# foundry / deploy artifacts
 /cache/
 /out/
 /broadcast/
 /lib/forge-std/
+.gitmodules
 
-# circle-agent clone (merged into main app)
+# local clones (source merged into main app)
 /marketplace/

@@ -81,7 +81,7 @@ See `.env.example`. Required:
 
 Optional: `OPENAI_API_KEY` for future LLM-driven routing.
 
-## Circle / Arc Feedback (Hackathon)
+## Arc Testnet notes
 
 Friction observed while building:
 

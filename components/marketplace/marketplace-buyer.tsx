@@ -208,9 +208,9 @@ export function MarketplaceBuyer({
   }, [account, onSettlement]);
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card p-5">
+    <div className="space-y-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-5 shadow-sm">
       <div>
-        <h2 className="text-lg font-semibold">Live demo</h2>
+        <h2 className="text-lg font-semibold tracking-wide">Live demo</h2>
         <p className="text-sm text-muted-foreground">
           Pay $0.01 USDC for <code>/api/marketplace/hello</code> via MetaMask on Arc Testnet.
         </p>

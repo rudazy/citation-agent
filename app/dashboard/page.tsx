@@ -18,7 +18,8 @@
 
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -49,8 +50,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Activity,
+  ArrowRight,
   Loader2,
 } from "lucide-react";
+import { AppLogo } from "@/components/brand/app-logo";
+
 import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { shortenHash } from "@/lib/utils";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
@@ -145,11 +150,18 @@ function StatusBadge({ status }: { status: string }) {
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 export default function Dashboard() {
+  const searchParams = useSearchParams();
   const { events, loading: loadingPayments } = usePaymentEvents();
   const { withdrawals, loading: loadingWithdrawals } = useWithdrawals();
   const { earnings, loading: loadingEarnings } = useCreatorEarnings();
   const { agents, loading: loadingReputation } = useAgentReputation();
   const [activeTab, setActiveTab] = useState("payments");
+
+  useEffect(() => {
+    if (searchParams.get("tab") === "trace") {
+      setActiveTab("trace");
+    }
+  }, [searchParams]);
   const [filter, setFilter] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("default");
@@ -246,12 +258,41 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Welcome back!</h1>
-        <p className="text-muted-foreground text-sm">
-          Monitor nanopayments, creator royalties, agent reputation, and withdrawals.
-        </p>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2">
+          <AppLogo href={undefined} showSubtitle />
+          <p className="text-muted-foreground text-sm font-mono max-w-xl">
+            Monitor nanopayments, creator royalties, agent reputation, and withdrawals.
+            Settlement traces decode every x402 batch on Arc.
+          </p>
+        </div>
       </div>
+
+      {activeTab !== "trace" && (
+        <button
+          type="button"
+          onClick={() => setActiveTab("trace")}
+          className="mb-4 w-full rounded-lg border border-[#ff8a3d]/30 bg-gradient-to-r from-[#ff8a3d]/8 via-transparent to-[#f5c842]/8 p-4 text-left transition-colors hover:border-[#ff8a3d]/50 hover:from-[#ff8a3d]/12"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded border border-[#ff8a3d]/25 bg-[#ff8a3d]/10">
+                <Activity size={18} className="text-[#ff8a3d]" />
+              </div>
+              <div>
+                <p className="font-semibold tracking-wide">Payment Trace</p>
+                <p className="text-sm text-muted-foreground font-mono">
+                  Follow EIP-712 signatures through Circle Gateway to on-chain submitBatch
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-[#ff8a3d]/40 px-3 py-1.5 text-sm text-[#b35a18] shrink-0">
+              Open trace
+              <ArrowRight size={14} />
+            </span>
+          </div>
+        </button>
+      )}
 
       <div className="flex items-center gap-3 mb-4">
         <Input
@@ -294,12 +335,18 @@ export default function Dashboard() {
           setSortDirection("default");
         }}
       >
-        <TabsList className="w-full">
+        <TabsList className="w-full flex-wrap h-auto gap-1 p-1.5">
+          <TabsTrigger
+            value="trace"
+            className="gap-1.5 font-semibold data-[state=active]:bg-[#ff8a3d]/12 data-[state=active]:text-[#b35a18] data-[state=active]:ring-1 data-[state=active]:ring-[#ff8a3d]/35"
+          >
+            <Activity size={14} />
+            Payment Trace
+          </TabsTrigger>
           <TabsTrigger value="payments">Payments</TabsTrigger>
           <TabsTrigger value="creators">Creator Earnings</TabsTrigger>
           <TabsTrigger value="reputation">Agent Reputation</TabsTrigger>
           <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
-          <TabsTrigger value="trace">Payment Trace</TabsTrigger>
         </TabsList>
 
         <TabsContent value="payments">
@@ -612,10 +659,15 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent value="trace">
-          <div className="rounded-lg border p-5 space-y-4">
-            <p className="text-sm text-muted-foreground">
+          <div className="rounded-lg border border-[#ff8a3d]/20 bg-gradient-to-b from-[#ff8a3d]/6 to-transparent p-5 sm:p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Activity size={18} className="text-[#ff8a3d]" />
+              <h2 className="text-lg font-semibold tracking-wide">Settlement trace decoder</h2>
+            </div>
+            <p className="text-sm text-muted-foreground font-mono leading-relaxed">
               Decode Circle Gateway settlements from EIP-712 signature through on-chain{" "}
-              <code>submitBatch</code>. Paste a settlement UUID from the Payments tab or{" "}
+              <code>submitBatch</code>. Paste a settlement UUID from the Payments tab or run a
+              live purchase on the{" "}
               <a href="/marketplace" className="text-[#ff8a3d] hover:underline">
                 Marketplace
               </a>

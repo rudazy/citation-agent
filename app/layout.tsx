@@ -17,7 +17,7 @@
  */
 
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -26,9 +26,9 @@ const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
   : "http://localhost:3000";
 
-const siteTitle = "Citation Agent";
+const siteTitle = "Citation Agent + CanteenUSDC";
 const siteDescription =
-  "Pay-per-citation research agent with x402 nanopayments, creator royalties, and verifiable attribution on Arc Testnet.";
+  "Pay-per-citation research agent with x402 nanopayments, cUSDC creator royalties, marketplace listings, and full settlement trace on Arc Testnet.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
@@ -57,6 +57,12 @@ const geistSans = Geist({
   subsets: ["latin"],
 });
 
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  display: "swap",
+  subsets: ["latin"],
+});
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -64,7 +70,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.className} antialiased`}>
+      <body className={`${geistSans.className} ${geistMono.variable} antialiased`}>
         <TooltipProvider>{children}</TooltipProvider>
         <Toaster richColors position="bottom-right" />
       </body>
