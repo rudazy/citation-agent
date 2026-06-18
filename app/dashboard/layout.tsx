@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { logout } from "@/app/actions";
 import { AppHeader } from "@/components/brand/app-header";
 import { AppLogo } from "@/components/brand/app-logo";
+import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { SiteBackground } from "@/components/layout/site-background";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
@@ -34,11 +35,14 @@ export default function DashboardLayout({
           }
         />
       </Suspense>
-      <main className="relative flex-1 overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
+      <main className="relative flex-1 overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6 safe-bottom animate-fade-up">
         <Suspense fallback={<div className="text-sm text-muted-foreground font-mono">Loading dashboard…</div>}>
           {children}
         </Suspense>
       </main>
+      <Suspense fallback={null}>
+        <MobileBottomNav active="dashboard" />
+      </Suspense>
     </div>
   );
 }

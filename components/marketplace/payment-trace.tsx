@@ -87,12 +87,14 @@ function TraceStep({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative ml-2 border-l border-border pl-5 pb-5">
-      <span className="absolute -left-3.5 top-0 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-semibold text-muted-foreground">
+    <div className="relative ml-1 border-l border-[#ff8a3d]/20 pl-4 sm:pl-5 pb-5 last:pb-0">
+      <span className="absolute -left-3 top-0 flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full border border-[#ff8a3d]/35 bg-[#141414] text-[10px] sm:text-[11px] font-semibold text-[#ff8a3d]">
         {step}
       </span>
-      <h3 className="mb-1 text-sm font-semibold">{title}</h3>
-      <div className="space-y-2 text-sm text-muted-foreground">{children}</div>
+      <h3 className="mb-1.5 text-sm font-semibold tracking-wide leading-snug pr-2">{title}</h3>
+      <div className="space-y-2 text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
+        {children}
+      </div>
     </div>
   );
 }
@@ -165,6 +167,7 @@ export function PaymentTrace({
         <Button
           variant="outline"
           size="sm"
+          className="w-full sm:w-auto shrink-0"
           onClick={() => loadTrace(settlementId.trim())}
           disabled={loading}
         >

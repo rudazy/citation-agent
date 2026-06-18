@@ -6,6 +6,7 @@ type Field = {
   label: string;
   value: ReactNode;
   className?: string;
+  highlight?: boolean;
 };
 
 export function MobileDataCard({
@@ -15,24 +16,45 @@ export function MobileDataCard({
   fields: Field[];
   className?: string;
 }) {
+  const primary = fields[0];
+  const rest = fields.slice(1);
+
   return (
-    <div
+    <article
       className={cn(
-        "rounded-lg border border-border bg-card/60 p-3 space-y-2.5",
+        "panel-surface overflow-hidden transition-colors hover:border-[#ff8a3d]/25",
         className,
       )}
     >
-      {fields.map((field) => (
-        <div key={field.label} className="flex flex-col gap-0.5 min-w-0">
+      {primary && (
+        <div className="border-b border-border/60 bg-[#141414]/60 px-3.5 py-2.5">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {field.label}
+            {primary.label}
           </span>
-          <div className={cn("text-sm min-w-0 break-words", field.className)}>
-            {field.value}
+          <div className={cn("mt-1 text-sm font-mono min-w-0 break-all", primary.className)}>
+            {primary.value}
           </div>
         </div>
-      ))}
-    </div>
+      )}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-3 p-3.5">
+        {rest.map((field) => (
+          <div
+            key={field.label}
+            className={cn(
+              "min-w-0",
+              field.highlight && "col-span-2 rounded-md border border-[#ff8a3d]/20 bg-[#ff8a3d]/5 px-2.5 py-2",
+            )}
+          >
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {field.label}
+            </span>
+            <div className={cn("mt-0.5 text-sm min-w-0 break-words", field.className)}>
+              {field.value}
+            </div>
+          </div>
+        ))}
+      </div>
+    </article>
   );
 }
 
@@ -49,29 +71,32 @@ export function MobileDataCardList({
 }) {
   if (loading) {
     return (
-      <p className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+      <div className="panel-surface flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground font-mono">
+        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#ff8a3d]/30 border-t-[#ff8a3d]" />
         {loadingMessage ?? "Loading…"}
-      </p>
+      </div>
     );
   }
 
   if (empty) {
     return (
-      <p className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+      <div className="panel-surface border-dashed py-14 text-center text-sm text-muted-foreground font-mono px-4">
         {empty}
-      </p>
+      </div>
     );
   }
 
-  return <div className="space-y-3 md:hidden">{children}</div>;
+  return <div className="space-y-3 lg:hidden">{children}</div>;
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === "confirmed"
-      ? "default"
-      : status === "failed"
-        ? "destructive"
-        : "secondary";
+  if (status === "confirmed" || status === "completed") {
+    return (
+      <Badge className="bg-[#ff8a3d]/15 text-[#ff8a3d] border border-[#ff8a3d]/30 hover:bg-[#ff8a3d]/15">
+        {status}
+      </Badge>
+    );
+  }
+  const variant = status === "failed" ? "destructive" : "secondary";
   return <Badge variant={variant}>{status}</Badge>;
 }

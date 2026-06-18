@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { Loader2, Wallet } from "lucide-react";
+import { Panel } from "@/components/layout/panel";
 import {
   depositToGatewayViaMetaMask,
   getWalletUsdcBalance,
@@ -101,7 +102,6 @@ export function MarketplaceBuyer({
       });
     } catch (switchError) {
       const err = switchError as { code?: number };
-      // 4902 = chain not in wallet; add then MetaMask auto-switches
       if (err.code === 4902) {
         await ethereum.request({
           method: "wallet_addEthereumChain",
@@ -320,66 +320,77 @@ export function MarketplaceBuyer({
   }, [account, onSettlement, switchToArc, refreshBalances]);
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-4 sm:p-5 shadow-sm">
-      <div>
-        <h2 className="text-lg font-semibold tracking-wide">Live demo</h2>
-        <p className="text-sm text-muted-foreground">
-          Pay $0.01 USDC for <code>/api/marketplace/hello</code> via MetaMask. x402 draws from
-          your Gateway balance, not wallet USDC — deposit first if Gateway is
-          $0. Connect auto-switches to Arc Testnet (chain 5042002).
-        </p>
+    <Panel glow className="space-y-4 p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#ff8a3d]/30 bg-[#ff8a3d]/10">
+          <Wallet size={18} className="text-[#ff8a3d]" />
+        </div>
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-lg font-semibold tracking-wide">Live demo</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
+            Pay $0.01 USDC for <code className="text-[#ff8a3d]/90">/api/marketplace/hello</code> via
+            MetaMask. x402 draws from Gateway balance — deposit first if Gateway is $0.
+          </p>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={connect}>
+
+      {account && walletUsdc !== null && gatewayUsdc !== null && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-md border border-border/60 bg-[#141414]/80 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Wallet</p>
+            <p className="font-mono text-sm font-semibold tabular-nums">${walletUsdc}</p>
+          </div>
+          <div className="rounded-md border border-[#ff8a3d]/20 bg-[#ff8a3d]/5 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Gateway</p>
+            <p className="font-mono text-sm font-semibold tabular-nums text-[#ff8a3d]">${gatewayUsdc}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={connect}>
           Connect MetaMask
         </Button>
         <Badge
           variant={account ? "default" : "secondary"}
-          className="font-mono text-xs max-w-full truncate"
+          className="font-mono text-xs w-full sm:w-auto justify-center truncate max-w-full"
         >
           {account ? `${account.slice(0, 6)}…${account.slice(-4)}` : "not connected"}
         </Badge>
-        <span className="text-xs text-muted-foreground">{status}</span>
-        {account && walletUsdc !== null && (
-          <Badge variant="outline" className="font-mono text-xs">
-            Wallet: ${walletUsdc}
-          </Badge>
-        )}
-        {account && gatewayUsdc !== null && (
-          <Badge variant="outline" className="font-mono text-xs">
-            Gateway: ${gatewayUsdc}
-          </Badge>
-        )}
+        <span className="text-xs text-muted-foreground font-mono text-center sm:text-left">{status}</span>
       </div>
+
       {account && walletUsdc !== null && gatewayUsdc !== null && (
         <div className="space-y-2">
           {Number(walletUsdc) > 0 && !gatewayReady && (
-            <p className="rounded border border-[#ff8a3d]/40 bg-[#ff8a3d]/10 px-3 py-2 text-xs font-mono text-[#ff8a3d]">
-              You have ${walletUsdc} in your wallet but ${gatewayUsdc} in Gateway. Click Deposit
-              to Gateway — approve USDC, then deposit — before paying.
+            <p className="rounded-md border border-[#ff8a3d]/40 bg-[#ff8a3d]/10 px-3 py-2 text-xs font-mono text-[#ff8a3d] leading-relaxed">
+              Wallet has ${walletUsdc} but Gateway has ${gatewayUsdc}. Deposit to Gateway before paying.
             </p>
           )}
           {gatewayUsdc !== null && !gatewayReady && Number(walletUsdc) <= 0 && (
-            <p className="rounded border border-[#ff8a3d]/40 bg-[#ff8a3d]/10 px-3 py-2 text-xs font-mono text-[#ff8a3d]">
-              Gateway balance is ${gatewayUsdc}. Fund this address on Arc testnet, then deposit at
-              least ${PAY_AMOUNT.toFixed(2)} to Gateway.
+            <p className="rounded-md border border-[#ff8a3d]/40 bg-[#ff8a3d]/10 px-3 py-2 text-xs font-mono text-[#ff8a3d] leading-relaxed">
+              Gateway balance is ${gatewayUsdc}. Fund on Arc testnet, then deposit at least $
+              {PAY_AMOUNT.toFixed(2)}.
             </p>
           )}
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Button
           variant="outline"
           size="sm"
+          className="w-full"
           onClick={fundGateway}
           disabled={funding || busy || !account}
         >
-          {funding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Deposit to Gateway (1 USDC)"}
+          {funding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Deposit 1 USDC to Gateway"}
         </Button>
         {account && (
           <Button
             variant="ghost"
             size="sm"
+            className="w-full"
             onClick={() => refreshBalances(account)}
             disabled={funding || busy}
           >
@@ -389,14 +400,15 @@ export function MarketplaceBuyer({
       </div>
       <Button
         size="sm"
+        className="w-full bg-[#ff8a3d] text-[#0a0a0a] hover:bg-[#ff8a3d]/90 font-semibold"
         onClick={pay}
         disabled={!account || busy || funding || !gatewayReady}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Pay $0.01 and call /hello"}
       </Button>
-      <pre className="overflow-auto rounded border bg-muted/40 p-3 font-mono text-xs">
+      <pre className="max-h-48 overflow-auto rounded-md border border-border/60 bg-[#0a0a0a]/80 p-3 font-mono text-[11px] leading-relaxed">
         {output}
       </pre>
-    </div>
+    </Panel>
   );
 }

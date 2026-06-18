@@ -57,8 +57,8 @@ export function AppLogo({
           <span className="text-[#c8a832]">CanteenUSDC</span>
         </p>
         {showSubtitle && !compact && (
-          <p className="hidden sm:block text-[11px] font-mono text-muted-foreground truncate">
-            x402 nanopayments on Arc Testnet
+          <p className="hidden sm:block text-[10px] sm:text-[11px] font-mono text-muted-foreground truncate">
+            x402 · Arc Testnet
           </p>
         )}
       </div>

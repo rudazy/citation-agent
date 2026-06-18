@@ -53,12 +53,12 @@ import {
   ArrowRight,
   Loader2,
 } from "lucide-react";
-import { AppLogo } from "@/components/brand/app-logo";
 import {
   MobileDataCard,
   MobileDataCardList,
   StatusBadge,
 } from "@/components/dashboard/mobile-data-cards";
+import { Panel } from "@/components/layout/panel";
 import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { shortenHash } from "@/lib/utils";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
@@ -249,23 +249,43 @@ export default function Dashboard() {
     return filteredWithdrawals.slice(start, start + pageSize);
   }, [filteredWithdrawals, clampedPage, pageSize]);
 
+  const statPayments = events.length;
+  const statRoyalties = earnings.length;
+  const statAgents = agents.length;
+  const statWithdrawals = withdrawals.length;
+
   return (
-    <div className="max-w-6xl mx-auto w-full min-w-0">
-      <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="max-w-6xl mx-auto w-full min-w-0 space-y-4 sm:space-y-5">
+      <div className="flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2 min-w-0">
-          <AppLogo href={undefined} showSubtitle />
-          <p className="text-muted-foreground text-xs sm:text-sm font-mono max-w-xl">
-            Monitor nanopayments, creator royalties, agent reputation, and withdrawals.
-            Settlement traces decode every x402 batch on Arc.
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-wide text-gradient-amber">
+            Settlement dashboard
+          </h1>
+          <p className="text-muted-foreground text-xs sm:text-sm font-mono max-w-xl leading-relaxed">
+            Nanopayments, creator royalties, agent reputation, and withdrawals on Arc.
           </p>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        {[
+          { label: "Payments", value: statPayments },
+          { label: "Royalties", value: statRoyalties },
+          { label: "Agents", value: statAgents },
+          { label: "Withdrawals", value: statWithdrawals },
+        ].map((stat) => (
+          <Panel key={stat.label} className="px-3 py-2.5 sm:px-4 sm:py-3">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+            <p className="mt-0.5 font-mono text-lg sm:text-xl font-semibold tabular-nums">{stat.value}</p>
+          </Panel>
+        ))}
       </div>
 
       {activeTab !== "trace" && (
         <button
           type="button"
           onClick={() => setActiveTab("trace")}
-          className="mb-4 w-full rounded-lg border border-[#ff8a3d]/30 bg-gradient-to-r from-[#ff8a3d]/8 via-transparent to-[#f5c842]/8 p-4 text-left transition-colors hover:border-[#ff8a3d]/50 hover:from-[#ff8a3d]/12"
+          className="w-full panel-surface panel-glow border-[#ff8a3d]/25 bg-gradient-to-br from-[#ff8a3d]/10 via-[#111111]/80 to-[#f5c842]/5 p-4 text-left transition-all hover:border-[#ff8a3d]/45 active:scale-[0.99]"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-start gap-3">
@@ -332,19 +352,21 @@ export default function Dashboard() {
           setSortDirection("default");
         }}
       >
-        <TabsList className="grid w-full grid-cols-2 h-auto gap-1 p-1.5 sm:flex sm:flex-wrap">
-          <TabsTrigger
-            value="trace"
-            className="col-span-2 gap-1.5 text-xs sm:text-sm font-semibold data-[state=active]:bg-[#ff8a3d]/12 data-[state=active]:text-[#b35a18] data-[state=active]:ring-1 data-[state=active]:ring-[#ff8a3d]/35"
-          >
-            <Activity size={14} />
-            Payment Trace
-          </TabsTrigger>
-          <TabsTrigger value="payments" className="text-xs sm:text-sm">Payments</TabsTrigger>
-          <TabsTrigger value="creators" className="text-xs sm:text-sm">Creator Earnings</TabsTrigger>
-          <TabsTrigger value="reputation" className="text-xs sm:text-sm">Agent Reputation</TabsTrigger>
-          <TabsTrigger value="withdrawals" className="text-xs sm:text-sm">Withdrawals</TabsTrigger>
-        </TabsList>
+        <div className="-mx-3 sm:mx-0 overflow-x-auto scrollbar-none px-3 sm:px-0">
+          <TabsList className="inline-flex h-auto w-max min-w-full gap-1 border border-border/60 bg-[#111111]/90 p-1 sm:flex sm:w-full sm:flex-wrap">
+            <TabsTrigger
+              value="trace"
+              className="shrink-0 gap-1.5 px-3 text-xs sm:text-sm font-semibold data-[state=active]:bg-[#ff8a3d]/12 data-[state=active]:text-[#ff8a3d] data-[state=active]:ring-1 data-[state=active]:ring-[#ff8a3d]/35"
+            >
+              <Activity size={14} />
+              Trace
+            </TabsTrigger>
+            <TabsTrigger value="payments" className="shrink-0 px-3 text-xs sm:text-sm">Payments</TabsTrigger>
+            <TabsTrigger value="creators" className="shrink-0 px-3 text-xs sm:text-sm">Creators</TabsTrigger>
+            <TabsTrigger value="reputation" className="shrink-0 px-3 text-xs sm:text-sm">Agents</TabsTrigger>
+            <TabsTrigger value="withdrawals" className="shrink-0 px-3 text-xs sm:text-sm">Withdrawals</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="payments">
           <MobileDataCardList
@@ -395,7 +417,8 @@ export default function Dashboard() {
                   {
                     label: "Amount (USDC)",
                     value: `$${ev.amount_usdc}`,
-                    className: "font-mono",
+                    className: "font-mono text-[#ff8a3d] font-semibold",
+                    highlight: true,
                   },
                   {
                     label: "Date",
@@ -406,7 +429,7 @@ export default function Dashboard() {
               />
             ))}
           </MobileDataCardList>
-          <div className="hidden md:block rounded-lg border overflow-hidden">
+          <div className="hidden lg:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -554,7 +577,8 @@ export default function Dashboard() {
                   {
                     label: "Royalty (USDC)",
                     value: `$${row.royalty_usdc}`,
-                    className: "font-mono text-primary",
+                    className: "font-mono text-[#f5c842] font-semibold",
+                    highlight: true,
                   },
                   {
                     label: "Date",
@@ -565,7 +589,7 @@ export default function Dashboard() {
               />
             ))}
           </MobileDataCardList>
-          <div className="hidden md:block rounded-lg border overflow-hidden">
+          <div className="hidden lg:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -673,7 +697,7 @@ export default function Dashboard() {
               />
             ))}
           </MobileDataCardList>
-          <div className="hidden md:block rounded-lg border overflow-hidden">
+          <div className="hidden lg:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -792,7 +816,7 @@ export default function Dashboard() {
               />
             ))}
           </MobileDataCardList>
-          <div className="hidden md:block rounded-lg border overflow-hidden">
+          <div className="hidden lg:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -890,7 +914,7 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent value="trace">
-          <div className="rounded-lg border border-[#ff8a3d]/20 bg-gradient-to-b from-[#ff8a3d]/6 to-transparent p-4 sm:p-6 space-y-4">
+          <Panel glow className="border-[#ff8a3d]/20 bg-gradient-to-b from-[#ff8a3d]/8 to-transparent p-4 sm:p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Activity size={18} className="text-[#ff8a3d]" />
               <h2 className="text-lg font-semibold tracking-wide">Settlement trace decoder</h2>
@@ -905,7 +929,7 @@ export default function Dashboard() {
               .
             </p>
             <PaymentTrace initialSettlementId={DEMO_SETTLEMENT_ID} />
-          </div>
+          </Panel>
         </TabsContent>
       </Tabs>
 

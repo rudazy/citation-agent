@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { AppHeader } from "@/components/brand/app-header";
 import { AppLogo } from "@/components/brand/app-logo";
+import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { SiteBackground } from "@/components/layout/site-background";
 
 export default function MarketplaceLayout({
@@ -22,9 +23,12 @@ export default function MarketplaceLayout({
       >
         <AppHeader active="marketplace" />
       </Suspense>
-      <main className="relative flex-1 overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
+      <main className="relative flex-1 overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6 safe-bottom animate-fade-up">
         {children}
       </main>
+      <Suspense fallback={null}>
+        <MobileBottomNav active="marketplace" />
+      </Suspense>
     </div>
   );
 }

@@ -68,7 +68,10 @@ export function TopBarGatewayControls() {
         maxAvailable={balances?.gateway.available ?? "0"}
         onWithdraw={fetchBalances}
       />
-      <Badge variant="outline" className="gap-1.5 text-[10px] sm:text-xs pr-1 sm:pr-1.5">
+      <Badge
+        variant="outline"
+        className="gap-1 text-[10px] sm:text-xs border-[#ff8a3d]/25 bg-[#ff8a3d]/5 max-w-[4.5rem] sm:max-w-none"
+      >
         <span className="text-muted-foreground font-sans hidden sm:inline">Gateway</span>
         <span className="font-mono leading-none inline-flex items-center gap-1">
           {loading && !balances ? <Loader2 size={12} className="animate-spin" /> : null}

@@ -1,18 +1,6 @@
 /**
  * Copyright 2026 Circle Internet Group, Inc.  All rights reserved.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,31 +8,33 @@
 @import "tw-animate-css";
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 255 16.47% 33.33%;
-  --card: 0 0% 100%;
-  --card-foreground: 255 16.47% 33.33%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 255 16.47% 33.33%;
-  --primary: 204.62 100% 38.24%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 210 100% 97.25%;
-  --secondary-foreground: 204.62 100% 38.24%;
-  --muted: 252 20% 95.1%;
-  --muted-foreground: 253.33 11.79% 44.9%;
-  --accent: 258 100% 96.08%;
-  --accent-foreground: 255 25.53% 18.43%;
-  --destructive: 353.92 83.15% 65.1%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 253.33 16.36% 89.22%;
-  --input: 253.33 16.36% 89.22%;
-  --ring: 204.1 100% 55.1%;
-  --chart-1: 204.1 100% 55.1%;
-  --chart-2: 259.15 100% 72.35%;
-  --chart-3: 150.98 75.41% 47.84%;
-  --chart-4: 21.9 100% 73.14%;
-  --chart-5: 294.95 88.43% 76.27%;
-  --radius: 0.5rem;
+  --background: 0 0% 4%;
+  --foreground: 0 0% 96%;
+  --card: 0 0% 7%;
+  --card-foreground: 0 0% 96%;
+  --popover: 0 0% 8%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 27 100% 62%;
+  --primary-foreground: 0 0% 4%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 11%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 27 40% 14%;
+  --accent-foreground: 27 90% 68%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 14%;
+  --input: 0 0% 14%;
+  --ring: 27 100% 62%;
+  --chart-1: 27 100% 62%;
+  --chart-2: 45 92% 58%;
+  --chart-3: 82 78% 55%;
+  --chart-4: 0 72% 51%;
+  --chart-5: 0 0% 45%;
+  --radius: 0.25rem;
+  --accent-amber: #ff8a3d;
+  --accent-gold: #f5c842;
 }
 
 @theme inline {
@@ -73,8 +63,8 @@
   --color-chart-4: hsl(var(--chart-4));
   --color-chart-5: hsl(var(--chart-5));
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-sm: calc(var(--radius) - 2px);
 }
 
 @layer base {
@@ -84,14 +74,19 @@
   html {
     overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     overflow-x: hidden;
     min-width: 0;
   }
   .font-mono {
     font-family: var(--font-geist-mono), ui-monospace, monospace;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--accent-amber) 35%, transparent);
+    color: hsl(var(--foreground));
   }
 }
 
@@ -110,12 +105,54 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: 1.5rem;
-    background: linear-gradient(to left, hsl(var(--background) / 0.9), transparent);
+    width: 2rem;
+    background: linear-gradient(to left, hsl(var(--card) / 0.95), transparent);
   }
-  @media (min-width: 768px) {
+  @media (min-width: 1024px) {
     .table-scroll-hint::after {
       display: none;
+    }
+  }
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .panel-surface {
+    @apply rounded-lg border border-border/80 bg-card/70 backdrop-blur-md shadow-[0_1px_0_rgba(255,255,255,0.04)_inset];
+  }
+  .panel-glow {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent-amber) 18%, transparent),
+      0 8px 32px -12px color-mix(in srgb, var(--accent-amber) 25%, transparent);
+  }
+  .text-gradient-amber {
+    background: linear-gradient(135deg, #f5f5f5 0%, var(--accent-amber) 120%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .safe-bottom {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 768px) {
+    .safe-bottom {
+      padding-bottom: 1.5rem;
+    }
+  }
+  .animate-fade-up {
+    animation: fade-up 0.45s ease-out both;
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 }

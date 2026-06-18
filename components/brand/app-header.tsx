@@ -5,14 +5,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { AppLogo } from "@/components/brand/app-logo";
 import { TopBarGatewayControls } from "@/components/dashboard/top-bar-gateway-controls";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { Activity, LayoutDashboard, Menu, Store } from "lucide-react";
+import { Activity, LayoutDashboard, Store } from "lucide-react";
 
 type AppHeaderProps = {
   active?: "dashboard" | "marketplace";
@@ -39,13 +33,14 @@ function NavLink({
       variant={active ? "secondary" : "ghost"}
       size="sm"
       className={cn(
-        "h-8 gap-1.5 w-full justify-start md:w-auto md:justify-center",
+        "h-8 gap-1.5",
         label === "Payment Trace" &&
           !active &&
-          "text-[#b35a18] hover:text-[#ff8a3d] hover:bg-[#ff8a3d]/10",
+          "text-[#ff8a3d]/80 hover:text-[#ff8a3d] hover:bg-[#ff8a3d]/10",
         label === "Payment Trace" &&
           active &&
-          "bg-[#ff8a3d]/12 text-[#b35a18] ring-1 ring-[#ff8a3d]/35",
+          "bg-[#ff8a3d]/12 text-[#ff8a3d] ring-1 ring-[#ff8a3d]/35",
+        active && label !== "Payment Trace" && "bg-secondary text-foreground",
       )}
       asChild
     >
@@ -94,7 +89,7 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-md",
+        "sticky top-0 z-40 border-b border-border/60 bg-[#0a0a0a]/85 backdrop-blur-xl",
         className,
       )}
     >
@@ -108,7 +103,7 @@ export function AppHeader({
           <AppLogo href="/dashboard" compact />
         </div>
 
-        <nav className="hidden md:flex items-center gap-1 rounded-md border border-border/70 bg-muted/40 p-1">
+        <nav className="hidden md:flex items-center gap-1 rounded-md border border-border/60 bg-[#111111]/80 p-1">
           {navItems.map((item) => (
             <NavLink
               key={item.href}
@@ -120,36 +115,8 @@ export function AppHeader({
           ))}
         </nav>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <TopBarGatewayControls />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 md:hidden"
-                aria-label="Open navigation menu"
-              >
-                <Menu size={16} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              {navItems.map((item) => (
-                <DropdownMenuItem key={item.href} asChild>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-2 cursor-pointer",
-                      item.isActive && "font-semibold text-foreground",
-                    )}
-                  >
-                    <item.icon size={14} />
-                    {item.label}
-                  </Link>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
           {trailing}
         </div>
       </div>
