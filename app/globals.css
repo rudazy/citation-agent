@@ -81,10 +81,41 @@
   * {
     @apply border-border;
   }
+  html {
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+    min-width: 0;
   }
   .font-mono {
     font-family: var(--font-geist-mono), ui-monospace, monospace;
+  }
+}
+
+@layer utilities {
+  .table-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .table-scroll-hint {
+    position: relative;
+  }
+  .table-scroll-hint::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 1.5rem;
+    background: linear-gradient(to left, hsl(var(--background) / 0.9), transparent);
+  }
+  @media (min-width: 768px) {
+    .table-scroll-hint::after {
+      display: none;
+    }
   }
 }

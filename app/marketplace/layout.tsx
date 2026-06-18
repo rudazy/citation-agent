@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { AppHeader } from "@/components/brand/app-header";
+import { AppLogo } from "@/components/brand/app-logo";
 import { SiteBackground } from "@/components/layout/site-background";
 
 export default function MarketplaceLayout({
@@ -9,8 +11,20 @@ export default function MarketplaceLayout({
   return (
     <div className="relative min-h-screen flex flex-col">
       <SiteBackground />
-      <AppHeader active="marketplace" />
-      <main className="relative flex-1 p-6">{children}</main>
+      <Suspense
+        fallback={
+          <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-md">
+            <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2.5 sm:px-6 sm:py-3">
+              <AppLogo href="/dashboard" compact />
+            </div>
+          </header>
+        }
+      >
+        <AppHeader active="marketplace" />
+      </Suspense>
+      <main className="relative flex-1 overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
+        {children}
+      </main>
     </div>
   );
 }

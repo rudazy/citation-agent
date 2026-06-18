@@ -63,13 +63,13 @@ export function TopBarGatewayControls() {
   }, [fetchBalances]);
 
   return (
-    <div className="flex items-center gap-2 shrink-0">
+    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
       <WithdrawDialog
         maxAvailable={balances?.gateway.available ?? "0"}
         onWithdraw={fetchBalances}
       />
-      <Badge variant="outline" className="gap-1.5 text-xs pr-1.5 hidden sm:flex">
-        <span className="text-muted-foreground font-sans">Gateway</span>
+      <Badge variant="outline" className="gap-1.5 text-[10px] sm:text-xs pr-1 sm:pr-1.5">
+        <span className="text-muted-foreground font-sans hidden sm:inline">Gateway</span>
         <span className="font-mono leading-none inline-flex items-center gap-1">
           {loading && !balances ? <Loader2 size={12} className="animate-spin" /> : null}
           {balances ? `$${balances.gateway.available}` : loading ? "…" : "—"}

@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCreatorContentById, loadAllCreatorContent } from "@/lib/citations";
 import { recordCitationRoyalty } from "@/lib/royalties";
-import { withGateway } from "@/lib/x402";
+import { formatCitationPaymentMemo } from "@/lib/payment-memo";
+import { withGateway, type GatewayContext } from "@/lib/x402";
 
-const paidHandler = async (
-  req: NextRequest,
-  ctx: { payer: string; gatewayTx: string | null },
-) => {
+const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
   const id = req.nextUrl.searchParams.get("id");
   const query = req.nextUrl.searchParams.get("query") ?? undefined;
 
@@ -22,6 +20,9 @@ const paidHandler = async (
     return NextResponse.json({ error: `Citation not found: ${id}` }, { status: 404 });
   }
 
+  const paymentMemo =
+    ctx.paymentMemo ?? formatCitationPaymentMemo(content.id, content.author);
+
   await recordCitationRoyalty({
     citationId: content.id,
     creatorName: content.author,
@@ -30,6 +31,7 @@ const paidHandler = async (
     grossUsdc: content.priceUsdc,
     gatewayTx: ctx.gatewayTx,
     query,
+    paymentMemo,
   });
 
   const canteenAddress = process.env.CANTEEN_USDC_ADDRESS ?? null;
@@ -55,6 +57,8 @@ const paidHandler = async (
     },
     attribution:
       "Paid marketplace citation — royalty recorded for creator wallet at settlement time.",
+    payment_memo: paymentMemo,
+    arc_memo_contract: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
     timestamp: new Date().toISOString(),
   });
 };

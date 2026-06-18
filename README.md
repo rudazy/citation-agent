@@ -23,6 +23,9 @@ Citation Agent is a full-stack reference implementation for agentic commerce ove
 | Marketplace demo | MetaMask connect, Gateway deposit, live payment trace |
 | Royalty ledger | Supabase-backed earnings, agent reputation, settlement history |
 | CanteenUSDC | Wrapper contract for creator royalty reserves on Arc |
+| Arc transaction memos | Payment context via `X-Payment-Memo` on x402 settlements; on-chain `Memo` events for royalty wraps |
+
+Every citation payment attaches a reconciliation memo such as `citation:trust-infrastructure royalty-to:dr-elena-vasquez royalty-split`. The marketplace hello demo sends `marketplace:hello-demo x402-gateway`. CanteenUSDC royalty wraps route through Arc's predeployed Memo contract (`0x5294…e505`) so indexers can match payouts to creator context.
 
 ---
 

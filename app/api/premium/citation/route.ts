@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCreatorContentById } from "@/lib/citations";
 import { recordCitationRoyalty } from "@/lib/royalties";
-import { withGateway } from "@/lib/x402";
+import { formatCitationPaymentMemo } from "@/lib/payment-memo";
+import { withGateway, type GatewayContext } from "@/lib/x402";
 
-const handler = async (req: NextRequest, ctx: { payer: string; gatewayTx: string | null }) => {
+const handler = async (req: NextRequest, ctx: GatewayContext) => {
   const id = req.nextUrl.searchParams.get("id");
   const query = req.nextUrl.searchParams.get("query") ?? undefined;
 
@@ -19,6 +20,9 @@ const handler = async (req: NextRequest, ctx: { payer: string; gatewayTx: string
     return NextResponse.json({ error: `Citation not found: ${id}` }, { status: 404 });
   }
 
+  const paymentMemo =
+    ctx.paymentMemo ?? formatCitationPaymentMemo(content.id, content.author);
+
   await recordCitationRoyalty({
     citationId: content.id,
     creatorName: content.author,
@@ -27,6 +31,7 @@ const handler = async (req: NextRequest, ctx: { payer: string; gatewayTx: string
     grossUsdc: content.priceUsdc,
     gatewayTx: ctx.gatewayTx,
     query,
+    paymentMemo,
   });
 
   return NextResponse.json({
@@ -45,6 +50,7 @@ const handler = async (req: NextRequest, ctx: { payer: string; gatewayTx: string
     },
     attribution:
       "Paid citation — royalty recorded for creator wallet at settlement time.",
+    payment_memo: paymentMemo,
     timestamp: new Date().toISOString(),
   });
 };

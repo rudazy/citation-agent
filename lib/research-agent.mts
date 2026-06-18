@@ -10,6 +10,11 @@ import {
 import { arcTestnet } from "viem/chains";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ensureCanteenRoyaltyReserve } from "./canteen-payout.mts";
+import { gatewayPayWithMemo } from "./gateway-pay.ts";
+import {
+  formatCitationPaymentMemo,
+  formatRoyaltyReserveMemo,
+} from "./payment-memo.ts";
 import { searchCreatorContent, splitRoyalty, type CreatorContent } from "./citations.ts";
 import { formatUnits } from "viem";
 import { CANTEEN_USDC_ABI, getCanteenUsdcAddress } from "./canteen-usdc.ts";
@@ -33,9 +38,12 @@ async function fetchPaidContent(
   const fullUrl = `${BASE_URL}${citation.endpoint}`;
   console.log(`Fetching paid content from: ${fullUrl}`);
 
-  const result = await gateway.pay<{
+  const result = await gatewayPayWithMemo<{
     citation?: { body?: string; title?: string; author?: string };
-  }>(fullUrl, { method: "GET" });
+  }>(gateway, fullUrl, {
+    method: "GET",
+    memo: formatCitationPaymentMemo(citation.id, citation.author),
+  });
 
   if (!result.data?.citation?.body) {
     throw new Error("Fetch failed: missing citation body in response");
@@ -192,7 +200,16 @@ export async function runResearchQuery(query: string) {
 
   if (paidCitations.length > 0 && totalCreatorRoyalties !== "0.000000") {
     try {
-      const reserve = await ensureCanteenRoyaltyReserve(totalCreatorRoyalties, funderKey);
+      const reserve = await ensureCanteenRoyaltyReserve(
+        totalCreatorRoyalties,
+        funderKey,
+        {
+          memo: formatRoyaltyReserveMemo(
+            paidCitations.map((c) => c.id),
+            paidCitations[0]?.author,
+          ),
+        },
+      );
       if (reserve?.wrapped) {
         console.log(
           `\n[cUSDC] Wrapped ${reserve.royaltyUsdc} USDC for creator royalty reserve`,

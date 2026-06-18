@@ -34,6 +34,8 @@ TASKS.md
 /mcps/
 /docs/internal/
 /scripts/*demo*
+supabase/.temp/
+.env.keys
 
 # misc
 .DS_Store

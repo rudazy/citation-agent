@@ -42,7 +42,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import {
   ArrowDown,
   ArrowUp,
@@ -55,7 +54,11 @@ import {
   Loader2,
 } from "lucide-react";
 import { AppLogo } from "@/components/brand/app-logo";
-
+import {
+  MobileDataCard,
+  MobileDataCardList,
+  StatusBadge,
+} from "@/components/dashboard/mobile-data-cards";
 import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { shortenHash } from "@/lib/utils";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
@@ -135,16 +138,6 @@ function CopyableCell({
       </Tooltip>
     </span>
   );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === "confirmed"
-      ? "default"
-      : status === "failed"
-        ? "destructive"
-        : "secondary";
-  return <Badge variant={variant}>{status}</Badge>;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
@@ -257,11 +250,11 @@ export default function Dashboard() {
   }, [filteredWithdrawals, clampedPage, pageSize]);
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-2">
+    <div className="max-w-6xl mx-auto w-full min-w-0">
+      <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2 min-w-0">
           <AppLogo href={undefined} showSubtitle />
-          <p className="text-muted-foreground text-sm font-mono max-w-xl">
+          <p className="text-muted-foreground text-xs sm:text-sm font-mono max-w-xl">
             Monitor nanopayments, creator royalties, agent reputation, and withdrawals.
             Settlement traces decode every x402 batch on Arc.
           </p>
@@ -294,36 +287,40 @@ export default function Dashboard() {
         </button>
       )}
 
-      <div className="flex items-center gap-3 mb-4">
-        <Input
-          placeholder={
-            activeTab === "payments"
-              ? "Filter by tx hash, payer, or endpoint..."
-              : "Filter by tx hash, address, chain, or status..."
-          }
-          className="max-w-xs"
-          value={filter}
-          onChange={(e) => { setFilter(e.target.value); setPage(1); }}
-        />
-        <div className="flex items-center gap-2 ml-auto">
-          <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page</span>
-          <Select
-            value={String(pageSize)}
-            onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}
-          >
-            <SelectTrigger size="sm" className="w-[70px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && (
+        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:gap-3">
+          <Input
+            placeholder={
+              activeTab === "payments"
+                ? "Filter by tx hash, payer, or endpoint..."
+                : "Filter by tx hash, address, chain, or status..."
+            }
+            className="w-full sm:max-w-xs"
+            value={filter}
+            onChange={(e) => { setFilter(e.target.value); setPage(1); }}
+          />
+          <div className="flex items-center justify-between gap-2 sm:ml-auto sm:justify-end">
+            <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
+              Rows per page
+            </span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}
+            >
+              <SelectTrigger size="sm" className="w-[70px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-      </div>
+      )}
 
       <Tabs
         value={activeTab}
@@ -335,22 +332,81 @@ export default function Dashboard() {
           setSortDirection("default");
         }}
       >
-        <TabsList className="w-full flex-wrap h-auto gap-1 p-1.5">
+        <TabsList className="grid w-full grid-cols-2 h-auto gap-1 p-1.5 sm:flex sm:flex-wrap">
           <TabsTrigger
             value="trace"
-            className="gap-1.5 font-semibold data-[state=active]:bg-[#ff8a3d]/12 data-[state=active]:text-[#b35a18] data-[state=active]:ring-1 data-[state=active]:ring-[#ff8a3d]/35"
+            className="col-span-2 gap-1.5 text-xs sm:text-sm font-semibold data-[state=active]:bg-[#ff8a3d]/12 data-[state=active]:text-[#b35a18] data-[state=active]:ring-1 data-[state=active]:ring-[#ff8a3d]/35"
           >
             <Activity size={14} />
             Payment Trace
           </TabsTrigger>
-          <TabsTrigger value="payments">Payments</TabsTrigger>
-          <TabsTrigger value="creators">Creator Earnings</TabsTrigger>
-          <TabsTrigger value="reputation">Agent Reputation</TabsTrigger>
-          <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
+          <TabsTrigger value="payments" className="text-xs sm:text-sm">Payments</TabsTrigger>
+          <TabsTrigger value="creators" className="text-xs sm:text-sm">Creator Earnings</TabsTrigger>
+          <TabsTrigger value="reputation" className="text-xs sm:text-sm">Agent Reputation</TabsTrigger>
+          <TabsTrigger value="withdrawals" className="text-xs sm:text-sm">Withdrawals</TabsTrigger>
         </TabsList>
 
         <TabsContent value="payments">
-          <div className="rounded-lg border overflow-hidden">
+          <MobileDataCardList
+            loading={loadingPayments}
+            loadingMessage="Loading payments..."
+            empty={!loadingPayments && paginatedPayments.length === 0 ? "No payments found." : undefined}
+          >
+            {paginatedPayments.map((ev) => (
+              <MobileDataCard
+                key={ev.id}
+                fields={[
+                  {
+                    label: "Transaction",
+                    value: ev.gateway_tx ? (
+                      <CopyableCell
+                        value={ev.gateway_tx}
+                        label={shortenHash(ev.gateway_tx, 6)}
+                        href={
+                          ev.gateway_tx.startsWith("0x")
+                            ? `${EXPLORER_BASE}/tx/${ev.gateway_tx}`
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Payer",
+                    value: (
+                      <CopyableCell
+                        value={ev.payer}
+                        label={shortenHash(ev.payer)}
+                        href={`${EXPLORER_BASE}/address/${ev.payer}`}
+                      />
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Endpoint",
+                    value: (
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs break-all">
+                        {ev.endpoint}
+                      </code>
+                    ),
+                  },
+                  {
+                    label: "Amount (USDC)",
+                    value: `$${ev.amount_usdc}`,
+                    className: "font-mono",
+                  },
+                  {
+                    label: "Date",
+                    value: formatDate(ev.created_at),
+                    className: "text-muted-foreground text-xs",
+                  },
+                ]}
+              />
+            ))}
+          </MobileDataCardList>
+          <div className="hidden md:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -444,7 +500,72 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent value="creators">
-          <div className="rounded-lg border overflow-hidden">
+          <MobileDataCardList
+            loading={loadingEarnings}
+            loadingMessage="Loading creator earnings..."
+            empty={
+              !loadingEarnings && earnings.length === 0
+                ? "No creator royalties yet. Run the research agent to pay citations."
+                : undefined
+            }
+          >
+            {earnings.map((row) => (
+              <MobileDataCard
+                key={row.id}
+                fields={[
+                  {
+                    label: "Citation",
+                    value: (
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs break-all">
+                        {row.citation_id}
+                      </code>
+                    ),
+                  },
+                  {
+                    label: "Creator",
+                    value: (
+                      <>
+                        <div>{row.creator_name}</div>
+                        <CopyableCell
+                          value={row.creator_wallet}
+                          label={shortenHash(row.creator_wallet)}
+                          href={`${EXPLORER_BASE}/address/${row.creator_wallet}`}
+                        />
+                      </>
+                    ),
+                    className: "text-xs",
+                  },
+                  {
+                    label: "Payer",
+                    value: (
+                      <CopyableCell
+                        value={row.payer}
+                        label={shortenHash(row.payer)}
+                        href={`${EXPLORER_BASE}/address/${row.payer}`}
+                      />
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Gross (USDC)",
+                    value: `$${row.gross_usdc}`,
+                    className: "font-mono",
+                  },
+                  {
+                    label: "Royalty (USDC)",
+                    value: `$${row.royalty_usdc}`,
+                    className: "font-mono text-primary",
+                  },
+                  {
+                    label: "Date",
+                    value: formatDate(row.created_at),
+                    className: "text-muted-foreground text-xs",
+                  },
+                ]}
+              />
+            ))}
+          </MobileDataCardList>
+          <div className="hidden md:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -509,7 +630,50 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent value="reputation">
-          <div className="rounded-lg border overflow-hidden">
+          <MobileDataCardList
+            loading={loadingReputation}
+            loadingMessage="Loading agent reputation..."
+            empty={
+              !loadingReputation && agents.length === 0
+                ? "No agent reputation data yet."
+                : undefined
+            }
+          >
+            {agents.map((agent) => (
+              <MobileDataCard
+                key={agent.payer}
+                fields={[
+                  {
+                    label: "Agent Wallet",
+                    value: (
+                      <CopyableCell
+                        value={agent.payer}
+                        label={shortenHash(agent.payer)}
+                        href={`${EXPLORER_BASE}/address/${agent.payer}`}
+                      />
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Citations Paid",
+                    value: agent.citation_count,
+                    className: "font-mono",
+                  },
+                  {
+                    label: "Total Spent (USDC)",
+                    value: `$${Number(agent.total_spent_usdc).toFixed(6)}`,
+                    className: "font-mono",
+                  },
+                  {
+                    label: "Last Payment",
+                    value: agent.last_payment_at ? formatDate(agent.last_payment_at) : "—",
+                    className: "text-muted-foreground text-xs",
+                  },
+                ]}
+              />
+            ))}
+          </MobileDataCardList>
+          <div className="hidden md:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -561,7 +725,74 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent value="withdrawals">
-          <div className="rounded-lg border overflow-hidden">
+          <MobileDataCardList
+            loading={loadingWithdrawals}
+            loadingMessage="Loading withdrawals..."
+            empty={
+              !loadingWithdrawals && paginatedWithdrawals.length === 0
+                ? "No withdrawals found."
+                : undefined
+            }
+          >
+            {paginatedWithdrawals.map((w) => (
+              <MobileDataCard
+                key={w.id}
+                fields={[
+                  {
+                    label: "Transaction",
+                    value: w.tx_hash ? (
+                      <CopyableCell
+                        value={w.tx_hash}
+                        label={shortenHash(w.tx_hash, 6)}
+                        href={
+                          w.tx_hash.startsWith("0x")
+                            ? `${EXPLORER_BASE}/tx/${w.tx_hash}`
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Destination",
+                    value: (
+                      <CopyableCell
+                        value={w.destination_address}
+                        label={shortenHash(w.destination_address)}
+                        href={`${EXPLORER_BASE}/address/${w.destination_address}`}
+                      />
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Chain",
+                    value: (
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
+                        {w.destination_chain}
+                      </code>
+                    ),
+                  },
+                  {
+                    label: "Status",
+                    value: <StatusBadge status={w.status} />,
+                  },
+                  {
+                    label: "Amount (USDC)",
+                    value: `$${w.amount_usdc}`,
+                    className: "font-mono",
+                  },
+                  {
+                    label: "Date",
+                    value: formatDate(w.created_at),
+                    className: "text-muted-foreground text-xs",
+                  },
+                ]}
+              />
+            ))}
+          </MobileDataCardList>
+          <div className="hidden md:block rounded-lg border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -659,7 +890,7 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent value="trace">
-          <div className="rounded-lg border border-[#ff8a3d]/20 bg-gradient-to-b from-[#ff8a3d]/6 to-transparent p-5 sm:p-6 space-y-4">
+          <div className="rounded-lg border border-[#ff8a3d]/20 bg-gradient-to-b from-[#ff8a3d]/6 to-transparent p-4 sm:p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Activity size={18} className="text-[#ff8a3d]" />
               <h2 className="text-lg font-semibold tracking-wide">Settlement trace decoder</h2>
@@ -679,12 +910,12 @@ export default function Dashboard() {
       </Tabs>
 
       {/* Shared pagination controls */}
-      {!loading && activeTab !== "trace" && activeData.length > 0 && (
-        <div className="flex items-center justify-between border-x border-b rounded-b-lg px-4 py-3 text-sm">
+      {!loading && activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && activeData.length > 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-x border-b rounded-b-lg px-3 sm:px-4 py-3 text-xs sm:text-sm">
           <span className="text-muted-foreground">
             {activeData.length} {activeTab === "payments" ? "transaction" : "withdrawal"}{activeData.length !== 1 ? "s" : ""} total
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between sm:justify-end gap-2">
             <span className="text-muted-foreground">
               Page {clampedPage} of {totalPages}
             </span>

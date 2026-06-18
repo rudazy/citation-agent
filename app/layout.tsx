@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
@@ -29,6 +29,12 @@ const defaultUrl = process.env.VERCEL_URL
 const siteTitle = "Citation Agent + CanteenUSDC";
 const siteDescription =
   "Pay-per-citation research agent with x402 nanopayments, cUSDC creator royalties, marketplace listings, and full settlement trace on Arc Testnet.";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
@@ -72,7 +78,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.className} ${geistMono.variable} antialiased`}>
         <TooltipProvider>{children}</TooltipProvider>
-        <Toaster richColors position="bottom-right" />
+        <Toaster richColors position="bottom-center" />
       </body>
     </html>
   );

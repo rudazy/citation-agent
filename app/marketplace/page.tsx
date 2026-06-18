@@ -11,12 +11,12 @@ export default function MarketplacePage() {
   const [traceId, setTraceId] = useState(DEMO_SETTLEMENT_ID);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8">
+    <div className="mx-auto max-w-4xl w-full min-w-0 space-y-6 sm:space-y-8">
       <MarketplaceHero />
 
       <MarketplaceBuyer onSettlement={setTraceId} />
 
-      <section className="space-y-4 rounded-lg border border-[#ff8a3d]/25 bg-gradient-to-b from-[#ff8a3d]/5 to-transparent p-5">
+      <section className="space-y-4 rounded-lg border border-[#ff8a3d]/25 bg-gradient-to-b from-[#ff8a3d]/5 to-transparent p-4 sm:p-5">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-[#ff8a3d]/30 bg-[#ff8a3d]/10">
             <Activity size={18} className="text-[#ff8a3d]" />

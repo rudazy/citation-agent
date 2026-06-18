@@ -9,6 +9,7 @@ export async function recordCitationRoyalty(params: {
   grossUsdc: string;
   gatewayTx: string | null;
   query?: string;
+  paymentMemo?: string | null;
 }) {
   const supabase = getAdminClient();
   if (!supabase) {
@@ -28,6 +29,7 @@ export async function recordCitationRoyalty(params: {
     platform_usdc: platformAmount,
     gateway_tx: params.gatewayTx,
     query: params.query ?? null,
+    payment_memo: params.paymentMemo ?? null,
   });
 
   if (earningsError) {

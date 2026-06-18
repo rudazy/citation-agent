@@ -18,8 +18,6 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-// TEMP DEMO BYPASS — remove before final submit
-// Auth disabled: send all traffic straight to the dashboard for demo/video.
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 

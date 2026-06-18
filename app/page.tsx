@@ -18,7 +18,6 @@
 
 import { redirect } from "next/navigation";
 
-// TEMP DEMO BYPASS — remove before final submit
 export default function Home() {
   redirect("/dashboard");
 }

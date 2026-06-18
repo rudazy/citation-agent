@@ -1,6 +1,7 @@
 import {
   createPublicClient,
   createWalletClient,
+  encodeFunctionData,
   erc20Abi,
   formatUnits,
   http,
@@ -8,6 +9,7 @@ import {
 } from "viem";
 import { arcTestnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
+import { writeContractWithArcMemo } from "./arc-memo.ts";
 import {
   ARC_TESTNET_USDC,
   CANTEEN_USDC_ABI,
@@ -25,6 +27,7 @@ export type CanteenRoyaltyResult = {
 export async function ensureCanteenRoyaltyReserve(
   royaltyTotalUsdc: string,
   funderPrivateKey: `0x${string}`,
+  options?: { memo?: string },
 ): Promise<CanteenRoyaltyResult | null> {
   const canteenAddress = getCanteenUsdcAddress();
   if (!canteenAddress) {
@@ -69,11 +72,21 @@ export async function ensureCanteenRoyaltyReserve(
   });
   await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
-  const wrapHash = await walletClient.writeContract({
-    address: canteenAddress,
+  const wrapData = encodeFunctionData({
     abi: CANTEEN_USDC_ABI,
     functionName: "wrap",
     args: [shortfall],
+  });
+  const wrapMemo = options?.memo ?? "royalty-reserve:canteen-wrap";
+
+  const wrapHash = await writeContractWithArcMemo({
+    walletClient,
+    chain: arcTestnet,
+    account: account.address,
+    target: canteenAddress,
+    data: wrapData,
+    memo: wrapMemo,
+    memoIdSeed: `canteen-wrap:${wrapMemo}:${Date.now()}`,
   });
   await publicClient.waitForTransactionReceipt({ hash: wrapHash });
 

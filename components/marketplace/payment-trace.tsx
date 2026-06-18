@@ -155,12 +155,12 @@ export function PaymentTrace({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <Input
           value={settlementId}
           onChange={(e) => setSettlementId(e.target.value)}
           placeholder="Settlement UUID"
-          className="max-w-md font-mono text-xs"
+          className="w-full sm:max-w-md font-mono text-xs"
         />
         <Button
           variant="outline"
@@ -185,9 +185,9 @@ export function PaymentTrace({
             {amountUsdc && <Badge variant="outline">{amountUsdc} USDC</Badge>}
           </div>
 
-          <div className="flex flex-wrap gap-3 font-mono text-xs text-muted-foreground">
+          <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-3 font-mono text-xs text-muted-foreground break-all">
             <span>Buyer: {settlement.fromAddress}</span>
-            <span>→</span>
+            <span className="hidden sm:inline">→</span>
             <span>Seller: {settlement.toAddress}</span>
           </div>
 

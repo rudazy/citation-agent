@@ -8,6 +8,10 @@ import {
   depositToGatewayViaMetaMask,
   getWalletUsdcBalance,
 } from "@/lib/gateway-metamask";
+import {
+  formatMarketplaceHelloMemo,
+  PAYMENT_MEMO_HEADER,
+} from "@/lib/payment-memo";
 
 const ARC_TESTNET_HEX = "0x4cef52";
 const ARC_TESTNET = {
@@ -284,7 +288,10 @@ export function MarketplaceBuyer({
 
       setStatus("settling via facilitator…");
       const r2 = await fetch("/api/marketplace/hello", {
-        headers: { "payment-signature": b64encode(paymentPayload) },
+        headers: {
+          "payment-signature": b64encode(paymentPayload),
+          [PAYMENT_MEMO_HEADER]: formatMarketplaceHelloMemo(),
+        },
       });
       const body = await r2.json().catch(async () => await r2.text());
       setOutput(JSON.stringify({ status: r2.status, body }, null, 2));
@@ -313,7 +320,7 @@ export function MarketplaceBuyer({
   }, [account, onSettlement, switchToArc, refreshBalances]);
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-5 shadow-sm">
+    <div className="space-y-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-4 sm:p-5 shadow-sm">
       <div>
         <h2 className="text-lg font-semibold tracking-wide">Live demo</h2>
         <p className="text-sm text-muted-foreground">
@@ -326,8 +333,11 @@ export function MarketplaceBuyer({
         <Button variant="outline" size="sm" onClick={connect}>
           Connect MetaMask
         </Button>
-        <Badge variant={account ? "default" : "secondary"} className="font-mono text-xs">
-          {account ?? "not connected"}
+        <Badge
+          variant={account ? "default" : "secondary"}
+          className="font-mono text-xs max-w-full truncate"
+        >
+          {account ? `${account.slice(0, 6)}…${account.slice(-4)}` : "not connected"}
         </Badge>
         <span className="text-xs text-muted-foreground">{status}</span>
         {account && walletUsdc !== null && (

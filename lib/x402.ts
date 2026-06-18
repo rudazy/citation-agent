@@ -18,6 +18,7 @@
 
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 import { NextRequest, NextResponse } from "next/server";
+import { readPaymentMemo } from "@/lib/payment-memo";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 // Arc Testnet contract addresses (from @circle-fin/x402-batching SDK)
@@ -33,6 +34,7 @@ export type GatewayContext = {
   payer: string;
   gatewayTx: string | null;
   amountUsdc: string;
+  paymentMemo: string | null;
 };
 
 interface PaymentPayload {
@@ -154,7 +156,8 @@ export function withGateway(
       ).toString();
       const payer = settleResult.payer ?? verifyResult.payer ?? "unknown";
       const gatewayTx = settleResult.transaction ?? null;
-      const ctx: GatewayContext = { payer, gatewayTx, amountUsdc };
+      const paymentMemo = readPaymentMemo(req);
+      const ctx: GatewayContext = { payer, gatewayTx, amountUsdc, paymentMemo };
 
       const supabase = getAdminClient();
       if (supabase) {
@@ -164,7 +167,8 @@ export function withGateway(
           amount_usdc: amountUsdc,
           network: requirements.network,
           gateway_tx: gatewayTx,
-          raw: { requirements, settleResult },
+          payment_memo: paymentMemo,
+          raw: { requirements, settleResult, memo: paymentMemo },
         });
 
         if (error) {
@@ -173,7 +177,9 @@ export function withGateway(
       }
 
       console.log(
-        `[x402] Payment settled: ${endpoint} — ${amountUsdc} USDC from ${payer}`,
+        `[x402] Payment settled: ${endpoint} — ${amountUsdc} USDC from ${payer}${
+          paymentMemo ? ` (memo: ${paymentMemo})` : ""
+        }`,
       );
 
       // Call the actual route handler
