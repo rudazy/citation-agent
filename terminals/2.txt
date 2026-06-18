@@ -3,7 +3,7 @@ pid: 5312
 cwd: "C:\Users\RIKI\citation-agent"
 command: "taskkill /PID 4712 /F 2>nul; cd /d C:\\Users\\RIKI\\citation-agent && npm run dev"
 started_at: 2026-06-15T21:50:47.231Z
-running_for_ms: 800010   
+running_for_ms: 2690006  
 ---
 At line:1 char:65
 + ... ill /PID 4712 /F 2>nul; cd /d C:\Users\RIKI\citation-agent && npm run ...

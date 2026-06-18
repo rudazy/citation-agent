@@ -6,7 +6,10 @@
     "start": "next start",
     "lint": "eslint .",
     "generate-wallets": "node --experimental-transform-types --no-warnings generate-wallets.mts",
-    "agent": "node --experimental-transform-types --no-warnings --env-file=.env.local agent.mts"
+    "agent": "node --experimental-transform-types --no-warnings --env-file=.env.local agent.mts",
+    "canteen": "node --experimental-transform-types --no-warnings --env-file=.env.local canteen-cli.mts",
+    "deploy:canteen": "forge script script/DeployCanteenUSDC.s.sol:DeployCanteenUSDC --rpc-url %ARC_TESTNET_RPC% --private-key %BUYER_PRIVATE_KEY% --broadcast --legacy",
+    "decode-batch": "node --experimental-transform-types --no-warnings scripts/decode-batch.mts"
   },
   "dependencies": {
     "@circle-fin/x402-batching": "^2.0.4",

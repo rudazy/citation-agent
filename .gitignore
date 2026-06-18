@@ -43,3 +43,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# foundry
+/cache/
+/out/
+/broadcast/
+/lib/forge-std/
+
+# circle-agent clone (merged into main app)
+/marketplace/

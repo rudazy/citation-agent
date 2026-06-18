@@ -1,0 +1,11 @@
+---
+pid: 2624
+cwd: "C:\Users\RIKI\citation-agent"
+command: "$foundryDir = \"$env:USERPROFILE\\.foundry\\bin\"; if (-not (Test-Path $foundryDir)) { New-Item -ItemType Directory -Force -Path $foundryDir | Out-Null }; $zip = \"$env:TEMP\\foundry_win.zip\"; Invoke-WebRequest -Uri \"https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_win32_amd64.zip\" -OutFile $zip; Expand-Archive -Path $zip -DestinationPath $foundryDir -Force; & \"$foundryDir\\forge.exe\" --version"
+started_at: 2026-06-18T08:20:46.960Z
+running_for_ms: 2270003  
+---
+forge Version: 1.7.1
+Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+Build Timestamp: 2026-05-08T07:54:39.315067700Z (1778226879)
+Build Profile: dist

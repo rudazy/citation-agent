@@ -51,7 +51,9 @@ import {
   Copy,
   Loader2,
 } from "lucide-react";
+import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { shortenHash } from "@/lib/utils";
+import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
 import { usePaymentEvents } from "@/hooks/use-transactions";
 import { useWithdrawals } from "@/hooks/use-withdrawals";
 import { useCreatorEarnings } from "@/hooks/use-creator-earnings";
@@ -297,6 +299,7 @@ export default function Dashboard() {
           <TabsTrigger value="creators">Creator Earnings</TabsTrigger>
           <TabsTrigger value="reputation">Agent Reputation</TabsTrigger>
           <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
+          <TabsTrigger value="trace">Payment Trace</TabsTrigger>
         </TabsList>
 
         <TabsContent value="payments">
@@ -607,10 +610,24 @@ export default function Dashboard() {
             </Table>
           </div>
         </TabsContent>
+
+        <TabsContent value="trace">
+          <div className="rounded-lg border p-5 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Decode Circle Gateway settlements from EIP-712 signature through on-chain{" "}
+              <code>submitBatch</code>. Paste a settlement UUID from the Payments tab or{" "}
+              <a href="/marketplace" className="text-[#ff8a3d] hover:underline">
+                Marketplace
+              </a>
+              .
+            </p>
+            <PaymentTrace initialSettlementId={DEMO_SETTLEMENT_ID} />
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* Shared pagination controls */}
-      {!loading && activeData.length > 0 && (
+      {!loading && activeTab !== "trace" && activeData.length > 0 && (
         <div className="flex items-center justify-between border-x border-b rounded-b-lg px-4 py-3 text-sm">
           <span className="text-muted-foreground">
             {activeData.length} {activeTab === "payments" ? "transaction" : "withdrawal"}{activeData.length !== 1 ? "s" : ""} total

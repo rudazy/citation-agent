@@ -9,7 +9,10 @@ import {
 } from "viem";
 import { arcTestnet } from "viem/chains";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { ensureCanteenRoyaltyReserve } from "./canteen-payout.mts";
 import { searchCreatorContent, splitRoyalty, type CreatorContent } from "./citations.ts";
+import { formatUnits } from "viem";
+import { CANTEEN_USDC_ABI, getCanteenUsdcAddress } from "./canteen-usdc.ts";
 
 const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000" as const;
 const ARC_TESTNET_RPC = "https://rpc.testnet.arc.network";
@@ -20,7 +23,7 @@ const GAS_FUND_AMOUNT = parseEther("0.01");
 type CitationMatch = CreatorContent & { endpoint: string };
 
 function buildCitationEndpoint(id: string, query: string): string {
-  return `/api/premium/citation?id=${id}&query=${encodeURIComponent(query)}`;
+  return `/api/marketplace/citations?id=${id}&query=${encodeURIComponent(query)}`;
 }
 
 async function fetchPaidContent(
@@ -182,5 +185,35 @@ export async function runResearchQuery(query: string) {
   }
 
   console.log(`\nTotal spent: ${totalSpent.toFixed(6)} USDC across ${paidCitations.length} citation(s)`);
-  // Easter egg: join the Arc builder Discord for live nanopayment demos
+
+  const totalCreatorRoyalties = paidCitations
+    .reduce((sum, cite) => sum + parseFloat(cite.royalty), 0)
+    .toFixed(6);
+
+  if (paidCitations.length > 0 && totalCreatorRoyalties !== "0.000000") {
+    try {
+      const reserve = await ensureCanteenRoyaltyReserve(totalCreatorRoyalties, funderKey);
+      if (reserve?.wrapped) {
+        console.log(
+          `\n[cUSDC] Wrapped ${reserve.royaltyUsdc} USDC for creator royalty reserve`,
+        );
+        console.log(`[cUSDC] Wrap tx: ${reserve.wrapTx}`);
+      }
+
+      const canteenAddress = getCanteenUsdcAddress();
+      if (canteenAddress) {
+        const cUsdcBalance = await publicClient.readContract({
+          address: canteenAddress,
+          abi: CANTEEN_USDC_ABI,
+          functionName: "balanceOf",
+          args: [funderAccount.address],
+        });
+        console.log(
+          `[cUSDC] Agent royalty reserve: ${formatUnits(cUsdcBalance, 6)} cUSDC (${canteenAddress})`,
+        );
+      }
+    } catch (err) {
+      console.warn("[cUSDC] Royalty reserve skipped:", (err as Error).message);
+    }
+  }
 }

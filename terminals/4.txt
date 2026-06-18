@@ -3,7 +3,7 @@ pid: 17560
 cwd: "C:\Users\RIKI\citation-agent"
 command: "cmd /c \"cd /d C:\\Users\\RIKI\\citation-agent && npm run dev\""
 started_at: 2026-06-15T22:00:07.367Z
-running_for_ms: 240005   
+running_for_ms: 2130009  
 ---
 
 > dev

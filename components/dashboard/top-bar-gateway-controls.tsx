@@ -23,7 +23,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GatewayBalanceDialog, type GatewayBalances } from "./gateway-balance-dialog";
 import { WithdrawDialog } from "./withdraw-dialog";
-import { Info, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Info, Loader2, Store } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -101,6 +102,12 @@ export function TopBarGatewayControls() {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/marketplace">
+            <Store size={14} className="mr-1.5" />
+            Marketplace
+          </Link>
+        </Button>
         <Badge variant="outline" className="gap-1.5 text-xs pr-1.5">
           <span className="text-muted-foreground font-sans">Gateway:</span>
           <span className="font-mono leading-none translate-y-px inline-flex items-center gap-1">
