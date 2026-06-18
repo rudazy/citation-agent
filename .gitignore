@@ -23,6 +23,7 @@
 # internal — never commit
 /tasks/
 /tasks/**
+**/tasks/*.md
 *todo.md
 *TODO.md
 *lessons.md
@@ -32,6 +33,7 @@ TASKS.md
 /terminals/
 /mcps/
 /docs/internal/
+/scripts/*demo*
 
 # misc
 .DS_Store
