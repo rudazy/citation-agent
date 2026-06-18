@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
@@ -16,6 +16,8 @@ const ARC_TESTNET = {
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
 };
 
 declare global {
@@ -50,27 +52,49 @@ export function MarketplaceBuyer({
   const [busy, setBusy] = useState(false);
   const [output, setOutput] = useState("—");
 
-  const ensureArcTestnet = useCallback(async () => {
+  const switchToArc = useCallback(async () => {
     const ethereum = window.ethereum;
     if (!ethereum) throw new Error("MetaMask not detected");
+
     const current = (await ethereum.request({ method: "eth_chainId" })) as string;
-    if (current === ARC_TESTNET_HEX) return;
+    if (current.toLowerCase() === ARC_TESTNET_HEX) return;
+
     try {
       await ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: ARC_TESTNET_HEX }],
       });
-    } catch (e) {
-      const err = e as { code?: number };
+    } catch (switchError) {
+      const err = switchError as { code?: number };
+      // 4902 = chain not in wallet; add then MetaMask auto-switches
       if (err.code === 4902) {
         await ethereum.request({
           method: "wallet_addEthereumChain",
           params: [ARC_TESTNET],
         });
-      } else {
-        throw e;
+        return;
       }
+      throw switchError;
     }
+  }, []);
+
+  useEffect(() => {
+    const ethereum = window.ethereum;
+    if (!ethereum?.on) return;
+
+    const onChainChanged = (...args: unknown[]) => {
+      const chainId = String(args[0] ?? "");
+      if (chainId.toLowerCase() === ARC_TESTNET_HEX) {
+        setStatus("ready on Arc Testnet");
+      } else {
+        setStatus("wrong network — switch to Arc Testnet");
+      }
+    };
+
+    ethereum.on?.("chainChanged", onChainChanged);
+    return () => {
+      ethereum.removeListener?.("chainChanged", onChainChanged);
+    };
   }, []);
 
   const connect = useCallback(async () => {
@@ -80,22 +104,26 @@ export function MarketplaceBuyer({
         setStatus("MetaMask not detected");
         return;
       }
+      setStatus("connecting…");
       const accounts = (await ethereum.request({
         method: "eth_requestAccounts",
       })) as string[];
       setAccount(accounts[0]);
-      await ensureArcTestnet();
-      setStatus("ready");
+      setStatus("switching to Arc Testnet…");
+      await switchToArc();
+      setStatus("ready on Arc Testnet");
     } catch (e) {
       setStatus(String((e as Error).message ?? e));
     }
-  }, [ensureArcTestnet]);
+  }, [switchToArc]);
 
   const pay = useCallback(async () => {
     if (!account || !window.ethereum) return;
     setBusy(true);
     setOutput("—");
     try {
+      setStatus("switching to Arc Testnet…");
+      await switchToArc();
       setStatus("fetching 402 challenge…");
       const r1 = await fetch("/api/marketplace/hello");
       if (r1.status !== 402) {
@@ -205,14 +233,15 @@ export function MarketplaceBuyer({
     } finally {
       setBusy(false);
     }
-  }, [account, onSettlement]);
+  }, [account, onSettlement, switchToArc]);
 
   return (
     <div className="space-y-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-5 shadow-sm">
       <div>
         <h2 className="text-lg font-semibold tracking-wide">Live demo</h2>
         <p className="text-sm text-muted-foreground">
-          Pay $0.01 USDC for <code>/api/marketplace/hello</code> via MetaMask on Arc Testnet.
+          Pay $0.01 USDC for <code>/api/marketplace/hello</code> via MetaMask. Connect
+          auto-switches to Arc Testnet (chain 5042002).
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
