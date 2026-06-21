@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTargetFromPreset,
+  canonicalizeAttestationTarget,
   classifyTarget,
   inferTargetPreset,
   validateTargetInput,
@@ -8,7 +9,7 @@ import {
 
 describe("attestation target presets", () => {
   it("builds X target from handle", () => {
-    expect(buildTargetFromPreset("x", "@rudazy")).toBe("x:@rudazy");
+    expect(buildTargetFromPreset("x", "@trustgated")).toBe("x:@trustgated");
   });
 
   it("builds wallet target", () => {
@@ -37,7 +38,7 @@ describe("attestation target presets", () => {
     expect(inferTargetPreset("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0")).toBe("wallet");
     expect(inferTargetPreset("agent:0x742d35cc6634c0532925a3b844bc9e7595f0beb0")).toBe("agent");
     expect(inferTargetPreset("https://linkedin.com/in/foo")).toBe("linkedin");
-    expect(inferTargetPreset("@rudazy")).toBe("x");
+    expect(inferTargetPreset("@trustgated")).toBe("x");
   });
 
   it("classifies agent targets", () => {
@@ -50,5 +51,10 @@ describe("attestation target presets", () => {
 
   it("rejects invalid wallet", () => {
     expect(validateTargetInput("wallet", "0x123")).toMatch(/valid wallet/i);
+  });
+
+  it("canonicalizes X handles to x:@handle", () => {
+    expect(canonicalizeAttestationTarget("@trustgated")).toBe("x:@trustgated");
+    expect(canonicalizeAttestationTarget("x:@TrustGated")).toBe("x:@trustgated");
   });
 });

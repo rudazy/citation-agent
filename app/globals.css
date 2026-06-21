@@ -142,6 +142,9 @@
       padding-bottom: 1.5rem;
     }
   }
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
   .animate-fade-up {
     animation: fade-up 0.45s ease-out both;
   }

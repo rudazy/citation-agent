@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Activity, LayoutDashboard, Store } from "lucide-react";
+import { Activity, LayoutDashboard, Shield, Store } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type MobileBottomNavProps = {
@@ -11,6 +11,7 @@ type MobileBottomNavProps = {
 
 const ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, id: "dashboard" as const },
+  { href: "/dashboard?tab=attestations", label: "Claims", icon: Shield, id: "attestations" as const },
   { href: "/marketplace", label: "Market", icon: Store, id: "marketplace" as const },
   { href: "/dashboard?tab=trace", label: "Trace", icon: Activity, id: "trace" as const },
 ];
@@ -22,10 +23,11 @@ function isActive(
   layoutActive?: "dashboard" | "marketplace",
 ) {
   if (id === "trace") return pathname === "/dashboard" && tab === "trace";
+  if (id === "attestations") return pathname === "/dashboard" && tab === "attestations";
   if (id === "marketplace") {
     return pathname.startsWith("/marketplace") || layoutActive === "marketplace";
   }
-  return pathname === "/dashboard" && tab !== "trace";
+  return pathname === "/dashboard" && tab !== "trace" && tab !== "attestations";
 }
 
 export function MobileBottomNav({ active }: MobileBottomNavProps) {

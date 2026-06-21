@@ -11,13 +11,20 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "viem/chains";
-import { ATTESTATION_ABI, MIN_STAKE_UNITS, getAttestationAddress } from "@/lib/attestation";
+import {
+  ATTESTATION_ABI,
+  MIN_CLAIM_CHARS,
+  MIN_STAKE_UNITS,
+  getAttestationAddress,
+} from "@/lib/attestation";
+import { invalidateAttestationCache } from "@/lib/attestation-index";
+import { canonicalizeAttestationTarget } from "@/lib/attestation-client";
 
 const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 
 const bodySchema = z.object({
   target: z.string().min(1),
-  claim: z.string().min(1),
+  claim: z.string().trim().min(MIN_CLAIM_CHARS),
   stakeUsdc: z.number().min(0.1),
 });
 
@@ -94,16 +101,19 @@ export async function POST(request: Request) {
     await publicClient.waitForTransactionReceipt({ hash: approveHash });
   }
 
+  const target = canonicalizeAttestationTarget(body.target);
+
   const attestHash = await walletClient.writeContract({
     address: contractAddress,
     abi: ATTESTATION_ABI,
     functionName: "attest",
-    args: [body.target.trim(), body.claim.trim(), amount],
+    args: [target, body.claim.trim(), amount],
     account,
     chain: arcTestnet,
   });
 
   await publicClient.waitForTransactionReceipt({ hash: attestHash });
+  invalidateAttestationCache();
 
   return NextResponse.json({
     attestTxHash: attestHash,

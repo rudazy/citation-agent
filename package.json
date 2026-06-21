@@ -11,6 +11,7 @@
     "deploy:canteen": "forge script script/DeployCanteenUSDC.s.sol:DeployCanteenUSDC --rpc-url %ARC_TESTNET_RPC% --private-key %BUYER_PRIVATE_KEY% --broadcast --legacy",
     "deploy:attestation": "node --experimental-transform-types --no-warnings scripts/deploy-attestation.mts",
     "verify:attestation": "node --experimental-transform-types --no-warnings scripts/verify-attestation.mts",
+    "attest": "node --experimental-transform-types --no-warnings --env-file=.env.local scripts/attest-target.mts",
     "decode-batch": "node --experimental-transform-types --no-warnings scripts/decode-batch.mts"
   },
   "dependencies": {

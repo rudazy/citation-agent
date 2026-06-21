@@ -67,3 +67,11 @@ next-env.d.ts
 
 # local clones (source merged into main app)
 /marketplace/
+
+# session / tooling artifacts
+/agent-tools/
+forge-std.zip
+fb.txt
+git-ver.txt
+forge-build.txt
+forge-out.txt

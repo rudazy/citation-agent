@@ -73,6 +73,7 @@ export const ATTESTATION_ABI = [
 
 export const MIN_STAKE_USDC = 0.1;
 export const MIN_STAKE_UNITS = BigInt(100_000); // 0.1 USDC, 6 decimals
+export const MIN_CLAIM_CHARS = 4;
 
 export function getAttestationAddress(): `0x${string}` | null {
   const address = process.env.ATTESTATION_ADDRESS ?? process.env.NEXT_PUBLIC_ATTESTATION_ADDRESS;

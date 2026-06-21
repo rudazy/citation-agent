@@ -1,18 +1,24 @@
 # Citation Agent
 
-Citation-paying research agent with Circle Arc nanopayments and creator royalties.
+Pay-per-citation research with Circle Gateway on Arc Testnet, plus USDC-staked on-chain trust attestations.
 
 https://citation-agent.vercel.app/
-Landing page and seller sign-in for the nanopayments dashboard.
+Landing page.
+
+https://citation-agent.vercel.app/marketplace
+x402 marketplace demo, citation catalog, and public on-chain claims registry.
 
 https://citation-agent.vercel.app/dashboard
-Seller dashboard: live payments, creator earnings, agent reputation, and withdrawals.
+Settlement dashboard: payments, creator royalties, agent reputation, withdrawals, and Claims tab.
+
+https://citation-agent.vercel.app/dashboard?tab=attestations
+Public registry of USDC-staked attestations grouped by target (X accounts, wallets, sites, agents).
 
 https://citation-agent.vercel.app/api/premium/citation/index
-Free citation catalog for research agents to discover paywalled sources.
+Free citation catalog for research agents.
 
-https://citation-agent.vercel.app/api/premium/citation?id=trust-infrastructure
-Paid citation endpoint (x402). Agents pay per citation; 70% royalty attributed to creators.
+https://citation-agent.vercel.app/api/attestation/claims
+JSON index of attestation targets and total USDC staked per target.
 
-https://citation-agent.vercel.app/api/premium/quote
-Baseline x402 quote endpoint from the Arc nanopayments starter.
+https://citation-agent.vercel.app/api/marketplace/hello
+Paid hello-world x402 endpoint ($0.01).

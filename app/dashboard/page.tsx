@@ -19,7 +19,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AttestModal } from "@/components/attest";
+import { AttestModal, AttestationRegistry } from "@/components/attest";
 import { AttestTrigger } from "@/components/attest/attest-trigger";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
@@ -54,6 +54,7 @@ import {
   Activity,
   ArrowRight,
   Loader2,
+  Shield,
 } from "lucide-react";
 import {
   MobileDataCard,
@@ -153,9 +154,9 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("payments");
 
   useEffect(() => {
-    if (searchParams.get("tab") === "trace") {
-      setActiveTab("trace");
-    }
+    const tab = searchParams.get("tab");
+    if (tab === "trace") setActiveTab("trace");
+    else if (tab === "attestations") setActiveTab("attestations");
   }, [searchParams]);
   const [filter, setFilter] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -275,7 +276,7 @@ export default function Dashboard() {
           </p>
         </div>
         <AttestTrigger
-          target="@rudazy"
+          target="@trustgated"
           onAttest={openAttest}
           label="New attestation"
           variant="default"
@@ -382,6 +383,13 @@ export default function Dashboard() {
             <TabsTrigger value="creators" className="shrink-0 px-3 text-xs sm:text-sm">Creators</TabsTrigger>
             <TabsTrigger value="reputation" className="shrink-0 px-3 text-xs sm:text-sm">Agents</TabsTrigger>
             <TabsTrigger value="withdrawals" className="shrink-0 px-3 text-xs sm:text-sm">Withdrawals</TabsTrigger>
+            <TabsTrigger
+              value="attestations"
+              className="shrink-0 gap-1.5 px-3 text-xs sm:text-sm data-[state=active]:bg-[#f5c842]/12 data-[state=active]:text-[#f5c842] data-[state=active]:ring-1 data-[state=active]:ring-[#f5c842]/35"
+            >
+              <Shield size={14} />
+              Claims
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -976,6 +984,10 @@ export default function Dashboard() {
           </div>
         </TabsContent>
 
+        <TabsContent value="attestations">
+          <AttestationRegistry />
+        </TabsContent>
+
         <TabsContent value="trace">
           <Panel glow className="border-[#ff8a3d]/20 bg-gradient-to-b from-[#ff8a3d]/8 to-transparent p-4 sm:p-6 space-y-4">
             <div className="flex items-center gap-2">
@@ -997,7 +1009,7 @@ export default function Dashboard() {
       </Tabs>
 
       {/* Shared pagination controls */}
-      {!loading && activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && activeData.length > 0 && (
+      {!loading && activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && activeTab !== "attestations" && activeData.length > 0 && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-x border-b rounded-b-lg px-3 sm:px-4 py-3 text-xs sm:text-sm">
           <span className="text-muted-foreground">
             {activeData.length} {activeTab === "payments" ? "transaction" : "withdrawal"}{activeData.length !== 1 ? "s" : ""} total

@@ -144,6 +144,24 @@ export function validateTargetInput(preset: TargetPreset, raw: string): string |
   return null;
 }
 
+/** Normalize on-chain target keys so @trustgated and x:@trustgated group together. */
+export function canonicalizeAttestationTarget(raw: string): string {
+  const t = raw.trim();
+  if (!t) return t;
+  if (/^0x[a-fA-F0-9]{40}$/i.test(t)) return t.toLowerCase();
+  if (/^agent:/i.test(t)) {
+    const rest = t.slice(6).trim();
+    if (/^0x[a-fA-F0-9]{40}$/i.test(rest)) return `agent:${rest.toLowerCase()}`;
+    return `agent:${rest.replace(/^@/, "").toLowerCase()}`;
+  }
+  if (/^https?:\/\//i.test(t)) return t;
+  const profileMatch = t.match(/(?:twitter|x)\.com\/([^/?#]+)/i);
+  if (profileMatch?.[1]) return `x:@${profileMatch[1].toLowerCase()}`;
+  if (/^x:@/i.test(t)) return `x:@${t.slice(3).replace(/^@/, "").toLowerCase()}`;
+  if (t.startsWith("@")) return `x:@${t.slice(1).toLowerCase()}`;
+  return t;
+}
+
 export function formatTargetLabel(target: string): string {
   const t = target.trim();
   if (t.length <= 42) return t;

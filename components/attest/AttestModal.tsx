@@ -27,11 +27,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { MIN_STAKE_USDC } from "@/lib/attestation";
+import { MIN_CLAIM_CHARS, MIN_STAKE_USDC } from "@/lib/attestation";
 import {
   attestViaAgentWallet,
   attestViaConnectedWallet,
   buildTargetFromPreset,
+  canonicalizeAttestationTarget,
   classifyTarget,
   fetchAgentWalletStatus,
   formatTargetLabel,
@@ -66,7 +67,7 @@ const TARGET_PRESETS: {
     id: "x",
     label: "X Account",
     icon: AtSign,
-    placeholder: "@rudazy or x.com/username",
+    placeholder: "@trustgated or x.com/username",
     hint: "Handle or profile URL",
   },
   {
@@ -159,11 +160,56 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
 
   const busy = phase === "approving" || phase === "attesting";
   const stakeValid = !Number.isNaN(stake) && stake >= MIN_STAKE_USDC;
-  const claimValid = claim.trim().length >= 8;
+  const claimValid = claim.trim().length >= MIN_CLAIM_CHARS;
   const targetValid = !!resolvedTarget && !targetError;
+  const agentUsdcBalance = useMemo(() => {
+    if (!agentWallet?.usdcBalance) return null;
+    const parsed = parseFloat(agentWallet.usdcBalance);
+    return Number.isNaN(parsed) ? null : parsed;
+  }, [agentWallet?.usdcBalance]);
+
+  const agentBalanceSufficient =
+    walletMode !== "agent" || agentUsdcBalance === null || agentUsdcBalance >= stake;
+
   const agentWalletReady = walletMode !== "agent" || agentWallet?.configured === true;
   const canSubmit =
-    stakeValid && claimValid && targetValid && !!contractAddress && !busy && agentWalletReady;
+    stakeValid &&
+    claimValid &&
+    targetValid &&
+    !!contractAddress &&
+    !busy &&
+    agentWalletReady &&
+    agentBalanceSufficient &&
+    !agentWalletLoading;
+
+  const submitBlockers = useMemo(() => {
+    const blockers: string[] = [];
+    if (!contractAddress) blockers.push("Attestation contract not configured");
+    if (!targetInput.trim()) blockers.push("Enter a target (e.g. @trustgated)");
+    else if (targetError) blockers.push(targetError);
+    if (!claimValid) blockers.push(`Claim must be at least ${MIN_CLAIM_CHARS} characters`);
+    if (!stakeValid) blockers.push(`Stake must be at least ${MIN_STAKE_USDC} USDC`);
+    if (walletMode === "agent" && agentWalletLoading) blockers.push("Loading agent wallet…");
+    if (walletMode === "agent" && !agentWalletLoading && !agentWalletReady) {
+      blockers.push("Create or configure agent wallet");
+    }
+    if (walletMode === "agent" && agentWalletReady && !agentBalanceSufficient) {
+      blockers.push(`Agent wallet needs ${stake} USDC (has ${agentWallet?.usdcBalance ?? "0"})`);
+    }
+    return blockers;
+  }, [
+    agentBalanceSufficient,
+    agentWallet?.usdcBalance,
+    agentWalletLoading,
+    agentWalletReady,
+    claimValid,
+    contractAddress,
+    stake,
+    stakeValid,
+    targetError,
+    targetInput,
+    walletMode,
+  ]);
 
   const seedTargetFields = useCallback((seed: string) => {
     const trimmed = seed.trim();
@@ -228,8 +274,17 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
 
   useEffect(() => {
     if (!isOpen) return;
+    seedTargetFields(targetSeed);
     void refreshAgentWallet();
-  }, [isOpen, refreshAgentWallet]);
+    if (walletMode === "connected") void refreshConnectedWallet();
+  }, [
+    isOpen,
+    targetSeed,
+    seedTargetFields,
+    refreshAgentWallet,
+    refreshConnectedWallet,
+    walletMode,
+  ]);
 
   const resetForm = useCallback(() => {
     setPhase("idle");
@@ -247,13 +302,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
   };
 
   const handleOpenChange = (open: boolean) => {
-    if (open) {
-      seedTargetFields(targetSeed);
-      void refreshAgentWallet();
-      if (walletMode === "connected") void refreshConnectedWallet();
-      return;
-    }
-    handleClose();
+    if (!open) handleClose();
   };
 
   const handleAttest = async () => {
@@ -276,13 +325,14 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
       if (walletMode === "agent") {
         setPhase("attesting");
         const result = await attestViaAgentWallet({
-          target: resolvedTarget,
+          target: canonicalizeAttestationTarget(resolvedTarget),
           claim,
           stakeUsdc: stake,
         });
         setTxHash(result.attestTxHash);
         setPhase("success");
         onSuccess?.(result.attestTxHash);
+        void refreshAgentWallet();
         toast.success("Attestation recorded", {
           description: `Agent wallet staked ${stake} USDC`,
         });
@@ -303,7 +353,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
         ethereum,
         account,
         contractAddress,
-        target: resolvedTarget,
+        target: canonicalizeAttestationTarget(resolvedTarget),
         claim,
         stakeUsdc: stake,
       });
@@ -327,11 +377,20 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
       <DialogContent
         showCloseButton={!busy}
         className={cn(
-          "sm:max-w-lg border-[#1f1f1f] bg-[#0a0a0a] p-0 overflow-hidden gap-0 max-h-[min(92vh,820px)] overflow-y-auto",
+          "border-[#1f1f1f] bg-[#0a0a0a] p-0 overflow-hidden gap-0 flex flex-col",
+          "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:left-0",
+          "max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-2xl max-sm:rounded-b-none",
+          "max-sm:max-h-[min(94dvh,900px)] max-sm:w-full max-sm:max-w-none",
+          "sm:max-w-lg sm:max-h-[min(92vh,820px)] sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]",
           "shadow-[0_0_0_1px_rgba(255,138,61,0.12),0_24px_64px_-24px_rgba(255,138,61,0.35)]",
+          "max-sm:shadow-[0_-12px_48px_-12px_rgba(255,138,61,0.35)]",
         )}
       >
-        <div className="relative px-6 pt-6 pb-5 border-b border-[#1f1f1f]">
+        <div
+          aria-hidden
+          className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-[#333] sm:hidden"
+        />
+        <div className="relative px-4 sm:px-6 pt-4 sm:pt-6 pb-4 sm:pb-5 border-b border-[#1f1f1f]">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 opacity-25"
@@ -385,7 +444,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
         </div>
 
         {phase === "success" && txHash ? (
-          <div className="px-6 py-8 space-y-5 animate-fade-up">
+          <div className="px-4 sm:px-6 py-6 sm:py-8 space-y-5 animate-fade-up pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="flex flex-col items-center text-center gap-3">
               <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[#c8f135]/30 bg-[#c8f135]/10">
                 <CheckCircle2 size={28} className="text-[#c8f135]" />
@@ -417,12 +476,13 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
             </div>
           </div>
         ) : (
-          <div className="px-6 py-5 space-y-5 animate-fade-up">
+          <>
+          <div className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-5 space-y-5 animate-fade-up">
             <div className="space-y-3">
               <Label className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
                 Target type
               </Label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory scrollbar-none sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0">
                 {TARGET_PRESETS.map((preset) => {
                   const Icon = preset.icon;
                   const selected = targetPreset === preset.id;
@@ -436,7 +496,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                         if (preset.id !== targetPreset) setTargetInput("");
                       }}
                       className={cn(
-                        "rounded border px-3 py-2.5 text-left transition-colors",
+                        "shrink-0 snap-start rounded border px-3 py-3 sm:py-2.5 text-left transition-colors touch-manipulation min-w-[7.5rem] sm:min-w-0",
                         selected
                           ? "border-[#ff8a3d]/45 bg-[#ff8a3d]/10"
                           : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
@@ -483,8 +543,8 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
               <textarea
                 id="attest-claim"
                 className={cn(
-                  "w-full min-h-[96px] resize-y rounded border border-[#1f1f1f] bg-[#111] px-3 py-3",
-                  "font-mono text-sm text-[#f5f5f5] placeholder:text-[#555]",
+                  "w-full min-h-[88px] sm:min-h-[96px] resize-y rounded border border-[#1f1f1f] bg-[#111] px-3 py-3",
+                  "font-mono text-base sm:text-sm text-[#f5f5f5] placeholder:text-[#555]",
                   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff8a3d]/50",
                   "disabled:opacity-50",
                 )}
@@ -495,7 +555,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                 maxLength={500}
               />
               <p className="text-right font-mono text-[10px] text-[#555]">
-                {claim.trim().length}/500 · min 8 chars
+                {claim.trim().length}/500 · min {MIN_CLAIM_CHARS} chars
               </p>
             </div>
 
@@ -548,7 +608,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                     void refreshAgentWallet();
                   }}
                   className={cn(
-                    "relative rounded border px-3 py-3 text-left transition-colors",
+                    "relative rounded border px-3 py-3.5 sm:py-3 text-left transition-colors touch-manipulation min-h-[4rem]",
                     walletMode === "agent"
                       ? "border-[#f5c842]/55 bg-[#f5c842]/10 ring-1 ring-[#f5c842]/20"
                       : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
@@ -571,7 +631,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                     void refreshConnectedWallet();
                   }}
                   className={cn(
-                    "rounded border px-3 py-3 text-left transition-colors",
+                    "rounded border px-3 py-3.5 sm:py-3 text-left transition-colors touch-manipulation min-h-[4rem]",
                     walletMode === "connected"
                       ? "border-[#ff8a3d]/40 bg-[#ff8a3d]/8"
                       : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
@@ -615,6 +675,11 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                           Fund on Circle faucet
                           <ExternalLink size={10} />
                         </a>
+                      )}
+                      {!agentBalanceSufficient && (
+                        <p className="font-mono text-[10px] text-destructive">
+                          Need {stake} USDC to attest — wallet has {agentWallet.usdcBalance ?? "0"} USDC
+                        </p>
                       )}
                     </>
                   ) : agentWallet?.canProvision ? (
@@ -665,18 +730,25 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                 NEXT_PUBLIC_ATTESTATION_ADDRESS is not set.
               </p>
             )}
+          </div>
 
-            <div className="flex gap-3 pt-1">
+          <div className="shrink-0 border-t border-[#1f1f1f] bg-[#0a0a0a] px-4 sm:px-6 py-3 sm:py-4 space-y-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {!canSubmit && submitBlockers.length > 0 && !busy && (
+              <p className="font-mono text-[10px] text-[#888] leading-relaxed">
+                {submitBlockers[0]}
+              </p>
+            )}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:gap-3">
               <Button
                 variant="outline"
-                className="flex-1 border-[#333] text-[#ccc] hover:bg-[#141414]"
+                className="flex-1 h-11 sm:h-10 border-[#333] text-[#ccc] hover:bg-[#141414] touch-manipulation"
                 onClick={handleClose}
                 disabled={busy}
               >
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-[#ff8a3d] text-[#0a0a0a] hover:bg-[#ff8a3d]/90 disabled:opacity-40"
+                className="flex-1 h-11 sm:h-10 bg-[#ff8a3d] text-[#0a0a0a] hover:bg-[#ff8a3d]/90 disabled:bg-[#ff8a3d]/25 disabled:text-[#666] touch-manipulation"
                 onClick={handleAttest}
                 disabled={!canSubmit}
               >
@@ -694,6 +766,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
               </Button>
             </div>
           </div>
+          </>
         )}
       </DialogContent>
     </Dialog>
