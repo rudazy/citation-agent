@@ -15,9 +15,14 @@ export function useAgentReputation() {
 
   useEffect(() => {
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    const client = supabase;
 
     async function fetchAgents() {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from("agent_reputation")
         .select("*")
         .order("total_spent_usdc", { ascending: false });
@@ -32,7 +37,7 @@ export function useAgentReputation() {
 
     fetchAgents();
 
-    const channel = supabase
+    const channel = client
       .channel("agent-reputation-realtime")
       .on(
         "postgres_changes",
@@ -42,7 +47,7 @@ export function useAgentReputation() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      client.removeChannel(channel);
     };
   }, []);
 

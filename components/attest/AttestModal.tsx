@@ -1,0 +1,703 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AtSign,
+  Bot,
+  CheckCircle2,
+  ExternalLink,
+  Globe,
+  Hash,
+  Linkedin,
+  Loader2,
+  Shield,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { MIN_STAKE_USDC } from "@/lib/attestation";
+import {
+  attestViaAgentWallet,
+  attestViaConnectedWallet,
+  buildTargetFromPreset,
+  classifyTarget,
+  fetchAgentWalletStatus,
+  formatTargetLabel,
+  getAttestationContractAddress,
+  getConnectedAccount,
+  inferTargetPreset,
+  provisionAgentWallet,
+  readWalletUsdcBalance,
+  targetInputFromProp,
+  validateTargetInput,
+  type AgentWalletStatusResponse,
+  type TargetKind,
+  type TargetPreset,
+} from "@/lib/attestation-client";
+
+import "@/lib/ethereum-provider";
+
+const STAKE_PRESETS = [0.1, 0.25, 0.5, 1] as const;
+const EXPLORER = "https://testnet.arcscan.app/tx/";
+
+type WalletMode = "connected" | "agent";
+type Phase = "idle" | "approving" | "attesting" | "success";
+
+const TARGET_PRESETS: {
+  id: TargetPreset;
+  label: string;
+  icon: LucideIcon;
+  placeholder: string;
+  hint: string;
+}[] = [
+  {
+    id: "x",
+    label: "X Account",
+    icon: AtSign,
+    placeholder: "@rudazy or x.com/username",
+    hint: "Handle or profile URL",
+  },
+  {
+    id: "wallet",
+    label: "Wallet / Contract",
+    icon: Wallet,
+    placeholder: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+    hint: "EOA or contract on any chain",
+  },
+  {
+    id: "website",
+    label: "Website",
+    icon: Globe,
+    placeholder: "https://trustgated.xyz",
+    hint: "Domain or full URL",
+  },
+  {
+    id: "linkedin",
+    label: "LinkedIn",
+    icon: Linkedin,
+    placeholder: "linkedin.com/in/username",
+    hint: "Profile or company page",
+  },
+  {
+    id: "agent",
+    label: "Agent",
+    icon: Bot,
+    placeholder: "0x… agent wallet or citation-agent-01",
+    hint: "Research agent wallet or agent id",
+  },
+  {
+    id: "custom",
+    label: "Custom",
+    icon: Hash,
+    placeholder: "citation:trust-infrastructure, author:name, …",
+    hint: "Any verifiable target string",
+  },
+];
+
+const TARGET_META: Record<
+  TargetKind,
+  { label: string; icon: LucideIcon; accent: string }
+> = {
+  wallet: { label: "Wallet", icon: Wallet, accent: "text-[#f5c842]" },
+  website: { label: "Website", icon: Globe, accent: "text-[#ff8a3d]" },
+  social: { label: "X Account", icon: AtSign, accent: "text-[#c8f135]" },
+  linkedin: { label: "LinkedIn", icon: Linkedin, accent: "text-[#f5c842]" },
+  agent: { label: "Agent", icon: Bot, accent: "text-[#ff8a3d]" },
+  other: { label: "Custom", icon: Hash, accent: "text-[#a3a3a3]" },
+};
+
+export interface AttestModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  /** Optional seed when opened from dashboard/marketplace row actions */
+  target?: string;
+  onSuccess?: (txHash: string) => void;
+}
+
+export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSuccess }: AttestModalProps) {
+  const [targetPreset, setTargetPreset] = useState<TargetPreset>("custom");
+  const [targetInput, setTargetInput] = useState("");
+  const [claim, setClaim] = useState("");
+  const [stake, setStake] = useState(MIN_STAKE_USDC);
+  const [walletMode, setWalletMode] = useState<WalletMode>("agent");
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [connectedAccount, setConnectedAccount] = useState<`0x${string}` | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [agentWallet, setAgentWallet] = useState<AgentWalletStatusResponse | null>(null);
+  const [agentWalletLoading, setAgentWalletLoading] = useState(false);
+  const [creatingAgent, setCreatingAgent] = useState(false);
+
+  const contractAddress = getAttestationContractAddress();
+  const resolvedTarget = useMemo(
+    () => buildTargetFromPreset(targetPreset, targetInput),
+    [targetPreset, targetInput],
+  );
+  const targetError = useMemo(
+    () => (targetInput.trim() ? validateTargetInput(targetPreset, targetInput) : "Enter a target"),
+    [targetPreset, targetInput],
+  );
+  const targetKind = useMemo(
+    () => (resolvedTarget ? classifyTarget(resolvedTarget) : "other"),
+    [resolvedTarget],
+  );
+  const targetMeta = TARGET_META[targetKind];
+  const TargetIcon = targetMeta.icon;
+  const activePresetMeta = TARGET_PRESETS.find((p) => p.id === targetPreset) ?? TARGET_PRESETS[4];
+
+  const busy = phase === "approving" || phase === "attesting";
+  const stakeValid = !Number.isNaN(stake) && stake >= MIN_STAKE_USDC;
+  const claimValid = claim.trim().length >= 8;
+  const targetValid = !!resolvedTarget && !targetError;
+  const agentWalletReady = walletMode !== "agent" || agentWallet?.configured === true;
+  const canSubmit =
+    stakeValid && claimValid && targetValid && !!contractAddress && !busy && agentWalletReady;
+
+  const seedTargetFields = useCallback((seed: string) => {
+    const trimmed = seed.trim();
+    if (!trimmed) {
+      setTargetPreset("custom");
+      setTargetInput("");
+      return;
+    }
+    const preset = inferTargetPreset(trimmed);
+    setTargetPreset(preset);
+    setTargetInput(targetInputFromProp(trimmed, preset));
+  }, []);
+
+  const refreshConnectedWallet = useCallback(async () => {
+    const ethereum = window.ethereum;
+    if (!ethereum) {
+      setConnectedAccount(null);
+      setWalletBalance(null);
+      return;
+    }
+    try {
+      const account = await getConnectedAccount(ethereum);
+      setConnectedAccount(account);
+      const balance = await readWalletUsdcBalance(account);
+      setWalletBalance(balance);
+    } catch {
+      setConnectedAccount(null);
+      setWalletBalance(null);
+    }
+  }, []);
+
+  const refreshAgentWallet = useCallback(async () => {
+    setAgentWalletLoading(true);
+    try {
+      const status = await fetchAgentWalletStatus();
+      setAgentWallet(status);
+    } catch {
+      setAgentWallet(null);
+    } finally {
+      setAgentWalletLoading(false);
+    }
+  }, []);
+
+  const handleCreateAgentWallet = async () => {
+    setCreatingAgent(true);
+    try {
+      const result = await provisionAgentWallet();
+      setAgentWallet(result);
+      toast.success("Agent wallet created", {
+        description: result.address
+          ? `${result.address.slice(0, 6)}…${result.address.slice(-4)} — fund via Circle faucet`
+          : "Fund on Arc Testnet via Circle faucet",
+      });
+    } catch (err) {
+      toast.error("Could not create agent wallet", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setCreatingAgent(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void refreshAgentWallet();
+  }, [isOpen, refreshAgentWallet]);
+
+  const resetForm = useCallback(() => {
+    setPhase("idle");
+    setTxHash(null);
+    setClaim("");
+    setStake(MIN_STAKE_USDC);
+    setTargetPreset("custom");
+    setTargetInput("");
+  }, []);
+
+  const handleClose = () => {
+    if (busy) return;
+    resetForm();
+    onClose();
+  };
+
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      seedTargetFields(targetSeed);
+      void refreshAgentWallet();
+      if (walletMode === "connected") void refreshConnectedWallet();
+      return;
+    }
+    handleClose();
+  };
+
+  const handleAttest = async () => {
+    if (!contractAddress) {
+      toast.error("Contract not configured", {
+        description: "Set NEXT_PUBLIC_ATTESTATION_ADDRESS in environment.",
+      });
+      return;
+    }
+
+    const validation = validateTargetInput(targetPreset, targetInput);
+    if (validation) {
+      toast.error("Invalid target", { description: validation });
+      return;
+    }
+
+    if (!canSubmit || !resolvedTarget) return;
+
+    try {
+      if (walletMode === "agent") {
+        setPhase("attesting");
+        const result = await attestViaAgentWallet({
+          target: resolvedTarget,
+          claim,
+          stakeUsdc: stake,
+        });
+        setTxHash(result.attestTxHash);
+        setPhase("success");
+        onSuccess?.(result.attestTxHash);
+        toast.success("Attestation recorded", {
+          description: `Agent wallet staked ${stake} USDC`,
+        });
+        return;
+      }
+
+      const ethereum = window.ethereum;
+      if (!ethereum) {
+        toast.error("Wallet not found", { description: "Install MetaMask or use Agent wallet." });
+        return;
+      }
+
+      setPhase("approving");
+      const account = await getConnectedAccount(ethereum);
+      setConnectedAccount(account);
+
+      const result = await attestViaConnectedWallet({
+        ethereum,
+        account,
+        contractAddress,
+        target: resolvedTarget,
+        claim,
+        stakeUsdc: stake,
+      });
+
+      setTxHash(result.attestTxHash);
+      setPhase("success");
+      onSuccess?.(result.attestTxHash);
+      toast.success("Attestation recorded", {
+        description: `Staked ${stake} USDC on Arc Testnet`,
+      });
+    } catch (err) {
+      setPhase("idle");
+      toast.error("Attestation failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={!busy}
+        className={cn(
+          "sm:max-w-lg border-[#1f1f1f] bg-[#0a0a0a] p-0 overflow-hidden gap-0 max-h-[min(92vh,820px)] overflow-y-auto",
+          "shadow-[0_0_0_1px_rgba(255,138,61,0.12),0_24px_64px_-24px_rgba(255,138,61,0.35)]",
+        )}
+      >
+        <div className="relative px-6 pt-6 pb-5 border-b border-[#1f1f1f]">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-25"
+            style={{
+              backgroundImage:
+                "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px)",
+              backgroundSize: "24px 24px",
+            }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[#ff8a3d]/15 blur-3xl"
+          />
+
+          <DialogHeader className="relative text-left space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="bg-[#ff8a3d]/10 text-[#ff8a3d] border border-[#ff8a3d]/25 hover:bg-[#ff8a3d]/10">
+                <Shield size={12} className="mr-1" />
+                Trust Attestation
+              </Badge>
+              <Badge variant="outline" className="border-[#333] text-[#888] bg-transparent font-mono text-[10px]">
+                Arc · 5042002
+              </Badge>
+            </div>
+
+            <DialogTitle className="text-xl tracking-wide text-[#f5f5f5]">
+              Stake a claim
+            </DialogTitle>
+            <DialogDescription className="font-mono text-xs text-[#666] leading-relaxed">
+              Pick a target type, enter the subject, and put USDC behind your assertion on-chain.
+            </DialogDescription>
+          </DialogHeader>
+
+          {resolvedTarget && (
+            <div className="relative mt-4 rounded border border-[#1f1f1f] bg-[#111]/90 px-4 py-3 animate-fade-up">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[#2a2a2a] bg-[#141414]">
+                  <TargetIcon size={14} className={targetMeta.accent} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] uppercase tracking-widest text-[#666] font-mono">
+                    {targetMeta.label}
+                  </p>
+                  <p className="mt-1 truncate font-mono text-sm text-[#f5f5f5]">
+                    {formatTargetLabel(resolvedTarget)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {phase === "success" && txHash ? (
+          <div className="px-6 py-8 space-y-5 animate-fade-up">
+            <div className="flex flex-col items-center text-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[#c8f135]/30 bg-[#c8f135]/10">
+                <CheckCircle2 size={28} className="text-[#c8f135]" />
+              </div>
+              <div>
+                <p className="text-lg font-medium tracking-wide text-[#f5f5f5]">Attestation live</p>
+                <p className="mt-1 font-mono text-xs text-[#666]">
+                  {stake} USDC staked on {formatTargetLabel(resolvedTarget)}
+                </p>
+              </div>
+            </div>
+            <div className="rounded border border-[#1f1f1f] bg-[#111] p-3">
+              <p className="text-[10px] uppercase tracking-widest text-[#666] font-mono mb-1">Transaction</p>
+              <p className="font-mono text-xs text-[#a3a3a3] break-all">{txHash}</p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 border-[#333]" onClick={handleClose}>
+                Close
+              </Button>
+              <Button
+                className="flex-1 bg-[#ff8a3d] text-[#0a0a0a] hover:bg-[#ff8a3d]/90"
+                asChild
+              >
+                <a href={`${EXPLORER}${txHash}`} target="_blank" rel="noopener noreferrer">
+                  View on Arcscan
+                  <ExternalLink size={14} />
+                </a>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-5 space-y-5 animate-fade-up">
+            <div className="space-y-3">
+              <Label className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
+                Target type
+              </Label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {TARGET_PRESETS.map((preset) => {
+                  const Icon = preset.icon;
+                  const selected = targetPreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setTargetPreset(preset.id);
+                        if (preset.id !== targetPreset) setTargetInput("");
+                      }}
+                      className={cn(
+                        "rounded border px-3 py-2.5 text-left transition-colors",
+                        selected
+                          ? "border-[#ff8a3d]/45 bg-[#ff8a3d]/10"
+                          : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon
+                          size={14}
+                          className={selected ? "text-[#ff8a3d]" : "text-[#888]"}
+                        />
+                        <span className="text-xs font-medium leading-tight">{preset.label}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="attest-target" className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
+                  {activePresetMeta.label}
+                </Label>
+                <Input
+                  id="attest-target"
+                  value={targetInput}
+                  onChange={(e) => setTargetInput(e.target.value)}
+                  placeholder={activePresetMeta.placeholder}
+                  disabled={busy}
+                  className={cn(
+                    "font-mono border-[#1f1f1f] bg-[#111] text-[#f5f5f5] focus-visible:ring-[#ff8a3d]/40",
+                    targetInput.trim() && targetError && "border-destructive/50",
+                  )}
+                />
+                <p className="font-mono text-[10px] text-[#555]">{activePresetMeta.hint}</p>
+                {targetInput.trim() && targetError && (
+                  <p className="font-mono text-[10px] text-destructive">{targetError}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="attest-claim" className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
+                Your claim
+              </Label>
+              <textarea
+                id="attest-claim"
+                className={cn(
+                  "w-full min-h-[96px] resize-y rounded border border-[#1f1f1f] bg-[#111] px-3 py-3",
+                  "font-mono text-sm text-[#f5f5f5] placeholder:text-[#555]",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff8a3d]/50",
+                  "disabled:opacity-50",
+                )}
+                placeholder="This source is reliable because…"
+                value={claim}
+                onChange={(e) => setClaim(e.target.value)}
+                disabled={busy}
+                maxLength={500}
+              />
+              <p className="text-right font-mono text-[10px] text-[#555]">
+                {claim.trim().length}/500 · min 8 chars
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
+                  Stake (USDC)
+                </Label>
+                <span className="font-mono text-[10px] text-[#666]">min {MIN_STAKE_USDC}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {STAKE_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setStake(preset)}
+                    className={cn(
+                      "rounded border px-3 py-1.5 font-mono text-xs transition-colors",
+                      stake === preset
+                        ? "border-[#ff8a3d]/50 bg-[#ff8a3d]/10 text-[#ff8a3d]"
+                        : "border-[#2a2a2a] bg-[#111] text-[#888] hover:border-[#444] hover:text-[#ccc]",
+                    )}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              <Input
+                type="number"
+                step="0.01"
+                min={MIN_STAKE_USDC}
+                value={Number.isNaN(stake) ? "" : stake}
+                onChange={(e) => setStake(parseFloat(e.target.value))}
+                disabled={busy}
+                className="font-mono border-[#1f1f1f] bg-[#111] text-[#f5f5f5] focus-visible:ring-[#ff8a3d]/40"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
+                Sign with
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setWalletMode("agent");
+                    void refreshAgentWallet();
+                  }}
+                  className={cn(
+                    "relative rounded border px-3 py-3 text-left transition-colors",
+                    walletMode === "agent"
+                      ? "border-[#f5c842]/55 bg-[#f5c842]/10 ring-1 ring-[#f5c842]/20"
+                      : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
+                  )}
+                >
+                  <Badge className="absolute -top-2 right-2 bg-[#f5c842]/15 text-[#f5c842] border border-[#f5c842]/30 hover:bg-[#f5c842]/15 text-[9px] px-1.5 py-0">
+                    Default
+                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Bot size={14} className="text-[#f5c842]" />
+                    <span className="text-sm font-medium">Agent wallet</span>
+                  </div>
+                  <p className="mt-1 font-mono text-[10px] text-[#666]">Circle Agent Stack</p>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setWalletMode("connected");
+                    void refreshConnectedWallet();
+                  }}
+                  className={cn(
+                    "rounded border px-3 py-3 text-left transition-colors",
+                    walletMode === "connected"
+                      ? "border-[#ff8a3d]/40 bg-[#ff8a3d]/8"
+                      : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <Wallet size={14} className="text-[#ff8a3d]" />
+                    <span className="text-sm font-medium">Connected</span>
+                  </div>
+                  <p className="mt-1 font-mono text-[10px] text-[#666]">MetaMask / injected</p>
+                </button>
+              </div>
+
+              {walletMode === "agent" && (
+                <div className="rounded border border-[#1f1f1f] bg-[#111] px-3 py-2.5 space-y-2">
+                  {agentWalletLoading ? (
+                    <div className="flex items-center gap-2 font-mono text-[10px] text-[#666]">
+                      <Loader2 size={12} className="animate-spin" />
+                      Loading agent wallet…
+                    </div>
+                  ) : agentWallet?.configured && agentWallet.address ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="bg-[#f5c842]/10 text-[#f5c842] border border-[#f5c842]/25 hover:bg-[#f5c842]/10 text-[9px]">
+                          {agentWallet.label ?? "Circle Agent Stack"}
+                        </Badge>
+                        <span className="font-mono text-[10px] text-[#888]">
+                          {agentWallet.address.slice(0, 6)}…{agentWallet.address.slice(-4)}
+                        </span>
+                        <span className="font-mono text-[10px] text-[#666]">
+                          · {agentWallet.usdcBalance ?? "—"} USDC
+                        </span>
+                      </div>
+                      {agentWallet.faucetUrl && (
+                        <a
+                          href={agentWallet.faucetUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono text-[10px] text-[#f5c842] hover:underline"
+                        >
+                          Fund on Circle faucet
+                          <ExternalLink size={10} />
+                        </a>
+                      )}
+                    </>
+                  ) : agentWallet?.canProvision ? (
+                    <div className="space-y-2">
+                      <p className="font-mono text-[10px] text-[#666]">
+                        No agent wallet yet. Create one in a click for server-side attestations.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || creatingAgent}
+                        onClick={() => void handleCreateAgentWallet()}
+                        className="h-8 border-[#f5c842]/35 text-[#f5c842] hover:bg-[#f5c842]/10"
+                      >
+                        {creatingAgent ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin" />
+                            Creating…
+                          </>
+                        ) : (
+                          <>
+                            <Bot size={12} />
+                            Create agent wallet
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="font-mono text-[10px] text-[#666]">
+                      Run <code className="text-[#a3a3a3]">npm run generate-wallets</code> to configure the agent wallet.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {walletMode === "connected" && (
+                <p className="font-mono text-[10px] text-[#666]">
+                  {connectedAccount
+                    ? `${connectedAccount.slice(0, 6)}…${connectedAccount.slice(-4)} · ${walletBalance ?? "—"} USDC`
+                    : "Connect wallet when you attest"}
+                </p>
+              )}
+            </div>
+
+            {!contractAddress && (
+              <p className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
+                NEXT_PUBLIC_ATTESTATION_ADDRESS is not set.
+              </p>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <Button
+                variant="outline"
+                className="flex-1 border-[#333] text-[#ccc] hover:bg-[#141414]"
+                onClick={handleClose}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-[#ff8a3d] text-[#0a0a0a] hover:bg-[#ff8a3d]/90 disabled:opacity-40"
+                onClick={handleAttest}
+                disabled={!canSubmit}
+              >
+                {busy ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    {phase === "approving" ? "Approving USDC…" : "Attesting…"}
+                  </>
+                ) : (
+                  <>
+                    <Shield size={14} />
+                    Attest + Stake
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default AttestModal;

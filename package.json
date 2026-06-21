@@ -9,6 +9,8 @@
     "agent": "node --experimental-transform-types --no-warnings --env-file=.env.local agent.mts",
     "canteen": "node --experimental-transform-types --no-warnings --env-file=.env.local canteen-cli.mts",
     "deploy:canteen": "forge script script/DeployCanteenUSDC.s.sol:DeployCanteenUSDC --rpc-url %ARC_TESTNET_RPC% --private-key %BUYER_PRIVATE_KEY% --broadcast --legacy",
+    "deploy:attestation": "node --experimental-transform-types --no-warnings scripts/deploy-attestation.mts",
+    "verify:attestation": "node --experimental-transform-types --no-warnings scripts/verify-attestation.mts",
     "decode-batch": "node --experimental-transform-types --no-warnings scripts/decode-batch.mts"
   },
   "dependencies": {
@@ -44,6 +46,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.1.6",
     "postcss": "^8.5.8",
+    "solc": "^0.8.20",
     "tailwindcss": "^4.2.1",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5.9.3"

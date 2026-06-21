@@ -40,7 +40,13 @@ export function TopBarGatewayControls() {
 
   useEffect(() => {
     const supabase = createClient();
-    const channel = supabase
+    if (!supabase) {
+      void fetchBalances();
+      return;
+    }
+    const client = supabase;
+
+    const channel = client
       .channel("balance-refresh")
       .on(
         "postgres_changes",
@@ -52,13 +58,13 @@ export function TopBarGatewayControls() {
         { event: "UPDATE", schema: "public", table: "withdrawals" },
         () => fetchBalances(),
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         if (status === "SUBSCRIBED") fetchBalances();
       });
 
     channelRef.current = channel;
     return () => {
-      supabase.removeChannel(channel);
+      client.removeChannel(channel);
     };
   }, [fetchBalances]);
 

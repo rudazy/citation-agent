@@ -19,6 +19,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AttestModal } from "@/components/attest";
+import { AttestTrigger } from "@/components/attest/attest-trigger";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import {
@@ -160,6 +162,13 @@ export default function Dashboard() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("default");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
+  const [attestOpen, setAttestOpen] = useState(false);
+  const [currentTarget, setCurrentTarget] = useState("");
+
+  const openAttest = useCallback((target: string) => {
+    setCurrentTarget(target);
+    setAttestOpen(true);
+  }, []);
 
   function handleSort(field: SortField) {
     if (sortField === field) {
@@ -265,6 +274,14 @@ export default function Dashboard() {
             Nanopayments, creator royalties, agent reputation, and withdrawals on Arc.
           </p>
         </div>
+        <AttestTrigger
+          target="@rudazy"
+          onAttest={openAttest}
+          label="New attestation"
+          variant="default"
+          size="default"
+          className="w-full sm:w-auto shrink-0"
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
@@ -533,8 +550,8 @@ export default function Dashboard() {
             }
           >
             {earnings.map((row) => (
+              <div key={row.id} className="space-y-2">
               <MobileDataCard
-                key={row.id}
                 fields={[
                   {
                     label: "Citation",
@@ -587,6 +604,20 @@ export default function Dashboard() {
                   },
                 ]}
               />
+              <div className="flex flex-wrap gap-2 px-1">
+                <AttestTrigger
+                  target={`citation:${row.citation_id}`}
+                  onAttest={openAttest}
+                  label="Attest citation"
+                />
+                <AttestTrigger
+                  target={row.creator_wallet}
+                  onAttest={openAttest}
+                  label="Attest creator"
+                  variant="ghost"
+                />
+              </div>
+              </div>
             ))}
           </MobileDataCardList>
           <div className="hidden lg:block rounded-lg border overflow-hidden">
@@ -599,19 +630,20 @@ export default function Dashboard() {
                   <TableHead className="text-right">Gross (USDC)</TableHead>
                   <TableHead className="text-right">Royalty (USDC)</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Attest</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loadingEarnings ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       <Loader2 size={16} className="animate-spin inline mr-2" />
                       Loading creator earnings...
                     </TableCell>
                   </TableRow>
                 ) : earnings.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       No creator royalties yet. Run the research agent to pay citations.
                     </TableCell>
                   </TableRow>
@@ -645,6 +677,21 @@ export default function Dashboard() {
                       <TableCell className="text-muted-foreground text-xs">
                         {formatDate(row.created_at)}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1.5">
+                          <AttestTrigger
+                            target={`citation:${row.citation_id}`}
+                            onAttest={openAttest}
+                            label="Citation"
+                          />
+                          <AttestTrigger
+                            target={row.creator_wallet}
+                            onAttest={openAttest}
+                            label="Creator"
+                            variant="ghost"
+                          />
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -664,8 +711,8 @@ export default function Dashboard() {
             }
           >
             {agents.map((agent) => (
+              <div key={agent.payer} className="space-y-2">
               <MobileDataCard
-                key={agent.payer}
                 fields={[
                   {
                     label: "Agent Wallet",
@@ -695,6 +742,14 @@ export default function Dashboard() {
                   },
                 ]}
               />
+              <div className="px-1">
+                <AttestTrigger
+                  target={`agent:${agent.payer}`}
+                  onAttest={openAttest}
+                  label="Attest agent"
+                />
+              </div>
+              </div>
             ))}
           </MobileDataCardList>
           <div className="hidden lg:block rounded-lg border overflow-hidden">
@@ -705,19 +760,20 @@ export default function Dashboard() {
                   <TableHead className="text-right">Citations Paid</TableHead>
                   <TableHead className="text-right">Total Spent (USDC)</TableHead>
                   <TableHead>Last Payment</TableHead>
+                  <TableHead className="text-right">Attest</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loadingReputation ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                       <Loader2 size={16} className="animate-spin inline mr-2" />
                       Loading agent reputation...
                     </TableCell>
                   </TableRow>
                 ) : agents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                       No agent reputation data yet.
                     </TableCell>
                   </TableRow>
@@ -739,6 +795,13 @@ export default function Dashboard() {
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs">
                         {agent.last_payment_at ? formatDate(agent.last_payment_at) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <AttestTrigger
+                          target={`agent:${agent.payer}`}
+                          onAttest={openAttest}
+                          label="Attest"
+                        />
                       </TableCell>
                     </TableRow>
                   ))
@@ -960,6 +1023,12 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <AttestModal
+        isOpen={attestOpen}
+        onClose={() => setAttestOpen(false)}
+        target={currentTarget}
+      />
     </div>
   );
 }

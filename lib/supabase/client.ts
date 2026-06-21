@@ -17,9 +17,29 @@
  */
 
 import { createBrowserClient } from "@supabase/ssr";
-import { assertSupabasePublicConfig } from "./config";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  getSupabaseAnonKey,
+  getSupabaseUrl,
+  isSupabaseConfigured,
+} from "./config";
 
-export function createClient() {
-  const { url, anonKey } = assertSupabasePublicConfig();
-  return createBrowserClient(url, anonKey);
+let warnedMissingConfig = false;
+
+/**
+ * Browser Supabase client. Returns null when public env vars are unset so local
+ * dev (e.g. attestation-only testing) does not crash the app shell.
+ */
+export function createClient(): SupabaseClient | null {
+  if (!isSupabaseConfigured()) {
+    if (process.env.NODE_ENV === "development" && !warnedMissingConfig) {
+      warnedMissingConfig = true;
+      console.warn(
+        "[citation-agent] Supabase not configured — dashboard realtime data disabled. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
+      );
+    }
+    return null;
+  }
+
+  return createBrowserClient(getSupabaseUrl(), getSupabaseAnonKey());
 }

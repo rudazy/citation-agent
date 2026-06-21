@@ -14,11 +14,27 @@ export function getSupabaseAnonKey(): string {
   );
 }
 
+function isPlaceholder(value: string): boolean {
+  return (
+    !value ||
+    value.includes("your-project-url") ||
+    value.includes("your-publishable") ||
+    value.includes("your-anon-key")
+  );
+}
+
+/** True when real Supabase public credentials are present in env. */
+export function isSupabaseConfigured(): boolean {
+  const url = getSupabaseUrl();
+  const anonKey = getSupabaseAnonKey();
+  return !isPlaceholder(url) && !isPlaceholder(anonKey);
+}
+
 export function assertSupabasePublicConfig(): { url: string; anonKey: string } {
   const url = getSupabaseUrl();
   const anonKey = getSupabaseAnonKey();
 
-  if (!url || !anonKey || url.includes("your-project-url")) {
+  if (!isSupabaseConfigured()) {
     throw new Error(
       "Missing Supabase config. Set NEXT_PUBLIC_SUPABASE_URL and either NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY.",
     );

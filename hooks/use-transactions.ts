@@ -38,9 +38,14 @@ export function usePaymentEvents() {
 
   useEffect(() => {
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    const client = supabase;
 
     async function fetchInitial() {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from("payment_events")
         .select("*")
         .order("created_at", { ascending: false });
@@ -60,7 +65,7 @@ export function usePaymentEvents() {
       setLoading(false);
     }
 
-    const channel = supabase
+    const channel = client
       .channel("payment-events-realtime")
       .on(
         "postgres_changes",
@@ -109,7 +114,7 @@ export function usePaymentEvents() {
     channelRef.current = channel;
 
     return () => {
-      supabase.removeChannel(channel);
+      client.removeChannel(channel);
     };
   }, []);
 

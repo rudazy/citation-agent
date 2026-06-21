@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MarketplaceBuyer } from "@/components/marketplace/marketplace-buyer";
+import { MarketplaceCitations } from "@/components/marketplace/marketplace-citations";
 import { MarketplaceHero } from "@/components/marketplace/marketplace-hero";
 import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
@@ -15,6 +16,8 @@ export default function MarketplacePage() {
       <MarketplaceHero />
 
       <MarketplaceBuyer onSettlement={setTraceId} />
+
+      <MarketplaceCitations />
 
       <section className="panel-surface panel-glow space-y-4 border-[#ff8a3d]/25 bg-gradient-to-b from-[#ff8a3d]/8 to-transparent p-4 sm:p-5">
         <div className="flex items-start gap-3">

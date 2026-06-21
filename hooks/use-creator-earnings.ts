@@ -23,9 +23,14 @@ export function useCreatorEarnings() {
 
   useEffect(() => {
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    const client = supabase;
 
     async function fetchInitial() {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from("creator_earnings")
         .select("*")
         .order("created_at", { ascending: false });
@@ -44,7 +49,7 @@ export function useCreatorEarnings() {
       setLoading(false);
     }
 
-    const channel = supabase
+    const channel = client
       .channel("creator-earnings-realtime")
       .on(
         "postgres_changes",
@@ -63,7 +68,7 @@ export function useCreatorEarnings() {
 
     channelRef.current = channel;
     return () => {
-      supabase.removeChannel(channel);
+      client.removeChannel(channel);
     };
   }, []);
 

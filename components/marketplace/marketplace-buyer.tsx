@@ -23,17 +23,8 @@ const ARC_TESTNET = {
   blockExplorerUrls: ["https://testnet.arcscan.app"],
 };
 
-type EthereumProvider = {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-  on?: (event: string, handler: (...args: unknown[]) => void) => void;
-  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
-};
-
-declare global {
-  interface Window {
-    ethereum?: EthereumProvider;
-  }
-}
+import type { EthereumProvider } from "@/lib/ethereum-provider";
+import "@/lib/ethereum-provider";
 
 function b64encode(obj: unknown): string {
   return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
