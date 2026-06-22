@@ -18,6 +18,7 @@
 
 import { NextResponse } from "next/server";
 import { createPublicClient, http, formatUnits, erc20Abi } from "viem";
+import { getSellerAddress, isSellerConfigured } from "@/lib/payment-wallets";
 
 const GATEWAY_API = "https://gateway-api-testnet.circle.com/v1/balances";
 const ARC_TESTNET_DOMAIN = 26;
@@ -44,15 +45,20 @@ async function getWalletUsdcBalance(address: `0x${string}`): Promise<string> {
 }
 
 export async function GET() {
-  const address = process.env.SELLER_ADDRESS;
-  if (!address) {
-    return NextResponse.json(
-      { error: "SELLER_ADDRESS not configured" },
-      { status: 500 },
-    );
+  const sellerAddress = getSellerAddress();
+  if (!sellerAddress) {
+    return NextResponse.json({
+      configured: false,
+      wallet: { balance: "0" },
+      gateway: {
+        total: "0",
+        available: "0",
+        withdrawing: "0",
+        withdrawable: "0",
+      },
+      hint: "Run npm run generate-wallets to add SELLER_ADDRESS (existing buyer keys are preserved).",
+    });
   }
-
-  const sellerAddress = address as `0x${string}`;
 
   try {
     const [gatewayResponse, walletBalance] = await Promise.all([
@@ -103,8 +109,10 @@ export async function GET() {
     ).toFixed(6);
 
     return NextResponse.json({
+      configured: isSellerConfigured(),
       wallet: { balance: walletBalance },
       gateway: { total, available, withdrawing, withdrawable },
+
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -307,9 +307,13 @@ export type AgentWalletStatusResponse = {
   configured: boolean;
   address: `0x${string}` | null;
   usdcBalance: string | null;
+  gatewayUsdc: string | null;
   canProvision: boolean;
   faucetUrl?: string;
   label?: string;
+  sellerAddress?: `0x${string}` | null;
+  paymentReady?: boolean;
+  configError?: string | null;
 };
 
 export async function fetchAgentWalletStatus(): Promise<AgentWalletStatusResponse> {

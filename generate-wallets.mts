@@ -32,7 +32,7 @@ const seller = generateWallet("Seller (platform operator)");
 // --- Buyer (funder wallet — agents spawn ephemeral wallets from this) ---
 const buyer = generateWallet("Buyer (funder wallet)");
 
-// --- Write to .env.local ---
+// --- Write to .env.local (preserve existing keys) ---
 const lines: Record<string, string> = {
   SELLER_ADDRESS: seller.address,
   SELLER_PRIVATE_KEY: seller.privateKey,
@@ -44,11 +44,18 @@ let content = fs.existsSync(envPath)
   ? fs.readFileSync(envPath, "utf-8")
   : "";
 
+const keyPresent = (key: string) =>
+  new RegExp(`^${key}=[^\\s#]+`, "m").test(content) &&
+  !new RegExp(`^${key}=.*Your`, "m").test(content);
+
 for (const [key, value] of Object.entries(lines)) {
+  if (keyPresent(key)) {
+    console.log(`  ${dim("Skipped")} ${key} ${dim("(already set)")}`);
+    continue;
+  }
   const line = `${key}=${value}`;
-  content = content
-    ? replaceOrAppend(content, key, line)
-    : line;
+  content = content ? replaceOrAppend(content, key, line) : line;
+  console.log(`  ${green("Added")}   ${key}`);
 }
 
 fs.writeFileSync(envPath, content.trimEnd() + "\n");

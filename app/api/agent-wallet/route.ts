@@ -3,13 +3,22 @@ import {
   getAgentWalletStatus,
   provisionAgentWallet,
 } from "@/lib/agent-wallet";
+import {
+  getSellerAddress,
+  hasDistinctPaymentWallets,
+  sellerConfigError,
+} from "@/lib/payment-wallets";
 
 export async function GET() {
   const status = await getAgentWalletStatus();
+  const configError = sellerConfigError();
   return NextResponse.json({
     ...status,
     faucetUrl: "https://faucet.circle.com/",
     label: "Circle Agent Stack funder",
+    sellerAddress: getSellerAddress(),
+    paymentReady: hasDistinctPaymentWallets(),
+    configError,
   });
 }
 

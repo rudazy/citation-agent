@@ -7,6 +7,7 @@ import {
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "viem/chains";
+import { getGatewayBalance } from "@/lib/gateway-balance";
 
 const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 
@@ -14,6 +15,7 @@ export type AgentWalletStatus = {
   configured: boolean;
   address: `0x${string}` | null;
   usdcBalance: string | null;
+  gatewayUsdc: string | null;
   canProvision: boolean;
 };
 
@@ -52,7 +54,13 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
   const canProvision = process.env.NODE_ENV === "development";
 
   if (!configured || !address) {
-    return { configured: false, address: null, usdcBalance: null, canProvision };
+    return {
+      configured: false,
+      address: null,
+      usdcBalance: null,
+      gatewayUsdc: null,
+      canProvision,
+    };
   }
 
   const rpcUrl = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
@@ -62,28 +70,38 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
   });
 
   try {
-    const balance = await publicClient.readContract({
-      address: ARC_USDC,
-      abi: [
-        {
-          name: "balanceOf",
-          type: "function",
-          stateMutability: "view",
-          inputs: [{ name: "account", type: "address" }],
-          outputs: [{ name: "", type: "uint256" }],
-        },
-      ],
-      functionName: "balanceOf",
-      args: [address],
-    });
+    const [balance, gateway] = await Promise.all([
+      publicClient.readContract({
+        address: ARC_USDC,
+        abi: [
+          {
+            name: "balanceOf",
+            type: "function",
+            stateMutability: "view",
+            inputs: [{ name: "account", type: "address" }],
+            outputs: [{ name: "", type: "uint256" }],
+          },
+        ],
+        functionName: "balanceOf",
+        args: [address],
+      }),
+      getGatewayBalance(address).catch(() => ({ balance: "0", pendingBatch: "0" })),
+    ]);
     return {
       configured: true,
       address,
       usdcBalance: formatUnits(balance, 6),
+      gatewayUsdc: gateway.balance,
       canProvision,
     };
   } catch {
-    return { configured: true, address, usdcBalance: null, canProvision };
+    return {
+      configured: true,
+      address,
+      usdcBalance: null,
+      gatewayUsdc: null,
+      canProvision,
+    };
   }
 }
 

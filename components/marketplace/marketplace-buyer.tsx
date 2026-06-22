@@ -3,16 +3,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Wallet } from "lucide-react";
+import { Bot, Loader2, Wallet } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
+import { AgentWalletPanel } from "@/components/agent/agent-wallet-panel";
 import {
   depositToGatewayViaMetaMask,
   getWalletUsdcBalance,
 } from "@/lib/gateway-metamask";
 import {
-  formatMarketplaceHelloMemo,
-  PAYMENT_MEMO_HEADER,
-} from "@/lib/payment-memo";
+  depositAgentGatewayViaApi,
+  payViaAgentWallet,
+} from "@/lib/gateway-pay";
+import {
+  fetchAgentWalletStatus,
+  provisionAgentWallet,
+  type AgentWalletStatusResponse,
+} from "@/lib/attestation-client";
+import { formatMarketplaceHelloMemo } from "@/lib/payment-memo";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const ARC_TESTNET_HEX = "0x4cef52";
 const ARC_TESTNET = {
@@ -26,39 +35,52 @@ const ARC_TESTNET = {
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import "@/lib/ethereum-provider";
 
-function b64encode(obj: unknown): string {
-  return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
-}
-
-function b64decode(s: string): string {
-  return decodeURIComponent(escape(atob(s)));
-}
-
-function randomNonceHex(): `0x${string}` {
-  const b = new Uint8Array(32);
-  crypto.getRandomValues(b);
-  return `0x${Array.from(b)
-    .map((x) => x.toString(16).padStart(2, "0"))
-    .join("")}`;
-}
+type WalletMode = "agent" | "connected";
 
 export function MarketplaceBuyer({
   onSettlement,
 }: {
   onSettlement?: (settlementId: string) => void;
 }) {
+  const [walletMode, setWalletMode] = useState<WalletMode>("agent");
   const [account, setAccount] = useState<string | null>(null);
-  const [status, setStatus] = useState("not connected");
+  const [status, setStatus] = useState("agent wallet");
   const [busy, setBusy] = useState(false);
   const [funding, setFunding] = useState(false);
   const [walletUsdc, setWalletUsdc] = useState<string | null>(null);
   const [gatewayUsdc, setGatewayUsdc] = useState<string | null>(null);
   const [output, setOutput] = useState("—");
+  const [agentWallet, setAgentWallet] = useState<AgentWalletStatusResponse | null>(null);
+  const [agentWalletLoading, setAgentWalletLoading] = useState(false);
+  const [creatingAgent, setCreatingAgent] = useState(false);
 
   const PAY_AMOUNT = 0.01;
-  const gatewayBalance = gatewayUsdc !== null ? Number(gatewayUsdc) : null;
+  const gatewayBalance =
+    walletMode === "agent"
+      ? agentWallet?.gatewayUsdc !== null && agentWallet?.gatewayUsdc !== undefined
+        ? Number(agentWallet.gatewayUsdc)
+        : null
+      : gatewayUsdc !== null
+        ? Number(gatewayUsdc)
+        : null;
   const gatewayReady =
     gatewayBalance !== null && !Number.isNaN(gatewayBalance) && gatewayBalance >= PAY_AMOUNT;
+
+  const refreshAgentWallet = useCallback(async () => {
+    setAgentWalletLoading(true);
+    try {
+      const result = await fetchAgentWalletStatus();
+      setAgentWallet(result);
+      if (walletMode === "agent") {
+        setStatus(result.configured ? "agent wallet ready" : "configure agent wallet");
+      }
+    } catch {
+      setAgentWallet(null);
+      if (walletMode === "agent") setStatus("agent wallet unavailable");
+    } finally {
+      setAgentWalletLoading(false);
+    }
+  }, [walletMode]);
 
   const refreshBalances = useCallback(async (addr: string) => {
     try {
@@ -105,8 +127,12 @@ export function MarketplaceBuyer({
   }, []);
 
   useEffect(() => {
+    void refreshAgentWallet();
+  }, [refreshAgentWallet]);
+
+  useEffect(() => {
     const ethereum = window.ethereum;
-    if (!ethereum?.on) return;
+    if (!ethereum?.on || walletMode !== "connected") return;
 
     const onChainChanged = (...args: unknown[]) => {
       const chainId = String(args[0] ?? "");
@@ -137,7 +163,24 @@ export function MarketplaceBuyer({
       ethereum.removeListener?.("chainChanged", onChainChanged);
       ethereum.removeListener?.("accountsChanged", onAccountsChanged);
     };
-  }, [refreshBalances]);
+  }, [refreshBalances, walletMode]);
+
+  const handleCreateAgentWallet = async () => {
+    setCreatingAgent(true);
+    try {
+      const result = await provisionAgentWallet();
+      setAgentWallet(result);
+      toast.success("Agent wallet created", {
+        description: "Copy the address and fund it on the Circle faucet.",
+      });
+    } catch (err) {
+      toast.error("Could not create agent wallet", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setCreatingAgent(false);
+    }
+  };
 
   const connect = useCallback(async () => {
     try {
@@ -161,10 +204,22 @@ export function MarketplaceBuyer({
   }, [switchToArc, refreshBalances]);
 
   const fundGateway = useCallback(async () => {
-    const ethereum = window.ethereum;
-    if (!account || !ethereum) return;
     setFunding(true);
     try {
+      if (walletMode === "agent") {
+        setStatus("depositing to Gateway (agent)…");
+        const result = await depositAgentGatewayViaApi();
+        setOutput(JSON.stringify(result, null, 2));
+        await refreshAgentWallet();
+        setStatus("Gateway funded for agent wallet");
+        toast.success("Gateway deposit complete", {
+          description: `Available: $${result.gatewayAvailable} USDC`,
+        });
+        return;
+      }
+
+      const ethereum = window.ethereum;
+      if (!account || !ethereum) return;
       setStatus("switching to Arc Testnet…");
       await switchToArc();
       setStatus("approve + deposit to Gateway (MetaMask)…");
@@ -179,12 +234,49 @@ export function MarketplaceBuyer({
     } catch (e) {
       setStatus("fund failed");
       setOutput(String((e as Error).message ?? e));
+      toast.error("Gateway deposit failed", {
+        description: (e as Error).message ?? String(e),
+      });
     } finally {
       setFunding(false);
     }
-  }, [account, switchToArc, refreshBalances]);
+  }, [account, switchToArc, refreshBalances, refreshAgentWallet, walletMode]);
 
-  const pay = useCallback(async () => {
+  const payWithAgent = useCallback(async () => {
+    setBusy(true);
+    setOutput("—");
+    try {
+      setStatus("paying via agent wallet…");
+      const result = await payViaAgentWallet({
+        path: "/api/marketplace/hello",
+        method: "GET",
+        memo: formatMarketplaceHelloMemo(),
+      });
+      setOutput(JSON.stringify(result, null, 2));
+      setStatus("paid — hello received");
+      await refreshAgentWallet();
+      const sid =
+        result.data &&
+        typeof result.data === "object" &&
+        "settlement_id" in result.data
+          ? String((result.data as { settlement_id: string }).settlement_id)
+          : result.settlementId;
+      if (sid) onSettlement?.(sid);
+      toast.success("Payment settled", {
+        description: `${result.formattedAmount} USDC via agent wallet`,
+      });
+    } catch (e) {
+      setStatus("error");
+      setOutput(String((e as Error).message ?? e));
+      toast.error("Agent payment failed", {
+        description: (e as Error).message ?? String(e),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [onSettlement, refreshAgentWallet]);
+
+  const payWithMetaMask = useCallback(async () => {
     if (!account || !window.ethereum) return;
     setBusy(true);
     setOutput("—");
@@ -198,6 +290,10 @@ export function MarketplaceBuyer({
         setOutput(await r1.text());
         return;
       }
+
+      const b64decode = (s: string) => decodeURIComponent(escape(atob(s)));
+      const b64encode = (obj: unknown) =>
+        btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
 
       const challenge = JSON.parse(
         b64decode(r1.headers.get("PAYMENT-REQUIRED") ?? ""),
@@ -218,7 +314,9 @@ export function MarketplaceBuyer({
         now + Math.max(accepted.maxTimeoutSeconds, 7 * 24 * 3600 + 600)
       ).toString();
       const validAfter = (now - 600).toString();
-      const nonce = randomNonceHex();
+      const nonce = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map((x) => x.toString(16).padStart(2, "0"))
+        .join("")}` as `0x${string}`;
 
       const typedData = {
         types: {
@@ -281,7 +379,7 @@ export function MarketplaceBuyer({
       const r2 = await fetch("/api/marketplace/hello", {
         headers: {
           "payment-signature": b64encode(paymentPayload),
-          [PAYMENT_MEMO_HEADER]: formatMarketplaceHelloMemo(),
+          "X-Payment-Memo": formatMarketplaceHelloMemo(),
         },
       });
       const body = await r2.json().catch(async () => await r2.text());
@@ -310,6 +408,20 @@ export function MarketplaceBuyer({
     }
   }, [account, onSettlement, switchToArc, refreshBalances]);
 
+  const pay = walletMode === "agent" ? payWithAgent : payWithMetaMask;
+
+  const agentWalletReady = walletMode !== "agent" || agentWallet?.configured === true;
+  const agentPaymentReady =
+    walletMode !== "agent" || (agentWallet?.paymentReady === true && !agentWallet?.configError);
+  const canPayAgent =
+    walletMode === "agent" && agentWalletReady && agentPaymentReady && !agentWalletLoading;
+  const canPayConnected = walletMode === "connected" && !!account && gatewayReady;
+  const canPay = walletMode === "agent" ? canPayAgent : canPayConnected;
+  const canFund =
+    walletMode === "agent"
+      ? agentWalletReady && !agentWalletLoading
+      : !!account;
+
   return (
     <Panel glow className="space-y-4 p-4 sm:p-5">
       <div className="flex items-start gap-3">
@@ -320,12 +432,75 @@ export function MarketplaceBuyer({
           <h2 className="text-lg font-semibold tracking-wide">Live demo</h2>
           <p className="text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
             Pay $0.01 USDC for <code className="text-[#ff8a3d]/90">/api/marketplace/hello</code> via
-            MetaMask. x402 draws from Gateway balance — deposit first if Gateway is $0.
+            Circle Agent Stack (default) or MetaMask. Deposit to Gateway first if balance is $0.
           </p>
         </div>
       </div>
 
-      {account && walletUsdc !== null && gatewayUsdc !== null && (
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">Pay with</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={busy || funding}
+            onClick={() => {
+              setWalletMode("agent");
+              void refreshAgentWallet();
+              setStatus("agent wallet");
+            }}
+            className={cn(
+              "relative rounded border px-3 py-3 text-left transition-colors touch-manipulation",
+              walletMode === "agent"
+                ? "border-[#f5c842]/55 bg-[#f5c842]/10 ring-1 ring-[#f5c842]/20"
+                : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
+            )}
+          >
+            <Badge className="absolute -top-2 right-2 bg-[#f5c842]/15 text-[#f5c842] border border-[#f5c842]/30 hover:bg-[#f5c842]/15 text-[9px] px-1.5 py-0">
+              Default
+            </Badge>
+            <div className="flex items-center gap-2">
+              <Bot size={14} className="text-[#f5c842]" />
+              <span className="text-sm font-medium">Agent wallet</span>
+            </div>
+            <p className="mt-1 font-mono text-[10px] text-[#666]">Circle Agent Stack</p>
+          </button>
+          <button
+            type="button"
+            disabled={busy || funding}
+            onClick={() => {
+              setWalletMode("connected");
+              setStatus(account ? "ready on Arc Testnet" : "not connected");
+            }}
+            className={cn(
+              "rounded border px-3 py-3 text-left transition-colors touch-manipulation",
+              walletMode === "connected"
+                ? "border-[#ff8a3d]/40 bg-[#ff8a3d]/8"
+                : "border-[#2a2a2a] bg-[#111] hover:border-[#444]",
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Wallet size={14} className="text-[#ff8a3d]" />
+              <span className="text-sm font-medium">Connected</span>
+            </div>
+            <p className="mt-1 font-mono text-[10px] text-[#666]">MetaMask / injected</p>
+          </button>
+        </div>
+      </div>
+
+      {walletMode === "agent" && (
+        <AgentWalletPanel
+          wallet={agentWallet}
+          loading={agentWalletLoading}
+          creating={creatingAgent}
+          busy={busy || funding}
+          onRefresh={() => void refreshAgentWallet()}
+          onCreate={() => void handleCreateAgentWallet()}
+          minUsdc={PAY_AMOUNT}
+          showGatewayBalance
+        />
+      )}
+
+      {walletMode === "connected" && account && walletUsdc !== null && gatewayUsdc !== null && (
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-md border border-border/60 bg-[#141414]/80 px-3 py-2">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Wallet</p>
@@ -338,20 +513,22 @@ export function MarketplaceBuyer({
         </div>
       )}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={connect}>
-          Connect MetaMask
-        </Button>
-        <Badge
-          variant={account ? "default" : "secondary"}
-          className="font-mono text-xs w-full sm:w-auto justify-center truncate max-w-full"
-        >
-          {account ? `${account.slice(0, 6)}…${account.slice(-4)}` : "not connected"}
-        </Badge>
-        <span className="text-xs text-muted-foreground font-mono text-center sm:text-left">{status}</span>
-      </div>
+      {walletMode === "connected" && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={connect}>
+            Connect MetaMask
+          </Button>
+          <Badge
+            variant={account ? "default" : "secondary"}
+            className="font-mono text-xs w-full sm:w-auto justify-center truncate max-w-full"
+          >
+            {account ? `${account.slice(0, 6)}…${account.slice(-4)}` : "not connected"}
+          </Badge>
+          <span className="text-xs text-muted-foreground font-mono text-center sm:text-left">{status}</span>
+        </div>
+      )}
 
-      {account && walletUsdc !== null && gatewayUsdc !== null && (
+      {walletMode === "connected" && account && walletUsdc !== null && gatewayUsdc !== null && (
         <div className="space-y-2">
           {Number(walletUsdc) > 0 && !gatewayReady && (
             <p className="rounded-md border border-[#ff8a3d]/40 bg-[#ff8a3d]/10 px-3 py-2 text-xs font-mono text-[#ff8a3d] leading-relaxed">
@@ -367,33 +544,45 @@ export function MarketplaceBuyer({
         </div>
       )}
 
+      {walletMode === "agent" && agentWallet?.configError && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-mono text-destructive leading-relaxed">
+          {agentWallet.configError}
+        </p>
+      )}
+
+      {walletMode === "agent" && (
+        <span className="block text-xs text-muted-foreground font-mono">{status}</span>
+      )}
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Button
           variant="outline"
           size="sm"
           className="w-full"
           onClick={fundGateway}
-          disabled={funding || busy || !account}
+          disabled={funding || busy || !canFund}
         >
           {funding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Deposit 1 USDC to Gateway"}
         </Button>
-        {account && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full"
-            onClick={() => refreshBalances(account)}
-            disabled={funding || busy}
-          >
-            Refresh balances
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full"
+          onClick={() =>
+            walletMode === "agent"
+              ? void refreshAgentWallet()
+              : account && void refreshBalances(account)
+          }
+          disabled={funding || busy || (walletMode === "connected" && !account)}
+        >
+          Refresh balances
+        </Button>
       </div>
       <Button
         size="sm"
         className="w-full bg-[#ff8a3d] text-[#0a0a0a] hover:bg-[#ff8a3d]/90 font-semibold"
         onClick={pay}
-        disabled={!account || busy || funding || !gatewayReady}
+        disabled={!canPay || busy || funding}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Pay $0.01 and call /hello"}
       </Button>

@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { AgentWalletPanel } from "@/components/agent/agent-wallet-panel";
 import { cn } from "@/lib/utils";
 import { MIN_CLAIM_CHARS, MIN_STAKE_USDC } from "@/lib/attestation";
 import {
@@ -646,74 +647,15 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
               </div>
 
               {walletMode === "agent" && (
-                <div className="rounded border border-[#1f1f1f] bg-[#111] px-3 py-2.5 space-y-2">
-                  {agentWalletLoading ? (
-                    <div className="flex items-center gap-2 font-mono text-[10px] text-[#666]">
-                      <Loader2 size={12} className="animate-spin" />
-                      Loading agent wallet…
-                    </div>
-                  ) : agentWallet?.configured && agentWallet.address ? (
-                    <>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge className="bg-[#f5c842]/10 text-[#f5c842] border border-[#f5c842]/25 hover:bg-[#f5c842]/10 text-[9px]">
-                          {agentWallet.label ?? "Circle Agent Stack"}
-                        </Badge>
-                        <span className="font-mono text-[10px] text-[#888]">
-                          {agentWallet.address.slice(0, 6)}…{agentWallet.address.slice(-4)}
-                        </span>
-                        <span className="font-mono text-[10px] text-[#666]">
-                          · {agentWallet.usdcBalance ?? "—"} USDC
-                        </span>
-                      </div>
-                      {agentWallet.faucetUrl && (
-                        <a
-                          href={agentWallet.faucetUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 font-mono text-[10px] text-[#f5c842] hover:underline"
-                        >
-                          Fund on Circle faucet
-                          <ExternalLink size={10} />
-                        </a>
-                      )}
-                      {!agentBalanceSufficient && (
-                        <p className="font-mono text-[10px] text-destructive">
-                          Need {stake} USDC to attest — wallet has {agentWallet.usdcBalance ?? "0"} USDC
-                        </p>
-                      )}
-                    </>
-                  ) : agentWallet?.canProvision ? (
-                    <div className="space-y-2">
-                      <p className="font-mono text-[10px] text-[#666]">
-                        No agent wallet yet. Create one in a click for server-side attestations.
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={busy || creatingAgent}
-                        onClick={() => void handleCreateAgentWallet()}
-                        className="h-8 border-[#f5c842]/35 text-[#f5c842] hover:bg-[#f5c842]/10"
-                      >
-                        {creatingAgent ? (
-                          <>
-                            <Loader2 size={12} className="animate-spin" />
-                            Creating…
-                          </>
-                        ) : (
-                          <>
-                            <Bot size={12} />
-                            Create agent wallet
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  ) : (
-                    <p className="font-mono text-[10px] text-[#666]">
-                      Run <code className="text-[#a3a3a3]">npm run generate-wallets</code> to configure the agent wallet.
-                    </p>
-                  )}
-                </div>
+                <AgentWalletPanel
+                  wallet={agentWallet}
+                  loading={agentWalletLoading}
+                  creating={creatingAgent}
+                  busy={busy}
+                  onRefresh={() => void refreshAgentWallet()}
+                  onCreate={() => void handleCreateAgentWallet()}
+                  minUsdc={stake}
+                />
               )}
 
               {walletMode === "connected" && (

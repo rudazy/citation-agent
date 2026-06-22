@@ -19,14 +19,13 @@
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 import { NextRequest, NextResponse } from "next/server";
 import { readPaymentMemo } from "@/lib/payment-memo";
+import { getSellerAddress } from "@/lib/payment-wallets";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 // Arc Testnet contract addresses (from @circle-fin/x402-batching SDK)
 const ARC_TESTNET_NETWORK = "eip155:5042002";
 const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000";
 const ARC_TESTNET_GATEWAY_WALLET = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
-
-export const sellerAddress = process.env.SELLER_ADDRESS as `0x${string}`;
 
 const facilitator = new BatchFacilitatorClient();
 
@@ -46,6 +45,13 @@ interface PaymentPayload {
 }
 
 function buildPaymentRequirements(price: string) {
+  const payTo = getSellerAddress();
+  if (!payTo) {
+    throw new Error(
+      "SELLER_ADDRESS not configured. Run npm run generate-wallets (preserves existing buyer keys).",
+    );
+  }
+
   // Parse dollar amount to USDC atomic units (6 decimals)
   const amount = Math.round(parseFloat(price.replace("$", "")) * 1_000_000);
 
@@ -54,7 +60,7 @@ function buildPaymentRequirements(price: string) {
     network: ARC_TESTNET_NETWORK,
     asset: ARC_TESTNET_USDC,
     amount: amount.toString(),
-    payTo: sellerAddress,
+    payTo,
     maxTimeoutSeconds: 691_200, // 8 days — Circle Gateway minimum validity window
     extra: {
       name: "GatewayWalletBatched",
@@ -78,9 +84,15 @@ export function withGateway(
   price: string,
   endpoint: string,
 ) {
-  const requirements = buildPaymentRequirements(price);
-
   return async (req: NextRequest) => {
+    let requirements: ReturnType<typeof buildPaymentRequirements>;
+    try {
+      requirements = buildPaymentRequirements(price);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
     const paymentSignature = req.headers.get("payment-signature");
 
     // No payment — return 402 with Gateway batching payment requirements
