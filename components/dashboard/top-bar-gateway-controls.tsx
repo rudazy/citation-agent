@@ -72,6 +72,10 @@ export function TopBarGatewayControls() {
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
       <WithdrawDialog
         maxAvailable={balances?.gateway.available ?? "0"}
+        walletAddress={balances?.walletAddress}
+        nativeGas={balances?.nativeGas}
+        walletUsdc={balances?.wallet.balance}
+        sellerKeyConfigured={balances?.sellerKeyConfigured ?? false}
         onWithdraw={fetchBalances}
       />
       <Badge

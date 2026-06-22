@@ -30,6 +30,10 @@ import {
 import { Loader2, RefreshCw } from "lucide-react";
 
 export interface GatewayBalances {
+  configured?: boolean;
+  sellerKeyConfigured?: boolean;
+  walletAddress?: string | null;
+  nativeGas?: string | null;
   wallet: { balance: string };
   gateway: {
     total: string;
@@ -37,6 +41,7 @@ export interface GatewayBalances {
     withdrawing: string;
     withdrawable: string;
   };
+  hint?: string;
 }
 
 interface GatewayBalanceDialogProps {
@@ -55,12 +60,12 @@ export function GatewayBalanceDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md border-[#1f1f1f] bg-[#0a0a0a]">
         <DialogHeader className="flex-row items-start justify-between gap-4 text-left">
           <div className="space-y-1">
-            <DialogTitle>Gateway Balance</DialogTitle>
-            <DialogDescription>
-              Current gateway and wallet balances.
+            <DialogTitle className="text-[#f5f5f5] tracking-wide">Gateway Balance</DialogTitle>
+            <DialogDescription className="font-mono text-xs text-[#666]">
+              Seller earnings pool on Circle Gateway.
             </DialogDescription>
           </div>
           <Button
@@ -83,7 +88,7 @@ export function GatewayBalanceDialog({
         ) : balances ? (
           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
             <div className="text-muted-foreground">Available</div>
-            <div className="font-mono text-right">${balances.gateway.available}</div>
+            <div className="font-mono text-right text-[#ff8a3d]">${balances.gateway.available}</div>
             <div className="text-muted-foreground">Total</div>
             <div className="font-mono text-right">${balances.gateway.total}</div>
             <div className="text-muted-foreground">Withdrawing</div>

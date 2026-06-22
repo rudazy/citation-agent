@@ -497,6 +497,7 @@ export function MarketplaceBuyer({
           onCreate={() => void handleCreateAgentWallet()}
           minUsdc={PAY_AMOUNT}
           showGatewayBalance
+          showWithdraw
         />
       )}
 

@@ -308,6 +308,13 @@ export type AgentWalletStatusResponse = {
   address: `0x${string}` | null;
   usdcBalance: string | null;
   gatewayUsdc: string | null;
+  nativeGas?: string | null;
+  gateway?: {
+    total: string;
+    available: string;
+    withdrawing: string;
+    withdrawable: string;
+  } | null;
   canProvision: boolean;
   faucetUrl?: string;
   label?: string;

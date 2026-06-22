@@ -655,6 +655,8 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                   onRefresh={() => void refreshAgentWallet()}
                   onCreate={() => void handleCreateAgentWallet()}
                   minUsdc={stake}
+                  showGatewayBalance
+                  showWithdraw
                 />
               )}
 

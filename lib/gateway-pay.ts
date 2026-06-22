@@ -53,6 +53,48 @@ export async function payViaAgentWallet(params: {
   return data;
 }
 
+export async function withdrawGatewayViaApi(params: {
+  role: "seller" | "agent";
+  amount: string;
+  destinationChain?: string;
+  destinationAddress?: string;
+}): Promise<{
+  txHash: string;
+  amount: string;
+  destinationChain: string;
+  recipient: string;
+}> {
+  const res = await fetch("/api/gateway/withdraw", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      role: params.role,
+      amount: params.amount,
+      destinationChain: params.destinationChain ?? "arcTestnet",
+      destinationAddress: params.destinationAddress,
+    }),
+  });
+  const data = (await res.json()) as {
+    txHash?: string;
+    amount?: string;
+    destinationChain?: string;
+    recipient?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error ?? "Gateway withdrawal failed");
+  }
+  if (!data.txHash || !data.amount || !data.destinationChain || !data.recipient) {
+    throw new Error("Invalid withdrawal response");
+  }
+  return {
+    txHash: data.txHash,
+    amount: data.amount,
+    destinationChain: data.destinationChain,
+    recipient: data.recipient,
+  };
+}
+
 export async function depositAgentGatewayViaApi(): Promise<{
   depositTxHash: string;
   gatewayAvailable: string;

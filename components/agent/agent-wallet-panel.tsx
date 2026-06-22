@@ -5,6 +5,7 @@ import { Bot, Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GatewayWithdrawDialog } from "@/components/gateway/gateway-withdraw-dialog";
 import type { AgentWalletStatusResponse } from "@/lib/attestation-client";
 
 type AgentWalletPanelProps = {
@@ -16,6 +17,7 @@ type AgentWalletPanelProps = {
   onCreate: () => void;
   minUsdc?: number;
   showGatewayBalance?: boolean;
+  showWithdraw?: boolean;
 };
 
 export function AgentWalletPanel({
@@ -27,6 +29,7 @@ export function AgentWalletPanel({
   onCreate,
   minUsdc,
   showGatewayBalance = false,
+  showWithdraw = false,
 }: AgentWalletPanelProps) {
   const [copied, setCopied] = useState(false);
 
@@ -100,6 +103,16 @@ export function AgentWalletPanel({
             {copied ? <Check size={11} /> : <Copy size={11} />}
             Copy for faucet
           </Button>
+          {showWithdraw && (
+            <GatewayWithdrawDialog
+              role="agent"
+              maxAvailable={wallet.gateway?.available ?? wallet.gatewayUsdc ?? "0"}
+              walletAddress={wallet.address}
+              nativeGas={wallet.nativeGas}
+              walletUsdc={wallet.usdcBalance}
+              onSuccess={onRefresh}
+            />
+          )}
           {wallet.faucetUrl && (
             <a
               href={wallet.faucetUrl}

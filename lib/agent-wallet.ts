@@ -7,7 +7,7 @@ import {
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "viem/chains";
-import { getGatewayBalance } from "@/lib/gateway-balance";
+import { fetchGatewayBalanceSnapshot } from "@/lib/gateway-balances";
 
 const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 
@@ -16,6 +16,13 @@ export type AgentWalletStatus = {
   address: `0x${string}` | null;
   usdcBalance: string | null;
   gatewayUsdc: string | null;
+  nativeGas: string | null;
+  gateway: {
+    total: string;
+    available: string;
+    withdrawing: string;
+    withdrawable: string;
+  } | null;
   canProvision: boolean;
 };
 
@@ -59,6 +66,8 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
       address: null,
       usdcBalance: null,
       gatewayUsdc: null,
+      nativeGas: null,
+      gateway: null,
       canProvision,
     };
   }
@@ -70,7 +79,7 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
   });
 
   try {
-    const [balance, gateway] = await Promise.all([
+    const [balance, nativeGas, snapshot] = await Promise.all([
       publicClient.readContract({
         address: ARC_USDC,
         abi: [
@@ -85,13 +94,16 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
         functionName: "balanceOf",
         args: [address],
       }),
-      getGatewayBalance(address).catch(() => ({ balance: "0", pendingBatch: "0" })),
+      publicClient.getBalance({ address }),
+      fetchGatewayBalanceSnapshot(address, "0"),
     ]);
     return {
       configured: true,
       address,
       usdcBalance: formatUnits(balance, 6),
-      gatewayUsdc: gateway.balance,
+      gatewayUsdc: snapshot.gateway.available,
+      nativeGas: formatUnits(nativeGas, 18),
+      gateway: snapshot.gateway,
       canProvision,
     };
   } catch {
@@ -100,6 +112,8 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
       address,
       usdcBalance: null,
       gatewayUsdc: null,
+      nativeGas: null,
+      gateway: null,
       canProvision,
     };
   }
