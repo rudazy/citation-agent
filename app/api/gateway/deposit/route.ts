@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
 import { depositAgentGateway } from "@/lib/agent-gateway";
-import { isAgentWalletConfigured } from "@/lib/agent-wallet";
+import { requireUserAgent } from "@/lib/resolve-user-agent";
 
 export async function POST() {
-  if (!isAgentWalletConfigured()) {
-    return NextResponse.json({ error: "Agent wallet not configured" }, { status: 500 });
-  }
-
   try {
-    const result = await depositAgentGateway();
+    const agent = await requireUserAgent();
+    const result = await depositAgentGateway(agent.privateKey);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Gateway deposit failed" },
-      { status: 500 },
+      { status: err instanceof Error && err.message.includes("No agent wallet") ? 400 : 500 },
     );
   }
 }

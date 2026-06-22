@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isAllowedPayPath, payWithAgentGateway } from "@/lib/agent-gateway";
+import { requireUserAgent } from "@/lib/resolve-user-agent";
 
 const bodySchema = z.object({
   path: z.string().min(1),
@@ -22,12 +23,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await payWithAgentGateway({
-      path: body.path,
-      method: body.method,
-      memo: body.memo,
-      body: body.body,
-    });
+    const agent = await requireUserAgent();
+    const result = await payWithAgentGateway(
+      {
+        path: body.path,
+        method: body.method,
+        memo: body.memo,
+        body: body.body,
+      },
+      agent.privateKey,
+    );
 
     return NextResponse.json({
       data: result.data,

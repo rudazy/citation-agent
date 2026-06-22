@@ -11,7 +11,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "viem/chains";
-import { isAgentWalletConfigured } from "@/lib/agent-wallet";
+import { isCliFunderConfigured } from "@/lib/agent-wallet";
 import { getSellerPrivateKey } from "@/lib/payment-wallets";
 
 export type WithdrawRole = "seller" | "agent";
@@ -38,13 +38,15 @@ export function isSupportedWithdrawChain(chain: string): chain is SupportedChain
   return chain in GATEWAY_DOMAINS;
 }
 
-function privateKeyForRole(role: WithdrawRole): `0x${string}` {
+function privateKeyForRole(
+  role: WithdrawRole,
+  agentPrivateKey?: `0x${string}`,
+): `0x${string}` {
   if (role === "agent") {
-    const buyerKey = process.env.BUYER_PRIVATE_KEY;
-    if (!buyerKey || !isAgentWalletConfigured()) {
-      throw new Error("Agent wallet not configured");
+    if (!agentPrivateKey) {
+      throw new Error("Agent wallet not configured for this browser session");
     }
-    return normalizeKey(buyerKey);
+    return normalizeKey(agentPrivateKey);
   }
 
   const sellerKey = getSellerPrivateKey();
@@ -56,15 +58,21 @@ function privateKeyForRole(role: WithdrawRole): `0x${string}` {
   return sellerKey;
 }
 
-async function createGatewayForRole(role: WithdrawRole): Promise<GatewayClient> {
+async function createGatewayForRole(
+  role: WithdrawRole,
+  agentPrivateKey?: `0x${string}`,
+): Promise<GatewayClient> {
   return new GatewayClient({
     chain: "arcTestnet",
-    privateKey: privateKeyForRole(role),
+    privateKey: privateKeyForRole(role, agentPrivateKey),
   });
 }
 
-export async function getWithdrawWalletAddress(role: WithdrawRole): Promise<`0x${string}`> {
-  const gateway = await createGatewayForRole(role);
+export async function getWithdrawWalletAddress(
+  role: WithdrawRole,
+  agentPrivateKey?: `0x${string}`,
+): Promise<`0x${string}`> {
+  const gateway = await createGatewayForRole(role, agentPrivateKey);
   return gateway.address;
 }
 
@@ -109,6 +117,7 @@ export async function withdrawGatewayFunds(params: {
   amount: string;
   destinationChain: SupportedChainName;
   destinationAddress?: `0x${string}`;
+  agentPrivateKey?: `0x${string}`;
 }) {
   if (!isSupportedWithdrawChain(params.destinationChain)) {
     throw new Error(`Unsupported chain: ${params.destinationChain}`);
@@ -119,12 +128,12 @@ export async function withdrawGatewayFunds(params: {
     throw new Error("Amount must be a positive number");
   }
 
-  const gateway = await createGatewayForRole(params.role);
+  const gateway = await createGatewayForRole(params.role, params.agentPrivateKey);
   const isCrossChain = params.destinationChain !== "arcTestnet";
 
   const topUpKey =
     params.role === "seller" &&
-    isAgentWalletConfigured() &&
+    isCliFunderConfigured() &&
     process.env.BUYER_PRIVATE_KEY
       ? normalizeKey(process.env.BUYER_PRIVATE_KEY)
       : undefined;
@@ -142,7 +151,7 @@ export async function withdrawGatewayFunds(params: {
   if (isCrossChain) {
     const destGateway = new GatewayClient({
       chain: params.destinationChain,
-      privateKey: privateKeyForRole(params.role),
+      privateKey: privateKeyForRole(params.role, params.agentPrivateKey),
     });
     try {
       const destBalances = await destGateway.getBalances();

@@ -24,6 +24,7 @@ import {
   getAttestationFeeRecipient,
   recordAttestationPlatformFee,
 } from "@/lib/record-attestation-fee";
+import { requireUserAgent } from "@/lib/resolve-user-agent";
 
 const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 
@@ -39,11 +40,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ATTESTATION_ADDRESS not configured" }, { status: 500 });
   }
 
-  const privateKey = process.env.BUYER_PRIVATE_KEY;
-  if (!privateKey) {
-    return NextResponse.json({ error: "Agent wallet not configured" }, { status: 500 });
-  }
-
   let body: z.infer<typeof bodySchema>;
   try {
     body = bodySchema.parse(await request.json());
@@ -51,9 +47,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
+  let agent: Awaited<ReturnType<typeof requireUserAgent>>;
+  try {
+    agent = await requireUserAgent();
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Create your agent wallet first" },
+      { status: 400 },
+    );
+  }
+
   const rpcUrl = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
-  const normalizedKey = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
-  const account = privateKeyToAccount(normalizedKey as `0x${string}`);
+  const account = privateKeyToAccount(agent.privateKey);
 
   const publicClient = createPublicClient({
     chain: arcTestnet,

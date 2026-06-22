@@ -74,7 +74,7 @@ export function AgentWalletPanel({
       <div className="rounded border border-[#1f1f1f] bg-[#111] px-3 py-2.5 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge className="bg-[#f5c842]/10 text-[#f5c842] border border-[#f5c842]/25 hover:bg-[#f5c842]/10 text-[9px]">
-            {wallet.label ?? "Circle Agent Stack"}
+            {wallet.label ?? "Your agent wallet"}
           </Badge>
           <button
             type="button"
@@ -152,7 +152,8 @@ export function AgentWalletPanel({
     return (
       <div className="rounded border border-[#1f1f1f] bg-[#111] px-3 py-2.5 space-y-2">
         <p className="font-mono text-[10px] text-[#666]">
-          No agent wallet yet. Create one, copy the address, and fund it on the Circle faucet.
+          No agent wallet yet. Create a real on-chain Arc wallet (unique to you). Fund it with
+          testnet USDC via the Circle faucet, then pay and attest from that address.
         </p>
         <Button
           type="button"
@@ -180,8 +181,7 @@ export function AgentWalletPanel({
 
   return (
     <p className="font-mono text-[10px] text-[#666]">
-      Run <code className="text-[#a3a3a3]">npm run generate-wallets</code> to configure the agent
-      wallet.
+      Agent wallet unavailable. Ensure Supabase is configured, then create your wallet above.
     </p>
   );
 }

@@ -17,6 +17,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+import { AGENT_SESSION_COOKIE } from "@/lib/agent-session";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -25,7 +26,19 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+
+  if (!request.cookies.get(AGENT_SESSION_COOKIE)?.value) {
+    response.cookies.set(AGENT_SESSION_COOKIE, crypto.randomUUID(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  }
+
+  return response;
 }
 
 export const config = {

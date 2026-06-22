@@ -429,10 +429,11 @@ export function MarketplaceBuyer({
           <Wallet size={18} className="text-[#ff8a3d]" />
         </div>
         <div className="min-w-0 space-y-1">
-          <h2 className="text-lg font-semibold tracking-wide">Live demo</h2>
+          <h2 className="text-lg font-semibold tracking-wide">Pay with agent wallet</h2>
           <p className="text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
-            Pay $0.01 USDC for <code className="text-[#ff8a3d]/90">/api/marketplace/hello</code> via
-            Circle Agent Stack (default) or MetaMask. Deposit to Gateway first if balance is $0.
+            Pay $0.01 USDC for <code className="text-[#ff8a3d]/90">/api/marketplace/hello</code> with
+            your personal agent wallet (default) or MetaMask. Create a wallet first — each browser
+            gets its own. Deposit to Gateway if balance is $0.
           </p>
         </div>
       </div>
@@ -462,7 +463,7 @@ export function MarketplaceBuyer({
               <Bot size={14} className="text-[#f5c842]" />
               <span className="text-sm font-medium">Agent wallet</span>
             </div>
-            <p className="mt-1 font-mono text-[10px] text-[#666]">Circle Agent Stack</p>
+            <p className="mt-1 font-mono text-[10px] text-[#666]">Your wallet on Arc</p>
           </button>
           <button
             type="button"

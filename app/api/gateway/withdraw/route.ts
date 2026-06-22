@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminClient } from "@/lib/supabase/admin";
-import { isAgentWalletConfigured } from "@/lib/agent-wallet";
+import { requireUserAgent } from "@/lib/resolve-user-agent";
 import {
   formatWithdrawError,
   getWithdrawWalletAddress,
@@ -48,11 +48,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (role === "agent" && !isAgentWalletConfigured()) {
-    return NextResponse.json(
-      { error: "Agent wallet not configured. Run npm run generate-wallets or create an agent wallet." },
-      { status: 400 },
-    );
+  let agentPrivateKey: `0x${string}` | undefined;
+  if (role === "agent") {
+    try {
+      const agent = await requireUserAgent();
+      agentPrivateKey = agent.privateKey;
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error:
+            err instanceof Error
+              ? err.message
+              : "Create your agent wallet first (Marketplace or Attest).",
+        },
+        { status: 400 },
+      );
+    }
   }
 
   const supabase = getAdminClient();
@@ -83,6 +94,7 @@ export async function POST(req: NextRequest) {
       amount: body.amount,
       destinationChain: body.destinationChain,
       destinationAddress: body.destinationAddress as `0x${string}` | undefined,
+      agentPrivateKey,
     });
 
     if (supabase && withdrawalId) {
@@ -112,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     let walletAddress = "unknown";
     try {
-      walletAddress = await getWithdrawWalletAddress(role);
+      walletAddress = await getWithdrawWalletAddress(role, agentPrivateKey);
     } catch {
       // ignore
     }

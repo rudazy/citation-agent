@@ -1,6 +1,5 @@
 import { GatewayClient } from "@circle-fin/x402-batching/client";
 import { gatewayPayWithMemo } from "@/lib/gateway-pay";
-import { isAgentWalletConfigured } from "@/lib/agent-wallet";
 import { sellerConfigError } from "@/lib/payment-wallets";
 
 const REDEPOSIT_THRESHOLD = BigInt(500_000);
@@ -23,18 +22,14 @@ export function resolvePayUrl(path: string): string {
   return `${base.replace(/\/$/, "")}${normalized}`;
 }
 
-function normalizePrivateKey(): `0x${string}` {
-  const privateKey = process.env.BUYER_PRIVATE_KEY;
-  if (!privateKey || !isAgentWalletConfigured()) {
-    throw new Error("Agent wallet not configured");
-  }
+function normalizePrivateKey(privateKey: string): `0x${string}` {
   return (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as `0x${string}`;
 }
 
-export async function createAgentGatewayClient(): Promise<GatewayClient> {
+export function createAgentGatewayClient(privateKey: `0x${string}`): GatewayClient {
   return new GatewayClient({
     chain: "arcTestnet",
-    privateKey: normalizePrivateKey(),
+    privateKey: normalizePrivateKey(privateKey),
   });
 }
 
@@ -48,15 +43,15 @@ export async function ensureAgentGatewayDeposit(gateway: GatewayClient): Promise
   }
 
   throw new Error(
-    `Insufficient agent funds. Wallet ${balances.wallet.formatted ?? "0"} USDC, Gateway ${balances.gateway.formattedAvailable ?? "0"} USDC. Fund the agent wallet via Circle faucet, then deposit to Gateway.`,
+    `Insufficient agent funds. Wallet ${balances.wallet.formatted ?? "0"} USDC, Gateway ${balances.gateway.formattedAvailable ?? "0"} USDC. Fund your agent wallet via Circle faucet, then deposit to Gateway.`,
   );
 }
 
-export async function depositAgentGateway(): Promise<{
+export async function depositAgentGateway(privateKey: `0x${string}`): Promise<{
   depositTxHash: string;
   gatewayAvailable: string;
 }> {
-  const gateway = await createAgentGatewayClient();
+  const gateway = createAgentGatewayClient(privateKey);
   const balances = await gateway.getBalances();
 
   if (balances.wallet.balance <= BigInt(0)) {
@@ -73,12 +68,15 @@ export async function depositAgentGateway(): Promise<{
   };
 }
 
-export async function payWithAgentGateway(params: {
-  path: string;
-  method?: "GET" | "POST" | "PUT" | "DELETE";
-  memo?: string;
-  body?: unknown;
-}) {
+export async function payWithAgentGateway(
+  params: {
+    path: string;
+    method?: "GET" | "POST" | "PUT" | "DELETE";
+    memo?: string;
+    body?: unknown;
+  },
+  privateKey: `0x${string}`,
+) {
   const configError = sellerConfigError();
   if (configError) {
     throw new Error(configError);
@@ -88,7 +86,7 @@ export async function payWithAgentGateway(params: {
     throw new Error("Payment path not allowed");
   }
 
-  const gateway = await createAgentGatewayClient();
+  const gateway = createAgentGatewayClient(privateKey);
   await ensureAgentGatewayDeposit(gateway);
 
   const url = resolvePayUrl(params.path);

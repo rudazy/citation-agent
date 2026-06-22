@@ -654,7 +654,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                     <Bot size={14} className="text-[#f5c842]" />
                     <span className="text-sm font-medium">Agent wallet</span>
                   </div>
-                  <p className="mt-1 font-mono text-[10px] text-[#666]">Circle Agent Stack</p>
+                  <p className="mt-1 font-mono text-[10px] text-[#666]">Your wallet on Arc</p>
                 </button>
                 <button
                   type="button"
