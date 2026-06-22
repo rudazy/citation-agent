@@ -1,24 +1,4 @@
-/**
- * Copyright 2026 Circle Internet Group, Inc.  All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useCallback, useEffect, useState } from "react";
 
 export type Withdrawal = {
   id: string;
@@ -28,90 +8,38 @@ export type Withdrawal = {
   destination_address: string;
   status: "submitted" | "confirmed" | "failed";
   tx_hash: string | null;
+  wallet_address?: string | null;
+  role?: "seller" | "agent" | null;
 };
 
-export function useWithdrawals() {
+export type WithdrawalScope = "agent" | "seller";
+
+export function useWithdrawals(scope: WithdrawalScope = "agent") {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+
+  const fetchWithdrawals = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/gateway/withdrawals?scope=${scope}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setWithdrawals([]);
+        return;
+      }
+      const data = (await res.json()) as { withdrawals?: Withdrawal[] };
+      setWithdrawals(data.withdrawals ?? []);
+    } catch {
+      setWithdrawals([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [scope]);
 
   useEffect(() => {
-    const supabase = createClient();
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-    const client = supabase;
+    void fetchWithdrawals();
+  }, [fetchWithdrawals]);
 
-    async function fetchInitial() {
-      const { data, error } = await client
-        .from("withdrawals")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Failed to fetch withdrawals:", error.message);
-      } else {
-        setWithdrawals((prev) => {
-          if (prev.length === 0) return data as Withdrawal[];
-          const fetched = data as Withdrawal[];
-          const existingIds = new Set(fetched.map((e) => e.id));
-          const realtimeOnly = prev.filter((e) => !existingIds.has(e.id));
-          return [...realtimeOnly, ...fetched];
-        });
-      }
-      setLoading(false);
-    }
-
-    const channel = client
-      .channel("withdrawals-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "withdrawals" },
-        (payload) => {
-          setWithdrawals((prev) => {
-            const newItem = payload.new as Withdrawal;
-            if (prev.some((w) => w.id === newItem.id)) return prev;
-            return [newItem, ...prev];
-          });
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "withdrawals" },
-        (payload) => {
-          setWithdrawals((prev) =>
-            prev.map((w) =>
-              w.id === (payload.new as Withdrawal).id
-                ? (payload.new as Withdrawal)
-                : w,
-            ),
-          );
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "withdrawals" },
-        (payload) => {
-          setWithdrawals((prev) =>
-            prev.filter(
-              (w) => w.id !== (payload.old as { id: string }).id,
-            ),
-          );
-        },
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          fetchInitial();
-        }
-      });
-
-    channelRef.current = channel;
-
-    return () => {
-      client.removeChannel(channel);
-    };
-  }, []);
-
-  return { withdrawals, loading };
+  return { withdrawals, loading, refetch: fetchWithdrawals };
 }

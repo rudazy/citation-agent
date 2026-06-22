@@ -3,6 +3,8 @@ import {
   decodeFunctionData,
   formatUnits,
   http,
+  type AbiEvent,
+  type Log,
 } from "viem";
 import { arcTestnet } from "viem/chains";
 import { ATTESTATION_ABI, getAttestationAddress } from "@/lib/attestation";
@@ -57,8 +59,33 @@ type CacheEntry<T> = { at: number; data: T };
 let summaryCache: CacheEntry<TargetSummary[]> | null = null;
 let indexCache: CacheEntry<IndexedAttestation[]> | null = null;
 const CACHE_TTL_MS = 5_000;
-const LOG_CHUNK_SIZE = BigInt(9_999);
+/** Arc RPC rejects eth_getLogs ranges above 10_000 blocks (inclusive). */
+const LOG_CHUNK_SIZE = BigInt(9_998);
 const DEFAULT_DEPLOY_BLOCK = BigInt(48_054_370);
+
+const ATTESTED_EVENT_ABI: AbiEvent = {
+  type: "event",
+  name: "Attested",
+  inputs: [
+    { name: "target", type: "string", indexed: true },
+    { name: "staker", type: "address", indexed: true },
+    { name: "claim", type: "string", indexed: false },
+    { name: "amount", type: "uint256", indexed: false },
+    { name: "platformFee", type: "uint256", indexed: false },
+  ],
+};
+
+/** Deployed attestation contract before platform-fee event field was added. */
+const ATTESTED_LEGACY_EVENT_ABI: AbiEvent = {
+  type: "event",
+  name: "Attested",
+  inputs: [
+    { name: "target", type: "string", indexed: true },
+    { name: "staker", type: "address", indexed: true },
+    { name: "claim", type: "string", indexed: false },
+    { name: "amount", type: "uint256", indexed: false },
+  ],
+};
 
 function deployFromBlock(): bigint {
   const raw = process.env.ATTESTATION_DEPLOY_BLOCK;
@@ -76,18 +103,24 @@ export function invalidateAttestationCache(): void {
   indexCache = null;
 }
 
-async function fetchAttestedLogs(contractAddress: `0x${string}`) {
+function logDedupeKey(log: Log): string {
+  return `${log.transactionHash ?? "0x"}:${log.logIndex ?? 0}`;
+}
+
+async function fetchLogsForEvent(
+  contractAddress: `0x${string}`,
+  event: AbiEvent,
+): Promise<Log[]> {
   const client = rpcClient();
   const latest = await client.getBlockNumber();
   const start = deployFromBlock();
-  const logs: Awaited<ReturnType<typeof client.getContractEvents>> = [];
+  const logs: Log[] = [];
 
   for (let from = start; from <= latest; from += LOG_CHUNK_SIZE + BigInt(1)) {
     const to = from + LOG_CHUNK_SIZE > latest ? latest : from + LOG_CHUNK_SIZE;
-    const chunk = await client.getContractEvents({
+    const chunk = await client.getLogs({
       address: contractAddress,
-      abi: ATTESTATION_ABI,
-      eventName: "Attested",
+      event,
       fromBlock: from,
       toBlock: to,
     });
@@ -95,6 +128,24 @@ async function fetchAttestedLogs(contractAddress: `0x${string}`) {
   }
 
   return logs;
+}
+
+async function fetchAttestedLogs(contractAddress: `0x${string}`) {
+  const [current, legacy] = await Promise.all([
+    fetchLogsForEvent(contractAddress, ATTESTED_EVENT_ABI),
+    fetchLogsForEvent(contractAddress, ATTESTED_LEGACY_EVENT_ABI),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: Log[] = [];
+  for (const log of [...current, ...legacy]) {
+    const key = logDedupeKey(log);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(log);
+  }
+
+  return merged;
 }
 
 async function readOnChainClaims(target: string): Promise<IndexedAttestation[]> {
@@ -183,12 +234,28 @@ export async function fetchIndexedAttestations(): Promise<IndexedAttestation[]> 
   return sorted;
 }
 
+async function supplementFromOnChain(
+  rows: IndexedAttestation[],
+): Promise<IndexedAttestation[]> {
+  if (rows.length > 0) return rows;
+
+  if (!getAttestationAddress()) return rows;
+
+  const supplemented: IndexedAttestation[] = [];
+  for (const target of ["x:@trustgated"]) {
+    supplemented.push(...(await readOnChainClaims(target)));
+  }
+
+  return supplemented.sort((a, b) => b.timestamp - a.timestamp);
+}
+
 export async function getTargetSummaries(): Promise<TargetSummary[]> {
   if (summaryCache && Date.now() - summaryCache.at < CACHE_TTL_MS) {
     return summaryCache.data;
   }
 
-  const rows = await fetchIndexedAttestations();
+  let rows = await fetchIndexedAttestations();
+  rows = await supplementFromOnChain(rows);
   const byTarget = new Map<string, { total: bigint; count: number; displayTarget: string }>();
 
   for (const row of rows) {

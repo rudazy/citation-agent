@@ -49,6 +49,7 @@ interface GatewayBalanceDialogProps {
   loading: boolean;
   onRefresh: () => void;
   trigger: React.ReactNode;
+  variant?: "seller" | "agent";
 }
 
 export function GatewayBalanceDialog({
@@ -56,7 +57,12 @@ export function GatewayBalanceDialog({
   loading,
   onRefresh,
   trigger,
+  variant = "seller",
 }: GatewayBalanceDialogProps) {
+  const description =
+    variant === "agent"
+      ? "Your agent wallet deposit on Circle Gateway."
+      : "Seller earnings pool on Circle Gateway.";
   return (
     <Dialog>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -65,7 +71,7 @@ export function GatewayBalanceDialog({
           <div className="space-y-1">
             <DialogTitle className="text-[#f5f5f5] tracking-wide">Gateway Balance</DialogTitle>
             <DialogDescription className="font-mono text-xs text-[#666]">
-              Seller earnings pool on Circle Gateway.
+              {description}
             </DialogDescription>
           </div>
           <Button

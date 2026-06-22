@@ -68,14 +68,23 @@ export async function POST(req: NextRequest) {
 
   const supabase = getAdminClient();
   let withdrawalId: string | null = null;
+  let walletAddressForRecord: string | null = null;
 
-  if (supabase && role === "seller") {
+  try {
+    walletAddressForRecord = await getWithdrawWalletAddress(role, agentPrivateKey);
+  } catch {
+    // recorded after successful withdraw when possible
+  }
+
+  if (supabase && walletAddressForRecord) {
     const { data: withdrawal, error: insertError } = await supabase
       .from("withdrawals")
       .insert({
         amount_usdc: body.amount,
         destination_chain: body.destinationChain,
-        destination_address: body.destinationAddress ?? null,
+        destination_address: body.destinationAddress ?? walletAddressForRecord,
+        wallet_address: walletAddressForRecord.toLowerCase(),
+        role,
         status: "submitted",
       })
       .select()

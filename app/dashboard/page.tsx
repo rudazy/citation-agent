@@ -67,6 +67,7 @@ import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { shortenHash } from "@/lib/utils";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
 import { SupabaseSetupBanner } from "@/components/dashboard/supabase-setup-banner";
+import { SellerGatewayControls } from "@/components/dashboard/seller-gateway-controls";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { useAttestationFees } from "@/hooks/use-attestation-fees";
 import { usePaymentEvents } from "@/hooks/use-transactions";
@@ -405,7 +406,7 @@ export default function Dashboard() {
             >
               Attest fees
             </TabsTrigger>
-            <TabsTrigger value="withdrawals" className="shrink-0 px-3 text-xs sm:text-sm">Withdrawals</TabsTrigger>
+            <TabsTrigger value="withdrawals" className="shrink-0 px-3 text-xs sm:text-sm">Your withdrawals</TabsTrigger>
             <TabsTrigger
               value="attestations"
               className="shrink-0 gap-1.5 px-3 text-xs sm:text-sm data-[state=active]:bg-[#f5c842]/12 data-[state=active]:text-[#f5c842] data-[state=active]:ring-1 data-[state=active]:ring-[#f5c842]/35"
@@ -854,16 +855,18 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent value="attestation-fees">
-          <Panel className="mb-4 border-[#f5c842]/20 bg-[#f5c842]/5 px-4 py-3">
+          <Panel className="mb-4 border-[#f5c842]/20 bg-[#f5c842]/5 px-4 py-3 space-y-4">
             <p className="text-sm font-mono text-muted-foreground leading-relaxed">
               Flat <span className="text-[#f5c842] font-semibold">0.1 USDC</span> platform fee per
-              attestation only — not marketplace or citation payments. Fees settle to your seller
-              wallet on Arc; deposit to Gateway then withdraw anytime from the dashboard header.
+              attestation only — not marketplace or citation payments. Fees settle to the operator
+              seller wallet on Arc (withdraw below). Visitors use the header for their own agent
+              Gateway balance.
             </p>
-            <p className="mt-2 font-mono text-lg font-semibold tabular-nums text-[#f5c842]">
+            <p className="font-mono text-lg font-semibold tabular-nums text-[#f5c842]">
               ${attestationFeesTotal.toFixed(1)} USDC earned ({statAttestationFees} attestation
               {statAttestationFees !== 1 ? "s" : ""})
             </p>
+            <SellerGatewayControls />
           </Panel>
           <div className="mb-3 flex justify-end">
             <button
@@ -1007,10 +1010,10 @@ export default function Dashboard() {
         <TabsContent value="withdrawals">
           <MobileDataCardList
             loading={loadingWithdrawals}
-            loadingMessage="Loading withdrawals..."
+            loadingMessage="Loading your withdrawals..."
             empty={
               !loadingWithdrawals && paginatedWithdrawals.length === 0
-                ? "No withdrawals found."
+                ? "No withdrawals for your agent wallet yet. Create a wallet in Marketplace or Attest, deposit to Gateway, then withdraw from the header."
                 : undefined
             }
           >
@@ -1110,7 +1113,7 @@ export default function Dashboard() {
                       className="h-24 text-center text-muted-foreground"
                     >
                       <Loader2 size={16} className="animate-spin inline mr-2" />
-                      Loading withdrawals...
+                      Loading your withdrawals...
                     </TableCell>
                   </TableRow>
                 ) : paginatedWithdrawals.length === 0 ? (
@@ -1119,7 +1122,7 @@ export default function Dashboard() {
                       colSpan={6}
                       className="h-24 text-center text-muted-foreground"
                     >
-                      No withdrawals found.
+                      No withdrawals for your agent wallet yet.
                     </TableCell>
                   </TableRow>
                 ) : (

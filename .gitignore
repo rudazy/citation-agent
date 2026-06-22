@@ -21,6 +21,7 @@
 /build
 
 # internal — never commit
+/terminals/
 /tasks/
 /tasks/**
 **/tasks/*.md
