@@ -16,9 +16,14 @@ import {
   MIN_CLAIM_CHARS,
   MIN_STAKE_UNITS,
   getAttestationAddress,
+  totalAttestationCostUnits,
 } from "@/lib/attestation";
 import { invalidateAttestationCache } from "@/lib/attestation-index";
 import { canonicalizeAttestationTarget } from "@/lib/attestation-client";
+import {
+  getAttestationFeeRecipient,
+  recordAttestationPlatformFee,
+} from "@/lib/record-attestation-fee";
 
 const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 
@@ -66,6 +71,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Minimum stake is 0.1 USDC" }, { status: 400 });
   }
 
+  const recipient = getAttestationFeeRecipient();
+  if (!recipient) {
+    return NextResponse.json({ error: "SELLER_ADDRESS not configured" }, { status: 500 });
+  }
+
+  const totalCost = totalAttestationCostUnits(amount);
+
   const walletBalance = await publicClient.readContract({
     address: ARC_USDC,
     abi: erc20Abi,
@@ -73,10 +85,10 @@ export async function POST(request: Request) {
     args: [account.address],
   });
 
-  if (walletBalance < amount) {
+  if (walletBalance < totalCost) {
     return NextResponse.json(
       {
-        error: `Insufficient agent USDC. Have ${formatUnits(walletBalance, 6)}, need ${body.stakeUsdc}`,
+        error: `Insufficient agent USDC. Have ${formatUnits(walletBalance, 6)}, need ${formatUnits(totalCost, 6)} (stake + 0.1 platform fee)`,
       },
       { status: 400 },
     );
@@ -89,12 +101,12 @@ export async function POST(request: Request) {
     args: [account.address, contractAddress],
   });
 
-  if (allowance < amount) {
+  if (allowance < totalCost) {
     const approveHash = await walletClient.writeContract({
       address: ARC_USDC,
       abi: erc20Abi,
       functionName: "approve",
-      args: [contractAddress, amount],
+      args: [contractAddress, totalCost],
       account,
       chain: arcTestnet,
     });
@@ -115,8 +127,18 @@ export async function POST(request: Request) {
   await publicClient.waitForTransactionReceipt({ hash: attestHash });
   invalidateAttestationCache();
 
+  await recordAttestationPlatformFee({
+    attest_tx_hash: attestHash,
+    staker: account.address,
+    target,
+    stake_usdc: body.stakeUsdc.toFixed(6),
+    recipient,
+  });
+
   return NextResponse.json({
     attestTxHash: attestHash,
     staker: account.address,
+    platformFeeUsdc: "0.1",
+    totalPaidUsdc: formatUnits(totalCost, 6),
   });
 }

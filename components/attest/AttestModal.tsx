@@ -28,7 +28,12 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { AgentWalletPanel } from "@/components/agent/agent-wallet-panel";
 import { cn } from "@/lib/utils";
-import { MIN_CLAIM_CHARS, MIN_STAKE_USDC } from "@/lib/attestation";
+import {
+  ATTESTATION_PLATFORM_FEE_USDC,
+  MIN_CLAIM_CHARS,
+  MIN_STAKE_USDC,
+  totalAttestationCostUsdc,
+} from "@/lib/attestation";
 import {
   attestViaAgentWallet,
   attestViaConnectedWallet,
@@ -42,6 +47,7 @@ import {
   inferTargetPreset,
   provisionAgentWallet,
   readWalletUsdcBalance,
+  recordAttestationPlatformFeeOnServer,
   targetInputFromProp,
   validateTargetInput,
   type AgentWalletStatusResponse,
@@ -169,8 +175,12 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
     return Number.isNaN(parsed) ? null : parsed;
   }, [agentWallet?.usdcBalance]);
 
+  const totalCostUsdc = totalAttestationCostUsdc(stake);
+
   const agentBalanceSufficient =
-    walletMode !== "agent" || agentUsdcBalance === null || agentUsdcBalance >= stake;
+    walletMode !== "agent" ||
+    agentUsdcBalance === null ||
+    agentUsdcBalance >= totalCostUsdc;
 
   const agentWalletReady = walletMode !== "agent" || agentWallet?.configured === true;
   const canSubmit =
@@ -195,7 +205,9 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
       blockers.push("Create or configure agent wallet");
     }
     if (walletMode === "agent" && agentWalletReady && !agentBalanceSufficient) {
-      blockers.push(`Agent wallet needs ${stake} USDC (has ${agentWallet?.usdcBalance ?? "0"})`);
+      blockers.push(
+        `Agent wallet needs ${totalCostUsdc} USDC (stake + ${ATTESTATION_PLATFORM_FEE_USDC} fee, has ${agentWallet?.usdcBalance ?? "0"})`,
+      );
     }
     return blockers;
   }, [
@@ -207,6 +219,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
     contractAddress,
     stake,
     stakeValid,
+    totalCostUsdc,
     targetError,
     targetInput,
     walletMode,
@@ -335,7 +348,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
         onSuccess?.(result.attestTxHash);
         void refreshAgentWallet();
         toast.success("Attestation recorded", {
-          description: `Agent wallet staked ${stake} USDC`,
+          description: `${stake} USDC staked · ${ATTESTATION_PLATFORM_FEE_USDC} USDC platform fee`,
         });
         return;
       }
@@ -362,8 +375,13 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
       setTxHash(result.attestTxHash);
       setPhase("success");
       onSuccess?.(result.attestTxHash);
+      try {
+        await recordAttestationPlatformFeeOnServer(result.attestTxHash);
+      } catch {
+        // On-chain fee still settled; dashboard record is best-effort for connected wallets
+      }
       toast.success("Attestation recorded", {
-        description: `Staked ${stake} USDC on Arc Testnet`,
+        description: `${stake} USDC staked · ${ATTESTATION_PLATFORM_FEE_USDC} USDC platform fee`,
       });
     } catch (err) {
       setPhase("idle");
@@ -594,6 +612,20 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                 disabled={busy}
                 className="font-mono border-[#1f1f1f] bg-[#111] text-[#f5f5f5] focus-visible:ring-[#ff8a3d]/40"
               />
+              <div className="rounded border border-[#1f1f1f] bg-[#111]/80 px-3 py-2.5 space-y-1.5 font-mono text-xs">
+                <div className="flex justify-between text-[#888]">
+                  <span>Stake (locked on-chain)</span>
+                  <span className="text-[#f5f5f5]">{stakeValid ? stake.toFixed(2) : "—"} USDC</span>
+                </div>
+                <div className="flex justify-between text-[#888]">
+                  <span>Platform fee (attestations only)</span>
+                  <span className="text-[#f5c842]">{ATTESTATION_PLATFORM_FEE_USDC} USDC</span>
+                </div>
+                <div className="flex justify-between border-t border-[#1f1f1f] pt-1.5 font-semibold text-[#f5f5f5]">
+                  <span>Total charged</span>
+                  <span>{stakeValid ? totalCostUsdc.toFixed(2) : "—"} USDC</span>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -654,7 +686,7 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
                   busy={busy}
                   onRefresh={() => void refreshAgentWallet()}
                   onCreate={() => void handleCreateAgentWallet()}
-                  minUsdc={stake}
+                  minUsdc={totalCostUsdc}
                   showGatewayBalance
                   showWithdraw
                 />

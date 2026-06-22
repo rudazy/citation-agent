@@ -6,8 +6,9 @@ import {Attestation} from "../contracts/Attestation.sol";
 
 contract DeployAttestation is Script {
     function run() external returns (Attestation deployed) {
+        address platformRecipient = vm.envAddress("SELLER_ADDRESS");
         vm.startBroadcast();
-        deployed = new Attestation();
+        deployed = new Attestation(platformRecipient);
         vm.stopBroadcast();
     }
 }

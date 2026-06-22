@@ -18,6 +18,8 @@
 
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { InstallPrompt } from "@/components/pwa/install-prompt";
+import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -34,6 +36,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  themeColor: "#0a0a0a",
 };
 
 export const metadata: Metadata = {
@@ -42,8 +45,14 @@ export const metadata: Metadata = {
   description: siteDescription,
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
+  appleWebApp: {
+    capable: true,
+    title: "Citation Agent",
+    statusBarStyle: "black-translucent",
+  },
+  applicationName: "Citation Agent",
   openGraph: {
     type: "website",
     title: siteTitle,
@@ -78,6 +87,8 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.className} ${geistMono.variable} antialiased`}>
         <TooltipProvider>{children}</TooltipProvider>
+        <InstallPrompt />
+        <ServiceWorkerRegister />
         <Toaster richColors position="bottom-center" />
       </body>
     </html>

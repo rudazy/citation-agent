@@ -7,7 +7,13 @@ import {
   parseUnits,
 } from "viem";
 import { arcTestnet } from "viem/chains";
-import { ATTESTATION_ABI, MIN_STAKE_UNITS } from "@/lib/attestation";
+import {
+  ATTESTATION_ABI,
+  ATTESTATION_PLATFORM_FEE_USDC,
+  MIN_STAKE_UNITS,
+  totalAttestationCostUnits,
+  totalAttestationCostUsdc,
+} from "@/lib/attestation";
 
 export const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 export const ARC_TESTNET_HEX = "0x4cef52" as const;
@@ -253,6 +259,9 @@ export async function attestViaConnectedWallet(params: {
   }
   if (!claim.trim()) throw new Error("Claim is required");
 
+  const totalCost = totalAttestationCostUnits(amount);
+  const totalCostUsdc = totalAttestationCostUsdc(stakeUsdc);
+
   await switchToArcTestnet(ethereum);
 
   const walletBalance = await publicClient.readContract({
@@ -261,9 +270,9 @@ export async function attestViaConnectedWallet(params: {
     functionName: "balanceOf",
     args: [account],
   });
-  if (walletBalance < amount) {
+  if (walletBalance < totalCost) {
     throw new Error(
-      `Insufficient USDC. Have ${formatUnits(walletBalance, 6)}, need ${stakeUsdc}`,
+      `Insufficient USDC. Have ${formatUnits(walletBalance, 6)}, need ${totalCostUsdc} (stake + ${ATTESTATION_PLATFORM_FEE_USDC} platform fee)`,
     );
   }
 
@@ -275,11 +284,11 @@ export async function attestViaConnectedWallet(params: {
   });
 
   let approvalTxHash: string | undefined;
-  if (allowance < amount) {
+  if (allowance < totalCost) {
     const approveData = encodeFunctionData({
       abi: erc20Abi,
       functionName: "approve",
-      args: [contractAddress, amount],
+      args: [contractAddress, totalCost],
     });
     approvalTxHash = (await ethereum.request({
       method: "eth_sendTransaction",
@@ -363,3 +372,19 @@ export async function attestViaAgentWallet(params: {
   }
   return { attestTxHash: data.attestTxHash, staker: data.staker };
 }
+
+export async function recordAttestationPlatformFeeOnServer(
+  attestTxHash: string,
+): Promise<void> {
+  const res = await fetch("/api/attestation/fee", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ attestTxHash }),
+  });
+  if (!res.ok) {
+    const data = (await res.json()) as { error?: string };
+    throw new Error(data.error ?? "Failed to record attestation platform fee");
+  }
+}
+
+export { ATTESTATION_PLATFORM_FEE_USDC, totalAttestationCostUsdc };

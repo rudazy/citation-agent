@@ -20,7 +20,7 @@ import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 import { NextRequest, NextResponse } from "next/server";
 import { readPaymentMemo } from "@/lib/payment-memo";
 import { getSellerAddress } from "@/lib/payment-wallets";
-import { getAdminClient } from "@/lib/supabase/admin";
+import { recordPaymentEvent } from "@/lib/record-payment-event";
 
 // Arc Testnet contract addresses (from @circle-fin/x402-batching SDK)
 const ARC_TESTNET_NETWORK = "eip155:5042002";
@@ -171,22 +171,15 @@ export function withGateway(
       const paymentMemo = readPaymentMemo(req);
       const ctx: GatewayContext = { payer, gatewayTx, amountUsdc, paymentMemo };
 
-      const supabase = getAdminClient();
-      if (supabase) {
-        const { error } = await supabase.from("payment_events").insert({
-          endpoint,
-          payer,
-          amount_usdc: amountUsdc,
-          network: requirements.network,
-          gateway_tx: gatewayTx,
-          payment_memo: paymentMemo,
-          raw: { requirements, settleResult, memo: paymentMemo },
-        });
-
-        if (error) {
-          console.error("Failed to record payment event:", error.message);
-        }
-      }
+      await recordPaymentEvent({
+        endpoint,
+        payer,
+        amount_usdc: amountUsdc,
+        network: requirements.network,
+        gateway_tx: gatewayTx,
+        payment_memo: paymentMemo,
+        raw: { requirements, settleResult, memo: paymentMemo },
+      });
 
       console.log(
         `[x402] Payment settled: ${endpoint} — ${amountUsdc} USDC from ${payer}${

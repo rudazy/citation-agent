@@ -1,12 +1,22 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseUrl, isSupabaseConfigured } from "@/lib/supabase/config";
+
+function isServiceRolePlaceholder(key: string): boolean {
+  return (
+    !key ||
+    key.includes("your-service-role") ||
+    key.includes("your-service") ||
+    key === "your-service-role-key"
+  );
+}
+
+export function isSupabaseAdminConfigured(): boolean {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  return isSupabaseConfigured() && !isServiceRolePlaceholder(key);
+}
 
 export function getAdminClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!isSupabaseAdminConfigured()) return null;
 
-  if (!url || !key || url.includes("your-project-url")) {
-    return null;
-  }
-
-  return createClient(url, key);
+  return createClient(getSupabaseUrl(), process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }

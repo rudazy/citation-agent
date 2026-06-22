@@ -54,6 +54,7 @@ import {
   Activity,
   ArrowRight,
   Loader2,
+  RefreshCw,
   Shield,
 } from "lucide-react";
 import {
@@ -65,6 +66,9 @@ import { Panel } from "@/components/layout/panel";
 import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { shortenHash } from "@/lib/utils";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
+import { SupabaseSetupBanner } from "@/components/dashboard/supabase-setup-banner";
+import { formatPaymentDate } from "@/lib/format-datetime";
+import { useAttestationFees } from "@/hooks/use-attestation-fees";
 import { usePaymentEvents } from "@/hooks/use-transactions";
 import { useWithdrawals } from "@/hooks/use-withdrawals";
 import { useCreatorEarnings } from "@/hooks/use-creator-earnings";
@@ -89,12 +93,6 @@ function SortIcon({ direction }: { direction: SortDirection }) {
 
 function parseAmount(amount: string): number {
   return parseFloat(amount.replace(/,/g, ""));
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function CopyableCell({
@@ -147,7 +145,18 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 export default function Dashboard() {
   const searchParams = useSearchParams();
-  const { events, loading: loadingPayments } = usePaymentEvents();
+  const {
+    events,
+    loading: loadingPayments,
+    error: paymentsError,
+    refetch: refetchPayments,
+  } = usePaymentEvents();
+  const {
+    fees: attestationFees,
+    loading: loadingAttestationFees,
+    totalFees: attestationFeesTotal,
+    refetch: refetchAttestationFees,
+  } = useAttestationFees();
   const { withdrawals, loading: loadingWithdrawals } = useWithdrawals();
   const { earnings, loading: loadingEarnings } = useCreatorEarnings();
   const { agents, loading: loadingReputation } = useAgentReputation();
@@ -263,6 +272,7 @@ export default function Dashboard() {
   const statRoyalties = earnings.length;
   const statAgents = agents.length;
   const statWithdrawals = withdrawals.length;
+  const statAttestationFees = attestationFees.length;
 
   return (
     <div className="max-w-6xl mx-auto w-full min-w-0 space-y-4 sm:space-y-5">
@@ -285,11 +295,18 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+      <SupabaseSetupBanner
+        clientError={paymentsError}
+        onRefresh={() => void refetchPayments()}
+        refreshing={loadingPayments}
+      />
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 sm:gap-3">
         {[
           { label: "Payments", value: statPayments },
           { label: "Royalties", value: statRoyalties },
           { label: "Agents", value: statAgents },
+          { label: "Attest fees", value: statAttestationFees },
           { label: "Withdrawals", value: statWithdrawals },
         ].map((stat) => (
           <Panel key={stat.label} className="px-3 py-2.5 sm:px-4 sm:py-3">
@@ -382,6 +399,12 @@ export default function Dashboard() {
             <TabsTrigger value="payments" className="shrink-0 px-3 text-xs sm:text-sm">Payments</TabsTrigger>
             <TabsTrigger value="creators" className="shrink-0 px-3 text-xs sm:text-sm">Creators</TabsTrigger>
             <TabsTrigger value="reputation" className="shrink-0 px-3 text-xs sm:text-sm">Agents</TabsTrigger>
+            <TabsTrigger
+              value="attestation-fees"
+              className="shrink-0 gap-1.5 px-3 text-xs sm:text-sm data-[state=active]:bg-[#f5c842]/12 data-[state=active]:text-[#f5c842] data-[state=active]:ring-1 data-[state=active]:ring-[#f5c842]/35"
+            >
+              Attest fees
+            </TabsTrigger>
             <TabsTrigger value="withdrawals" className="shrink-0 px-3 text-xs sm:text-sm">Withdrawals</TabsTrigger>
             <TabsTrigger
               value="attestations"
@@ -394,6 +417,17 @@ export default function Dashboard() {
         </div>
 
         <TabsContent value="payments">
+          <div className="mb-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void refetchPayments()}
+              disabled={loadingPayments}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={loadingPayments ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
           <MobileDataCardList
             loading={loadingPayments}
             loadingMessage="Loading payments..."
@@ -447,7 +481,7 @@ export default function Dashboard() {
                   },
                   {
                     label: "Date",
-                    value: formatDate(ev.created_at),
+                    value: formatPaymentDate(ev.created_at),
                     className: "text-muted-foreground text-xs",
                   },
                 ]}
@@ -537,7 +571,7 @@ export default function Dashboard() {
                         ${ev.amount_usdc}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs">
-                        {formatDate(ev.created_at)}
+                        {formatPaymentDate(ev.created_at)}
                       </TableCell>
                     </TableRow>
                   ))
@@ -607,7 +641,7 @@ export default function Dashboard() {
                   },
                   {
                     label: "Date",
-                    value: formatDate(row.created_at),
+                    value: formatPaymentDate(row.created_at),
                     className: "text-muted-foreground text-xs",
                   },
                 ]}
@@ -683,7 +717,7 @@ export default function Dashboard() {
                         ${row.royalty_usdc}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs">
-                        {formatDate(row.created_at)}
+                        {formatPaymentDate(row.created_at)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1.5">
@@ -745,7 +779,7 @@ export default function Dashboard() {
                   },
                   {
                     label: "Last Payment",
-                    value: agent.last_payment_at ? formatDate(agent.last_payment_at) : "—",
+                    value: agent.last_payment_at ? formatPaymentDate(agent.last_payment_at) : "—",
                     className: "text-muted-foreground text-xs",
                   },
                 ]}
@@ -802,7 +836,7 @@ export default function Dashboard() {
                         ${Number(agent.total_spent_usdc).toFixed(6)}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs">
-                        {agent.last_payment_at ? formatDate(agent.last_payment_at) : "—"}
+                        {agent.last_payment_at ? formatPaymentDate(agent.last_payment_at) : "—"}
                       </TableCell>
                       <TableCell className="text-right">
                         <AttestTrigger
@@ -810,6 +844,157 @@ export default function Dashboard() {
                           onAttest={openAttest}
                           label="Attest"
                         />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="attestation-fees">
+          <Panel className="mb-4 border-[#f5c842]/20 bg-[#f5c842]/5 px-4 py-3">
+            <p className="text-sm font-mono text-muted-foreground leading-relaxed">
+              Flat <span className="text-[#f5c842] font-semibold">0.1 USDC</span> platform fee per
+              attestation only — not marketplace or citation payments. Fees settle to your seller
+              wallet on Arc; deposit to Gateway then withdraw anytime from the dashboard header.
+            </p>
+            <p className="mt-2 font-mono text-lg font-semibold tabular-nums text-[#f5c842]">
+              ${attestationFeesTotal.toFixed(1)} USDC earned ({statAttestationFees} attestation
+              {statAttestationFees !== 1 ? "s" : ""})
+            </p>
+          </Panel>
+          <div className="mb-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void refetchAttestationFees()}
+              disabled={loadingAttestationFees}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={loadingAttestationFees ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+          <MobileDataCardList
+            loading={loadingAttestationFees}
+            loadingMessage="Loading attestation fees..."
+            empty={
+              !loadingAttestationFees && attestationFees.length === 0
+                ? "No attestation platform fees yet."
+                : undefined
+            }
+          >
+            {attestationFees.map((row) => (
+              <MobileDataCard
+                key={row.id}
+                fields={[
+                  {
+                    label: "Attestation tx",
+                    value: row.attest_tx_hash ? (
+                      <CopyableCell
+                        value={row.attest_tx_hash}
+                        label={shortenHash(row.attest_tx_hash, 6)}
+                        href={`${EXPLORER_BASE}/tx/${row.attest_tx_hash}`}
+                      />
+                    ) : (
+                      "—"
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Target",
+                    value: (
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs break-all">
+                        {row.target}
+                      </code>
+                    ),
+                  },
+                  {
+                    label: "Staker",
+                    value: (
+                      <CopyableCell
+                        value={row.staker}
+                        label={shortenHash(row.staker)}
+                        href={`${EXPLORER_BASE}/address/${row.staker}`}
+                      />
+                    ),
+                    className: "font-mono text-xs",
+                  },
+                  {
+                    label: "Stake (USDC)",
+                    value: `$${row.stake_usdc}`,
+                    className: "font-mono",
+                  },
+                  {
+                    label: "Platform fee (USDC)",
+                    value: `$${row.platform_fee_usdc}`,
+                    className: "font-mono text-[#f5c842] font-semibold",
+                    highlight: true,
+                  },
+                  {
+                    label: "Date",
+                    value: formatPaymentDate(row.created_at),
+                    className: "text-muted-foreground text-xs",
+                  },
+                ]}
+              />
+            ))}
+          </MobileDataCardList>
+          <div className="hidden lg:block rounded-lg border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Attestation tx</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead>Staker</TableHead>
+                  <TableHead className="text-right">Stake (USDC)</TableHead>
+                  <TableHead className="text-right">Platform fee</TableHead>
+                  <TableHead>Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingAttestationFees ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                      <Loader2 size={16} className="animate-spin inline mr-2" />
+                      Loading attestation fees...
+                    </TableCell>
+                  </TableRow>
+                ) : attestationFees.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                      No attestation platform fees yet.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  attestationFees.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-mono text-xs">
+                        <CopyableCell
+                          value={row.attest_tx_hash}
+                          label={shortenHash(row.attest_tx_hash, 6)}
+                          href={`${EXPLORER_BASE}/tx/${row.attest_tx_hash}`}
+                        />
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
+                          {row.target}
+                        </code>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        <CopyableCell
+                          value={row.staker}
+                          label={shortenHash(row.staker)}
+                          href={`${EXPLORER_BASE}/address/${row.staker}`}
+                        />
+                      </TableCell>
+                      <TableCell className="text-right font-mono">${row.stake_usdc}</TableCell>
+                      <TableCell className="text-right font-mono text-[#f5c842]">
+                        ${row.platform_fee_usdc}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
+                        {formatPaymentDate(row.created_at)}
                       </TableCell>
                     </TableRow>
                   ))
@@ -880,7 +1065,7 @@ export default function Dashboard() {
                   },
                   {
                     label: "Date",
-                    value: formatDate(w.created_at),
+                    value: formatPaymentDate(w.created_at),
                     className: "text-muted-foreground text-xs",
                   },
                 ]}
@@ -974,7 +1159,7 @@ export default function Dashboard() {
                         ${w.amount_usdc}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs">
-                        {formatDate(w.created_at)}
+                        {formatPaymentDate(w.created_at)}
                       </TableCell>
                     </TableRow>
                   ))
@@ -1009,7 +1194,7 @@ export default function Dashboard() {
       </Tabs>
 
       {/* Shared pagination controls */}
-      {!loading && activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && activeTab !== "attestations" && activeData.length > 0 && (
+      {!loading && activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && activeTab !== "attestations" && activeTab !== "attestation-fees" && activeData.length > 0 && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-x border-b rounded-b-lg px-3 sm:px-4 py-3 text-xs sm:text-sm">
           <span className="text-muted-foreground">
             {activeData.length} {activeTab === "payments" ? "transaction" : "withdrawal"}{activeData.length !== 1 ? "s" : ""} total
