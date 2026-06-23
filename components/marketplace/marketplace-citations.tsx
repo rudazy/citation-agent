@@ -30,6 +30,7 @@ import {
   payAndFetchTrustByPostId,
   payTrustByPostIdWithAgent,
 } from "@/lib/trustgate-post-client";
+import { selectTrustForPost } from "@/lib/trust-display";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -359,7 +360,10 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             const isUnlocked = expand.status === "unlocked";
             const isUnlockLoading = expand.status === "loading";
             const trustCell = getTrustState(item);
-            const displayTrust = trustCell.trust;
+            // Bind display strictly to this post: a score only ever renders on the
+            // card it was fetched for. A foreign/unstamped signal renders Unscored,
+            // so a paid score can never leak onto another post's card.
+            const displayTrust = selectTrustForPost(item.id, trustCell.trust);
             const trustLoading = trustCell.status === "loading";
             const paidTrustDone = trustCell.status === "done" && displayTrust?.source === "paid";
             const defaultPayer: PayerChoice = metamaskAvailable ? "metamask" : "agent";

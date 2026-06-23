@@ -10,6 +10,8 @@ export type PublicTrustSignal = {
   confidence: number;
   recommendation?: string;
   source: "free" | "paid";
+  /** Post id this signal was computed for; display is bound to it (see lib/trust-display.ts). */
+  forPostId?: string;
 };
 
 export function formatTrustLabel(signal: PublicTrustSignal | null | undefined): string | null {

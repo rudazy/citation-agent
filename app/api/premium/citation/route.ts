@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCreatorContentById } from "@/lib/citations";
+import { getCreatorContentById, resolveUnlockPayee } from "@/lib/citations";
 import { incrementPostPaidCount } from "@/lib/creator-posts";
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
@@ -24,6 +24,9 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
   const paymentMemo =
     ctx.paymentMemo ?? formatCitationPaymentMemo(content.id, content.author);
 
+  const settledToCreator =
+    ctx.payTo.toLowerCase() === content.payoutWallet.toLowerCase();
+
   await recordCitationRoyalty({
     citationId: content.id,
     creatorName: content.author,
@@ -33,6 +36,7 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
     gatewayTx: ctx.gatewayTx,
     query,
     paymentMemo,
+    fullToCreator: settledToCreator,
   });
 
   if (content.source === "database") {
@@ -48,13 +52,13 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
       tags: content.tags,
       subheading: content.subheading,
       body: content.body,
-      royalty_split: {
-        creator_share: "70%",
-        platform_share: "30%",
-      },
+      royalty_split: settledToCreator
+        ? { creator_share: "100%", platform_share: "0%" }
+        : { creator_share: "0%", platform_share: "100%" },
     },
-    attribution:
-      "Paid citation — royalty recorded for creator payout wallet at settlement time.",
+    attribution: settledToCreator
+      ? "Paid citation — full amount settled on-chain to the creator payout wallet."
+      : "Paid citation — settled to the platform operator wallet (legacy seed without a payout wallet).",
     payment_memo: paymentMemo,
     timestamp: new Date().toISOString(),
   });
@@ -64,6 +68,7 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   const content = id ? await getCreatorContentById(id) : null;
   const price = content ? `$${content.priceUsdc}` : "$0.001";
+  const payTo = content ? resolveUnlockPayee(content) : null;
 
-  return withGateway(handler, price, "/api/premium/citation")(req);
+  return withGateway(handler, price, "/api/premium/citation", payTo)(req);
 }

@@ -69,8 +69,8 @@ async function payOracleFee(
   return txHash;
 }
 
-function toTrust(score: PaidTrustScore | null): PublicTrustSignal | null {
-  return score ? paidScoreToSignal(score) : null;
+function toTrust(score: PaidTrustScore | null, postId: string): PublicTrustSignal | null {
+  return score ? paidScoreToSignal(score, postId) : null;
 }
 
 export async function payAndFetchTrustByPostId(params: {
@@ -90,7 +90,7 @@ export async function payAndFetchTrustByPostId(params: {
   }
 
   if (lookup.status === "cached") {
-    return { status: "cached", trust: toTrust(lookup.score) };
+    return { status: "cached", trust: toTrust(lookup.score, postId) };
   }
   if (lookup.status === "unconfigured") return { status: "unconfigured" };
   if (lookup.status === "error") return { status: "failed", reason: lookup.reason };
@@ -117,7 +117,7 @@ export async function payAndFetchTrustByPostId(params: {
     });
     const settle = (await res.json()) as ScoreSettleResponse;
     if (settle.status === "ok") {
-      return { status: "ok", trust: paidScoreToSignal(settle.score) };
+      return { status: "ok", trust: paidScoreToSignal(settle.score, postId) };
     }
     if (settle.status === "unconfigured") return { status: "unconfigured" };
     return {
@@ -153,10 +153,10 @@ export async function payTrustByPostIdWithAgent(postId: string): Promise<PostTru
   }
 
   if (data.status === "ok" && data.score) {
-    return { status: "ok", trust: paidScoreToSignal(data.score) };
+    return { status: "ok", trust: paidScoreToSignal(data.score, postId) };
   }
   if (data.status === "cached") {
-    return { status: "cached", trust: toTrust(data.score) };
+    return { status: "cached", trust: toTrust(data.score, postId) };
   }
   if (data.status === "unconfigured") return { status: "unconfigured" };
   return {

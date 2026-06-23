@@ -21,7 +21,7 @@ The stack is intentionally production-shaped: typed APIs, server-held paywalled 
 
 ### Pay-per-citation
 
-Creator content is split into a **public teaser** (title, subheading, price, tags) and a **paid body**. The body is never returned until the buyer completes an x402 payment. Each successful unlock records a **70% creator / 30% platform** royalty split.
+Creator content is split into a **public teaser** (title, subheading, price, tags) and a **paid body**. The body is never returned until the buyer completes an x402 payment. Each successful unlock settles in full to the creator's payout wallet and records a creator-earnings ledger entry for that amount.
 
 Content comes from two sources, merged into one catalog:
 
@@ -51,7 +51,7 @@ sequenceDiagram
   API-->>Buyer: 200 + protected content
 ```
 
-Payments settle to `SELLER_ADDRESS` (the platform operator wallet). Per-post `payout_wallet` values are stored for royalty accounting but are not yet used as the x402 payee.
+Unlock payments settle directly to the post's `payout_wallet` (which defaults to the creator's connected wallet at publish), and the full amount goes to the creator. Legacy markdown seed posts that never set a payout wallet fall back to `SELLER_ADDRESS` (the platform operator wallet). Platform revenue comes from attestation fees, not from an unlock split.
 
 ### USDC attestations
 
@@ -212,7 +212,7 @@ Supabase is optional for local UI exploration but required for publish, realtime
 | Table | Role |
 | --- | --- |
 | `payment_events` | Append-only x402 settlement log |
-| `creator_earnings` | Per-unlock royalty records (70/30 split) |
+| `creator_earnings` | Per-unlock royalty records (full amount to creator payout wallet) |
 | `agent_reputation` | Payer spend totals and citation counts |
 | `creator_posts` | Published marketplace content (service-role access only) |
 | `user_agent_wallets` | Encrypted per-session agent private keys |
@@ -283,7 +283,6 @@ For publish and dashboard persistence, add Supabase URL, anon key, and service r
 
 These are intentional gaps in the current reference, not oversights:
 
-- **Per-post payout routing** — `payout_wallet` is stored and used in royalty records, but x402 settlement still credits `SELLER_ADDRESS`
 - **TrustGate** — fully optional; the app runs without scores
 - **Supabase** — optional for read-only exploration; required for publish and realtime dashboard
 - **Testnet only** — do not reuse generated keys on mainnet

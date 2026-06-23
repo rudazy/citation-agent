@@ -34,6 +34,8 @@ export type GatewayContext = {
   gatewayTx: string | null;
   amountUsdc: string;
   paymentMemo: string | null;
+  /** On-chain recipient the payment settled to (per-post payout wallet or SELLER_ADDRESS). */
+  payTo: string;
 };
 
 interface PaymentPayload {
@@ -44,8 +46,10 @@ interface PaymentPayload {
   extensions?: Record<string, unknown>;
 }
 
-function buildPaymentRequirements(price: string) {
-  const payTo = getSellerAddress();
+function buildPaymentRequirements(price: string, payToOverride?: string | null) {
+  // Per-post payee (creator payout wallet) when provided; otherwise the
+  // platform SELLER_ADDRESS (legacy seeds / non-post paid routes).
+  const payTo = payToOverride ?? getSellerAddress();
   if (!payTo) {
     throw new Error(
       "SELLER_ADDRESS not configured. Run npm run generate-wallets (preserves existing buyer keys).",
@@ -83,11 +87,12 @@ export function withGateway(
   ) => Promise<NextResponse>,
   price: string,
   endpoint: string,
+  payTo?: string | null,
 ) {
   return async (req: NextRequest) => {
     let requirements: ReturnType<typeof buildPaymentRequirements>;
     try {
-      requirements = buildPaymentRequirements(price);
+      requirements = buildPaymentRequirements(price, payTo);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return NextResponse.json({ error: message }, { status: 500 });
@@ -169,7 +174,13 @@ export function withGateway(
       const payer = settleResult.payer ?? verifyResult.payer ?? "unknown";
       const gatewayTx = settleResult.transaction ?? null;
       const paymentMemo = readPaymentMemo(req);
-      const ctx: GatewayContext = { payer, gatewayTx, amountUsdc, paymentMemo };
+      const ctx: GatewayContext = {
+        payer,
+        gatewayTx,
+        amountUsdc,
+        paymentMemo,
+        payTo: requirements.payTo,
+      };
 
       await recordPaymentEvent({
         endpoint,

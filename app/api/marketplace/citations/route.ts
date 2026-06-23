@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCreatorContentById, loadAllCreatorContent } from "@/lib/citations";
+import { getCreatorContentById, loadAllCreatorContent, resolveUnlockPayee } from "@/lib/citations";
 import { incrementPostPaidCount, insertPublishedPost } from "@/lib/creator-posts";
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
@@ -27,6 +27,11 @@ const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
   const paymentMemo =
     ctx.paymentMemo ?? formatCitationPaymentMemo(content.id, content.author);
 
+  // True when the payment settled to the creator's payout wallet (not the
+  // legacy SELLER_ADDRESS fallback). The full amount goes to the creator.
+  const settledToCreator =
+    ctx.payTo.toLowerCase() === content.payoutWallet.toLowerCase();
+
   await recordCitationRoyalty({
     citationId: content.id,
     creatorName: content.author,
@@ -36,6 +41,7 @@ const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
     gatewayTx: ctx.gatewayTx,
     query,
     paymentMemo,
+    fullToCreator: settledToCreator,
   });
 
   if (content.source === "database") {
@@ -58,13 +64,13 @@ const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
       tags: content.tags,
       subheading: content.subheading,
       body: content.body,
-      royalty_split: {
-        creator_share: "70%",
-        platform_share: "30%",
-      },
+      royalty_split: settledToCreator
+        ? { creator_share: "100%", platform_share: "0%" }
+        : { creator_share: "0%", platform_share: "100%" },
     },
-    attribution:
-      "Paid marketplace citation — royalty recorded for creator payout wallet at settlement time.",
+    attribution: settledToCreator
+      ? "Paid marketplace citation — full amount settled on-chain to the creator payout wallet."
+      : "Paid marketplace citation — settled to the platform operator wallet (legacy seed without a payout wallet).",
     payment_memo: paymentMemo,
     arc_memo_contract: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
     timestamp: new Date().toISOString(),
@@ -92,7 +98,11 @@ export async function GET(req: NextRequest) {
       paid_count: item.paidCount,
       endpoint: `/api/marketplace/citations?id=${item.id}`,
       token: process.env.CANTEEN_USDC_ADDRESS ? "cUSDC" : "USDC",
-      trust: trustScoreToSignal(scores.get(item.connectedWallet.toLowerCase()) ?? null, "free"),
+      trust: trustScoreToSignal(
+        scores.get(item.connectedWallet.toLowerCase()) ?? null,
+        "free",
+        item.id,
+      ),
       trust_paid_lookup: paidTrustAvailable,
     }));
 
@@ -107,8 +117,9 @@ export async function GET(req: NextRequest) {
 
   const content = await getCreatorContentById(id);
   const price = content ? `$${content.priceUsdc}` : "$0.001";
+  const payTo = content ? resolveUnlockPayee(content) : null;
 
-  return withGateway(paidHandler, price, "/api/marketplace/citations")(req);
+  return withGateway(paidHandler, price, "/api/marketplace/citations", payTo)(req);
 }
 
 export async function POST(req: NextRequest) {

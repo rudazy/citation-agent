@@ -1,4 +1,3 @@
-import { splitRoyalty } from "@/lib/citations";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 export async function recordCitationRoyalty(params: {
@@ -10,6 +9,12 @@ export async function recordCitationRoyalty(params: {
   gatewayTx: string | null;
   query?: string;
   paymentMemo?: string | null;
+  /**
+   * True when the unlock settled on-chain to the creator's payout wallet.
+   * The full amount goes to the creator (no platform split on unlocks).
+   * False for legacy seeds that settle to the platform SELLER_ADDRESS.
+   */
+  fullToCreator?: boolean;
 }) {
   const supabase = getAdminClient();
   if (!supabase) {
@@ -17,7 +22,12 @@ export async function recordCitationRoyalty(params: {
     return;
   }
 
-  const { creatorAmount, platformAmount } = splitRoyalty(params.grossUsdc);
+  // The unlock payment settles in full to a single on-chain payee — there is no
+  // onchain split. The ledger records where the money actually went: the creator
+  // payout wallet, or (legacy seeds) the platform SELLER_ADDRESS.
+  const gross = parseFloat(params.grossUsdc);
+  const creatorAmount = (params.fullToCreator ? gross : 0).toFixed(6);
+  const platformAmount = (params.fullToCreator ? 0 : gross).toFixed(6);
 
   const { error: earningsError } = await supabase.from("creator_earnings").insert({
     citation_id: params.citationId,

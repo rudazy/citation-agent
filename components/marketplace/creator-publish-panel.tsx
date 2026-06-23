@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, PenLine, Wallet } from "lucide-react";
+import { ChevronDown, Loader2, PenLine, Wallet } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,8 @@ type Props = {
 };
 
 export function CreatorPublishPanel({ onPublished }: Props) {
+  // Collapsed by default — most marketplace visitors are readers, not creators.
+  const [expanded, setExpanded] = useState(false);
   const [walletAvailable, setWalletAvailable] = useState(false);
   const [connected, setConnected] = useState<`0x${string}` | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -139,11 +141,16 @@ export function CreatorPublishPanel({ onPublished }: Props) {
 
   return (
     <Panel glow className="space-y-5 p-4 sm:p-5 border-[#f5c842]/20">
-      <div className="flex items-start gap-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-start gap-3 text-left"
+      >
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-[#f5c842]/30 bg-[#f5c842]/10">
           <PenLine size={18} className="text-[#f5c842]" />
         </div>
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0 flex-1 space-y-1">
           <h2 className="text-lg font-semibold tracking-wide">Publish paid content</h2>
           <p className="font-mono text-xs sm:text-sm text-muted-foreground leading-relaxed">
             Connect your wallet and sign to prove identity. Set a price (min{" "}
@@ -151,8 +158,17 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             wallet. Body stays server-side until a reader pays.
           </p>
         </div>
-      </div>
+        <ChevronDown
+          size={18}
+          className={cn(
+            "mt-1 shrink-0 text-[#888] transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
 
+      {expanded && (
+      <>
       {!walletAvailable && (
         <p className="rounded border border-[#333] bg-[#111] px-3 py-2 font-mono text-xs text-[#888]">
           Install MetaMask or another injected wallet to publish.
@@ -302,6 +318,8 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           "Sign and publish"
         )}
       </Button>
+      </>
+      )}
     </Panel>
   );
 }

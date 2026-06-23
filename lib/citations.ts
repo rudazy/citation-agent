@@ -1,7 +1,10 @@
 import fs from "fs";
 import path from "path";
+import { getAddress } from "viem";
 import type { TrustScore } from "@/lib/trustgate";
 import { loadPublishedPostsFromDb, getPublishedPostById } from "@/lib/creator-posts";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export type CreatorContent = {
   id: string;
@@ -162,6 +165,25 @@ export async function searchCreatorContent(
     .sort((a, b) => b.score - a.score);
 
   return scored.slice(0, limit).map(({ item }) => item);
+}
+
+/**
+ * Resolves the on-chain payee for an unlock payment.
+ *
+ * Returns the post's payout wallet (checksummed) when it is a valid, non-zero
+ * EVM address. Returns null when the post has no usable payout wallet so the
+ * caller falls back to the platform SELLER_ADDRESS — this preserves behaviour
+ * for legacy markdown seed posts that never set a payout wallet.
+ */
+export function resolveUnlockPayee(content: CreatorContent): `0x${string}` | null {
+  if (!content.payoutWallet) return null;
+  try {
+    const checksummed = getAddress(content.payoutWallet);
+    if (checksummed === ZERO_ADDRESS) return null;
+    return checksummed;
+  } catch {
+    return null;
+  }
 }
 
 export function splitRoyalty(totalUsdc: string): {

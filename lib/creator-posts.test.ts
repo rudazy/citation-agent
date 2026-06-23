@@ -40,4 +40,35 @@ describe("creator-posts", () => {
       validatePublishInput({ ...base, payoutWallet: "0xbad" }),
     ).toContain("Payout");
   });
+
+  it("accepts a valid payout wallet", () => {
+    const base = {
+      title: "Test title",
+      subheading: "Public teaser for readers",
+      body: "This is the paywalled body with enough length.",
+      priceUsdc: "0.001",
+      connectedWallet: CONNECTED,
+    };
+
+    expect(
+      validatePublishInput({ ...base, payoutWallet: CONNECTED }),
+    ).toBeNull();
+  });
+
+  it("rejects a zero-address payout wallet so funds can never be burned", () => {
+    const base = {
+      title: "Test title",
+      subheading: "Public teaser for readers",
+      body: "This is the paywalled body with enough length.",
+      priceUsdc: "0.001",
+      connectedWallet: CONNECTED,
+    };
+
+    expect(
+      validatePublishInput({
+        ...base,
+        payoutWallet: "0x0000000000000000000000000000000000000000",
+      }),
+    ).toContain("zero address");
+  });
 });

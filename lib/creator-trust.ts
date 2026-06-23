@@ -12,6 +12,12 @@ export type PublicTrustSignal = {
   confidence: number;
   recommendation?: string;
   source: "free" | "paid";
+  /**
+   * Post id this signal was computed for. Display must be bound to this so a
+   * score can only ever render on the exact card it was fetched for; a signal
+   * with no/foreign `forPostId` must render as Unscored. See lib/trust-display.ts.
+   */
+  forPostId?: string;
 };
 
 export function isPaidTrustLookupAvailable(): boolean {
@@ -21,6 +27,7 @@ export function isPaidTrustLookupAvailable(): boolean {
 export function trustScoreToSignal(
   trust: TrustScore | null | undefined,
   source: "free" | "paid" = "free",
+  forPostId?: string,
 ): PublicTrustSignal | null {
   if (!trust) return null;
   return {
@@ -28,16 +35,21 @@ export function trustScoreToSignal(
     tier: trust.tier,
     confidence: trust.confidence,
     source,
+    ...(forPostId ? { forPostId } : {}),
   };
 }
 
-export function paidScoreToSignal(score: PaidTrustScore): PublicTrustSignal {
+export function paidScoreToSignal(
+  score: PaidTrustScore,
+  forPostId?: string,
+): PublicTrustSignal {
   return {
     score: Math.round(score.score),
     tier: score.tier,
     confidence: 0,
     recommendation: score.recommendation || undefined,
     source: "paid",
+    ...(forPostId ? { forPostId } : {}),
   };
 }
 

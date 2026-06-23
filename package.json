@@ -15,7 +15,7 @@
     "attest": "node --experimental-transform-types --no-warnings --env-file=.env.local scripts/attest-target.mts",
     "decode-batch": "node --experimental-transform-types --no-warnings scripts/decode-batch.mts",
     "test": "vitest run",
-    "test:marketplace": "vitest run lib/publish-auth.test.ts lib/creator-posts.test.ts lib/citation-unlock-client.test.ts lib/creator-trust.test.ts",
+    "test:marketplace": "vitest run lib/publish-auth.test.ts lib/creator-posts.test.ts lib/citation-unlock-client.test.ts lib/citations-payee.test.ts lib/creator-trust.test.ts",
     "smoke:marketplace": "node --experimental-transform-types --no-warnings --env-file=.env.local scripts/smoke-marketplace.mts",
     "smoke:marketplace:full": "node --experimental-transform-types --no-warnings --env-file=.env.local scripts/smoke-marketplace.mts --full"
   },

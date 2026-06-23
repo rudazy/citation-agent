@@ -6,6 +6,8 @@ import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
 
 export { MIN_POST_PRICE_USDC };
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 export type CreatorPostRow = {
   id: string;
   created_at: string;
@@ -85,10 +87,14 @@ export function validatePublishInput(input: PublishPostInput): string | null {
   }
 
   if (input.payoutWallet) {
+    let checksummed: string;
     try {
-      getAddress(input.payoutWallet);
+      checksummed = getAddress(input.payoutWallet);
     } catch {
       return "Payout wallet must be a valid address";
+    }
+    if (checksummed === ZERO_ADDRESS) {
+      return "Payout wallet cannot be the zero address";
     }
   }
 
