@@ -7,14 +7,20 @@ import { GatewayBalanceDialog, type GatewayBalances } from "./gateway-balance-di
 import { Button } from "@/components/ui/button";
 
 /** Operator-only seller earnings pool (x402 + attestation platform fees). */
-export function SellerGatewayControls() {
+export function SellerGatewayControls({
+  getAuthHeaders,
+}: {
+  getAuthHeaders: () => Promise<Record<string, string>>;
+}) {
   const [balances, setBalances] = useState<GatewayBalances | null>(null);
   const [loading, setLoading] = useState(false);
 
   const fetchBalances = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/gateway/balance");
+      const res = await fetch("/api/gateway/balance", {
+        headers: await getAuthHeaders(),
+      });
       if (res.ok) {
         setBalances((await res.json()) as GatewayBalances);
       }
@@ -23,7 +29,7 @@ export function SellerGatewayControls() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getAuthHeaders]);
 
   useEffect(() => {
     void fetchBalances();
@@ -70,6 +76,7 @@ export function SellerGatewayControls() {
         nativeGas={balances.nativeGas}
         walletUsdc={balances.wallet.balance}
         sellerKeyConfigured={balances.sellerKeyConfigured ?? false}
+        getAuthHeaders={getAuthHeaders}
         onSuccess={fetchBalances}
       />
     </div>

@@ -18,7 +18,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AttestModal, AttestationRegistry } from "@/components/attest";
 import { AttestTrigger } from "@/components/attest/attest-trigger";
 import { useSearchParams } from "next/navigation";
@@ -74,6 +74,16 @@ import { usePaymentEvents } from "@/hooks/use-transactions";
 import { useWithdrawals } from "@/hooks/use-withdrawals";
 import { useCreatorEarnings } from "@/hooks/use-creator-earnings";
 import { useAgentReputation } from "@/hooks/use-agent-reputation";
+import {
+  isOperator,
+  operatorHeaders,
+  signOperatorAuth,
+  type OperatorAuth,
+} from "@/lib/operator-client";
+import type { EthereumProvider } from "@/lib/ethereum-provider";
+import "@/lib/ethereum-provider";
+
+const OPERATOR_AUTH_TTL_MS = 14 * 60 * 1000;
 
 type SortDirection = "default" | "asc" | "desc";
 type SortField = "amount" | "date";
@@ -146,6 +156,72 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 export default function Dashboard() {
   const searchParams = useSearchParams();
+
+  // ── Operator (platform fee recipient) detection + signed auth ──
+  const [connectedAccount, setConnectedAccount] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("payments");
+  const operator = isOperator(connectedAccount);
+
+  useEffect(() => {
+    const ethereum: EthereumProvider | undefined = window.ethereum;
+    if (!ethereum) return;
+    let active = true;
+    (async () => {
+      try {
+        const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
+        if (active) setConnectedAccount(accounts?.[0] ?? null);
+      } catch {
+        if (active) setConnectedAccount(null);
+      }
+    })();
+    const onAccountsChanged = (...args: unknown[]) => {
+      const accounts = args[0] as string[] | undefined;
+      setConnectedAccount(accounts?.[0] ?? null);
+    };
+    ethereum.on?.("accountsChanged", onAccountsChanged);
+    return () => {
+      active = false;
+      ethereum.removeListener?.("accountsChanged", onAccountsChanged);
+    };
+  }, []);
+
+  const operatorAuthRef = useRef<OperatorAuth | null>(null);
+  const operatorAuthInFlight = useRef<Promise<OperatorAuth> | null>(null);
+
+  // Drop a cached signature if the connected wallet changes.
+  useEffect(() => {
+    operatorAuthRef.current = null;
+  }, [connectedAccount]);
+
+  const ensureOperatorAuth = useCallback(async (): Promise<OperatorAuth> => {
+    const current = operatorAuthRef.current;
+    if (current && Date.now() - Number(current.timestamp) < OPERATOR_AUTH_TTL_MS) {
+      return current;
+    }
+    if (operatorAuthInFlight.current) return operatorAuthInFlight.current;
+
+    const ethereum: EthereumProvider | undefined = window.ethereum;
+    if (!ethereum) throw new Error("Wallet not found");
+    if (!connectedAccount) throw new Error("Connect your operator wallet");
+
+    const promise = (async () => {
+      const auth = await signOperatorAuth(ethereum, connectedAccount as `0x${string}`);
+      operatorAuthRef.current = auth;
+      return auth;
+    })();
+    operatorAuthInFlight.current = promise;
+    try {
+      return await promise;
+    } finally {
+      operatorAuthInFlight.current = null;
+    }
+  }, [connectedAccount]);
+
+  const getOperatorAuthHeaders = useCallback(
+    async () => operatorHeaders(await ensureOperatorAuth()),
+    [ensureOperatorAuth],
+  );
+
   const {
     events,
     loading: loadingPayments,
@@ -157,17 +233,24 @@ export default function Dashboard() {
     loading: loadingAttestationFees,
     totalFees: attestationFeesTotal,
     refetch: refetchAttestationFees,
-  } = useAttestationFees();
+  } = useAttestationFees({
+    enabled: operator && activeTab === "attestation-fees",
+    getAuthHeaders: getOperatorAuthHeaders,
+  });
   const { withdrawals, loading: loadingWithdrawals } = useWithdrawals();
   const { earnings, loading: loadingEarnings } = useCreatorEarnings();
   const { agents, loading: loadingReputation } = useAgentReputation();
-  const [activeTab, setActiveTab] = useState("payments");
 
   useEffect(() => {
     const tab = searchParams.get("tab");
     if (tab === "trace") setActiveTab("trace");
     else if (tab === "attestations") setActiveTab("attestations");
   }, [searchParams]);
+
+  // Never leave a non-operator on the operator-only fees tab.
+  useEffect(() => {
+    if (!operator && activeTab === "attestation-fees") setActiveTab("payments");
+  }, [operator, activeTab]);
   const [filter, setFilter] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("default");
@@ -307,7 +390,7 @@ export default function Dashboard() {
           { label: "Payments", value: statPayments },
           { label: "Royalties", value: statRoyalties },
           { label: "Agents", value: statAgents },
-          { label: "Attest fees", value: statAttestationFees },
+          ...(operator ? [{ label: "Attest fees", value: statAttestationFees }] : []),
           { label: "Withdrawals", value: statWithdrawals },
         ].map((stat) => (
           <Panel key={stat.label} className="px-3 py-2.5 sm:px-4 sm:py-3">
@@ -400,12 +483,14 @@ export default function Dashboard() {
             <TabsTrigger value="payments" className="shrink-0 px-3 text-xs sm:text-sm">Payments</TabsTrigger>
             <TabsTrigger value="creators" className="shrink-0 px-3 text-xs sm:text-sm">Creators</TabsTrigger>
             <TabsTrigger value="reputation" className="shrink-0 px-3 text-xs sm:text-sm">Agents</TabsTrigger>
-            <TabsTrigger
-              value="attestation-fees"
-              className="shrink-0 gap-1.5 px-3 text-xs sm:text-sm data-[state=active]:bg-[#f5c842]/12 data-[state=active]:text-[#f5c842] data-[state=active]:ring-1 data-[state=active]:ring-[#f5c842]/35"
-            >
-              Attest fees
-            </TabsTrigger>
+            {operator && (
+              <TabsTrigger
+                value="attestation-fees"
+                className="shrink-0 gap-1.5 px-3 text-xs sm:text-sm data-[state=active]:bg-[#f5c842]/12 data-[state=active]:text-[#f5c842] data-[state=active]:ring-1 data-[state=active]:ring-[#f5c842]/35"
+              >
+                Attest fees
+              </TabsTrigger>
+            )}
             <TabsTrigger value="withdrawals" className="shrink-0 px-3 text-xs sm:text-sm">Your withdrawals</TabsTrigger>
             <TabsTrigger
               value="attestations"
@@ -854,6 +939,7 @@ export default function Dashboard() {
           </div>
         </TabsContent>
 
+        {operator && (
         <TabsContent value="attestation-fees">
           <Panel className="mb-4 border-[#f5c842]/20 bg-[#f5c842]/5 px-4 py-3 space-y-4">
             <p className="text-sm font-mono text-muted-foreground leading-relaxed">
@@ -866,7 +952,7 @@ export default function Dashboard() {
               ${attestationFeesTotal.toFixed(1)} USDC earned ({statAttestationFees} attestation
               {statAttestationFees !== 1 ? "s" : ""})
             </p>
-            <SellerGatewayControls />
+            <SellerGatewayControls getAuthHeaders={getOperatorAuthHeaders} />
           </Panel>
           <div className="mb-3 flex justify-end">
             <button
@@ -1006,6 +1092,7 @@ export default function Dashboard() {
             </Table>
           </div>
         </TabsContent>
+        )}
 
         <TabsContent value="withdrawals">
           <MobileDataCardList

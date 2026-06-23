@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useCallback, useEffect, useState } from "react";
 
 export type AttestationPlatformFee = {
   id: string;
@@ -13,63 +11,59 @@ export type AttestationPlatformFee = {
   recipient: string;
 };
 
-export function useAttestationFees() {
+type UseAttestationFeesOptions = {
+  /** Only the operator may fetch fee data; disabled otherwise. */
+  enabled?: boolean;
+  /** Produces operator auth headers (signs on demand). Required when enabled. */
+  getAuthHeaders?: () => Promise<Record<string, string>>;
+};
+
+/**
+ * Operator-only platform fee ledger. Fetched from the operator-authenticated
+ * server route (not read directly from Supabase), so non-operators cannot
+ * retrieve fee data.
+ */
+export function useAttestationFees({
+  enabled = false,
+  getAuthHeaders,
+}: UseAttestationFeesOptions = {}) {
   const [fees, setFees] = useState<AttestationPlatformFee[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const clientRef = useRef<ReturnType<typeof createClient>>(null);
 
   const fetchFees = useCallback(async () => {
-    const client = clientRef.current;
-    if (!client) {
-      setLoading(false);
-      setError("Supabase not configured");
+    if (!enabled || !getAuthHeaders) {
+      setFees([]);
       return;
     }
 
     setLoading(true);
     setError(null);
-
-    const { data, error: fetchError } = await client
-      .from("attestation_platform_fees")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (fetchError) {
-      setError(fetchError.message);
-    } else {
-      setFees(data as AttestationPlatformFee[]);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/attestation/fees", { headers, cache: "no-store" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Failed to load fees (${res.status})`);
+      }
+      const data = (await res.json()) as { fees?: AttestationPlatformFee[] };
+      setFees(data.fees ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load attestation fees");
+      setFees([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, []);
+  }, [enabled, getAuthHeaders]);
 
   useEffect(() => {
-    const supabase = createClient();
-    clientRef.current = supabase;
-    if (!supabase) {
-      setLoading(false);
-      return;
+    if (enabled) {
+      void fetchFees();
+    } else {
+      setFees([]);
+      setError(null);
     }
-
-    const client = supabase;
-    const channel = client
-      .channel("attestation-fees-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "attestation_platform_fees" },
-        (payload) => {
-          const row = payload.new as AttestationPlatformFee;
-          setFees((prev) => (prev.some((f) => f.id === row.id) ? prev : [row, ...prev]));
-        },
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") void fetchFees();
-      });
-
-    return () => {
-      client.removeChannel(channel);
-    };
-  }, [fetchFees]);
+  }, [enabled, fetchFees]);
 
   const totalFees = fees.reduce(
     (sum, row) => sum + parseFloat(row.platform_fee_usdc || "0"),

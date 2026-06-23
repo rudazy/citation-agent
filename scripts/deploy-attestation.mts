@@ -7,8 +7,15 @@ import {
   createWalletClient,
   http,
   formatEther,
+  type Hex,
+  getAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+
+/** Immutable platform fee recipient baked into the deployed contract. */
+const PLATFORM_FEE_RECIPIENT = getAddress(
+  "0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62",
+);
 
 const ARC_CHAIN = {
   id: 5042002,
@@ -87,9 +94,12 @@ async function main(): Promise<void> {
   console.log(`Deployer: ${account.address}`);
   console.log(`Balance:  ${formatEther(balance)} USDC (native gas)`);
 
+  console.log(`Platform fee recipient: ${PLATFORM_FEE_RECIPIENT}`);
+
   const hash = await walletClient.deployContract({
     abi,
     bytecode,
+    args: [PLATFORM_FEE_RECIPIENT],
     account,
     chain: ARC_CHAIN,
   });
@@ -104,8 +114,13 @@ async function main(): Promise<void> {
   }
 
   console.log(`Attestation deployed: ${contractAddress}`);
+  console.log(`Deploy block: ${receipt.blockNumber}`);
   console.log(`Explorer: https://testnet.arcscan.app/address/${contractAddress}`);
-  console.log(`\nAdd to .env.local:\nATTESTATION_ADDRESS=${contractAddress}`);
+  console.log(`\nAdd to .env.local:`);
+  console.log(`ATTESTATION_ADDRESS=${contractAddress}`);
+  console.log(`NEXT_PUBLIC_ATTESTATION_ADDRESS=${contractAddress}`);
+  console.log(`ATTESTATION_DEPLOY_BLOCK=${receipt.blockNumber}`);
+  console.log(`NEXT_PUBLIC_OPERATOR_ADDRESS=${PLATFORM_FEE_RECIPIENT}`);
 }
 
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);

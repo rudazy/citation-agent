@@ -10,6 +10,7 @@ import {
   type WithdrawRole,
 } from "@/lib/gateway-withdraw";
 import { getSellerPrivateKey } from "@/lib/payment-wallets";
+import { verifyOperatorRequest } from "@/lib/operator";
 
 const bodySchema = z.object({
   role: z.enum(["seller", "agent"]).default("seller"),
@@ -37,6 +38,12 @@ export async function POST(req: NextRequest) {
   }
 
   const role = body.role as WithdrawRole;
+
+  // Seller withdrawals move operator funds — gate to the verified operator.
+  // Agent withdrawals stay scoped to the caller's own browser session wallet.
+  if (role === "seller" && !(await verifyOperatorRequest(req))) {
+    return NextResponse.json({ error: "Operator only" }, { status: 403 });
+  }
 
   if (role === "seller" && !getSellerPrivateKey()) {
     return NextResponse.json(

@@ -54,6 +54,8 @@ type GatewayWithdrawDialogProps = {
   nativeGas?: string | null;
   walletUsdc?: string | null;
   sellerKeyConfigured?: boolean;
+  /** Operator auth headers for seller withdrawals (operator-only). */
+  getAuthHeaders?: () => Promise<Record<string, string>>;
   onSuccess?: () => void;
   trigger?: React.ReactNode;
   triggerClassName?: string;
@@ -98,6 +100,7 @@ export function GatewayWithdrawDialog({
   nativeGas,
   walletUsdc,
   sellerKeyConfigured = true,
+  getAuthHeaders,
   onSuccess,
   trigger,
   triggerClassName,
@@ -146,9 +149,10 @@ export function GatewayWithdrawDialog({
 
     setSubmitting(true);
     try {
+      const authHeaders = getAuthHeaders ? await getAuthHeaders() : {};
       const res = await fetch("/api/gateway/withdraw", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           role,
           amount,

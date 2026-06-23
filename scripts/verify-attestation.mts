@@ -1,9 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import solc from "solc";
+import { encodeAbiParameters, getAddress, parseAbiParameters } from "viem";
 
 const ARCSCAN_API = "https://testnet.arcscan.app/api";
+
+const PLATFORM_FEE_RECIPIENT = getAddress(
+  "0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62",
+);
+
+function encodedConstructorArgs(): string {
+  const encoded = encodeAbiParameters(parseAbiParameters("address"), [
+    PLATFORM_FEE_RECIPIENT,
+  ]);
+  return encoded.slice(2);
+}
 
 function getStandardJsonInput(): string {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -66,6 +77,7 @@ async function main(): Promise<void> {
     optimizationUsed: "1",
     runs: "200",
     sourceCode: getStandardJsonInput(),
+    constructorArguements: encodedConstructorArgs(),
   });
   if (apiKey) body.set("apikey", apiKey);
 

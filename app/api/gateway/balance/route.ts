@@ -3,6 +3,7 @@ import { createPublicClient, http, formatUnits, erc20Abi } from "viem";
 import { arcTestnet } from "viem/chains";
 import { fetchGatewayBalanceSnapshot } from "@/lib/gateway-balances";
 import { getSellerAddress, getSellerPrivateKey, isSellerConfigured } from "@/lib/payment-wallets";
+import { verifyOperatorRequest } from "@/lib/operator";
 
 const ARC_TESTNET_RPC = "https://rpc.testnet.arc.network";
 const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000" as const;
@@ -35,7 +36,12 @@ async function getNativeGasBalance(address: `0x${string}`): Promise<string> {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // Seller earnings pool is operator-only. Do not expose the balance otherwise.
+  if (!(await verifyOperatorRequest(request))) {
+    return NextResponse.json({ error: "Operator only" }, { status: 403 });
+  }
+
   const sellerAddress = getSellerAddress();
   if (!sellerAddress) {
     return NextResponse.json({
