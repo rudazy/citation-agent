@@ -75,6 +75,7 @@ type Props = {
 };
 
 export function MarketplaceCitations({ refreshKey = 0 }: Props) {
+  const [sectionExpanded, setSectionExpanded] = useState(false);
   const [listings, setListings] = useState<CitationListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -322,38 +323,51 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   return (
     <>
       <Panel glow className="space-y-4 p-4 sm:p-5 border-[#f5c842]/20">
-        <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={() => setSectionExpanded((v) => !v)}
+          aria-expanded={sectionExpanded}
+          className="flex w-full items-start gap-3 text-left"
+        >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-[#f5c842]/30 bg-[#f5c842]/10">
             <FileText size={18} className="text-[#f5c842]" />
           </div>
-          <div className="min-w-0 space-y-1">
+          <div className="min-w-0 flex-1 space-y-1">
             <h2 className="text-lg font-semibold tracking-wide">Citation catalog</h2>
             <p className="text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
               Trust scores reflect the creator identity wallet (hidden). Expand unlocks the body.
               Paid unlock counts sit on each subheading.
             </p>
           </div>
-        </div>
+          <ChevronDown
+            size={18}
+            className={cn(
+              "mt-1 shrink-0 text-[#888] transition-transform",
+              sectionExpanded && "rotate-180",
+            )}
+          />
+        </button>
 
-        {loading && (
+        {sectionExpanded && loading && (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground font-mono">
             <Loader2 size={16} className="animate-spin text-[#f5c842]" />
             Loading citations…
           </div>
         )}
 
-        {error && (
+        {sectionExpanded && error && (
           <p className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
             {error}
           </p>
         )}
 
-        {!loading && !error && listings.length === 0 && (
+        {sectionExpanded && !loading && !error && listings.length === 0 && (
           <p className="py-8 text-center font-mono text-sm text-muted-foreground">
             No citation listings yet. Publish the first post above.
           </p>
         )}
 
+        {sectionExpanded && (
         <div className="grid gap-3">
           {listings.map((item) => {
             const expand = expandStates[item.id] ?? { status: "locked" };
@@ -559,6 +573,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             );
           })}
         </div>
+        )}
       </Panel>
 
       <AttestModal
