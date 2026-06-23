@@ -98,7 +98,7 @@ export async function runResearchQuery(query: string, options: ResearchOptions =
   const strictUnscored = options.strictUnscored ?? false;
   const gateActive = minTrust > 0;
 
-  const matches = searchCreatorContent(query, 3);
+  const matches = await searchCreatorContent(query, 3);
   if (matches.length === 0) {
     console.log("No matching citations found for query:", query);
     return;
@@ -106,10 +106,10 @@ export async function runResearchQuery(query: string, options: ResearchOptions =
 
   // Resolve a TrustGate score for each candidate source, then rank (and
   // optionally gate) before paying. Default behavior cites everyone.
-  const scoreMap = await getTrustScores(matches.map((item) => item.authorWallet));
+  const scoreMap = await getTrustScores(matches.map((item) => item.connectedWallet));
   const sources: RankableSource<CreatorContent>[] = matches.map((item) => ({
     item,
-    trust: scoreMap.get(item.authorWallet.toLowerCase()) ?? null,
+    trust: scoreMap.get(item.connectedWallet.toLowerCase()) ?? null,
   }));
   const { cited, skipped } = partitionByTrust(sources, { minTrust, strictUnscored });
 
@@ -196,7 +196,7 @@ export async function runResearchQuery(query: string, options: ResearchOptions =
     id: string;
     title: string;
     author: string;
-    excerpt: string;
+    subheading: string;
     amount: string;
     royalty: string;
     trust: TrustScore | null;
@@ -221,8 +221,10 @@ export async function runResearchQuery(query: string, options: ResearchOptions =
         id: item.id,
         title: result.data?.citation?.title ?? item.title,
         author: result.data?.citation?.author ?? item.author,
-        excerpt:
-          result.data?.citation?.body?.split("\n\n")[0] ?? item.excerpt,
+        subheading:
+          result.data?.citation?.subheading ??
+          result.data?.citation?.body?.split("\n\n")[0] ??
+          item.subheading,
         amount: result.formattedAmount,
         royalty: creatorAmount,
         trust: trustByCitation.get(item.id) ?? null,
@@ -239,7 +241,7 @@ export async function runResearchQuery(query: string, options: ResearchOptions =
   console.log("\n--- Research Synthesis (ranked by trust) ---\n");
   for (const cite of paidCitations) {
     console.log(`[${cite.author}] ${cite.title} [${formatTrust(cite.trust)}]`);
-    console.log(`  ${cite.excerpt}`);
+    console.log(`  ${cite.subheading}`);
     console.log(`  Paid: $${cite.amount} USDC | Creator royalty: $${cite.royalty}\n`);
   }
 

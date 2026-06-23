@@ -3,13 +3,13 @@
 Pay-per-citation research with Circle Gateway on Arc Testnet, plus USDC-staked on-chain trust attestations.
 
 https://citation-agent.vercel.app/
-Landing page.
+Redirects to the dashboard.
 
 https://citation-agent.vercel.app/marketplace
-x402 marketplace demo, citation catalog, and public on-chain claims registry.
+Creator publish, x402 citation unlock, TrustGate refresh, on-chain claims registry, and payment trace.
 
 https://citation-agent.vercel.app/dashboard
-Settlement dashboard: payments, creator royalties, agent reputation, withdrawals, and Claims tab.
+Settlement dashboard: payments, creator royalties, agent reputation, operator attestation fees, withdrawals, claims, and payment trace.
 
 https://citation-agent.vercel.app/dashboard?tab=attestations
 Public registry of USDC-staked attestations grouped by target (X accounts, wallets, sites, agents).

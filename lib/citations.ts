@@ -1,17 +1,25 @@
 import fs from "fs";
 import path from "path";
 import type { TrustScore } from "@/lib/trustgate";
+import { loadPublishedPostsFromDb, getPublishedPostById } from "@/lib/creator-posts";
 
 export type CreatorContent = {
   id: string;
   title: string;
   author: string;
-  authorWallet: `0x${string}`;
+  /** Identity wallet (proven at publish). Never exposed in public listings. */
+  connectedWallet: `0x${string}`;
+  /** Receives unlock payments. Defaults to connected wallet. */
+  payoutWallet: `0x${string}`;
   priceUsdc: string;
   tags: string[];
-  excerpt: string;
+  /** Public teaser shown before payment. */
+  subheading: string;
+  /** Server-held; released only after payment. */
   body: string;
-  /** TrustGate score for authorWallet, attached server side by consumers. */
+  paidCount: number;
+  source: "markdown" | "database";
+  /** TrustGate score for connectedWallet, attached server side by consumers. */
   trust?: TrustScore | null;
 };
 
@@ -66,7 +74,7 @@ function parseTags(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-export function loadAllCreatorContent(): CreatorContent[] {
+function loadMarkdownCreatorContent(): CreatorContent[] {
   if (!fs.existsSync(CREATORS_DIR)) return [];
 
   return fs
@@ -76,40 +84,67 @@ export function loadAllCreatorContent(): CreatorContent[] {
       const raw = fs.readFileSync(path.join(CREATORS_DIR, file), "utf-8");
       const { meta, body } = parseFrontmatter(raw);
       const paragraphs = body.split(/\n\n+/).filter(Boolean);
+      const wallet = (meta.author_wallet ??
+        "0x0000000000000000000000000000000000000000") as `0x${string}`;
+      const subheading = meta.subheading ?? paragraphs[0] ?? body.slice(0, 200);
 
       return {
         id: meta.id ?? file.replace(/\.md$/, ""),
         title: meta.title ?? file.replace(/\.md$/, ""),
         author: meta.author ?? "Unknown",
-        authorWallet: (meta.author_wallet ?? "0x0000000000000000000000000000000000000000") as `0x${string}`,
+        connectedWallet: wallet,
+        payoutWallet: (meta.payout_wallet ?? wallet) as `0x${string}`,
         priceUsdc: meta.price_usdc ?? "0.001",
         tags: parseTags(meta.tags),
-        excerpt: paragraphs[0] ?? body.slice(0, 200),
+        subheading,
         body,
+        paidCount: 0,
+        source: "markdown" as const,
       };
     });
 }
 
-export function getCreatorContentById(id: string): CreatorContent | null {
-  return loadAllCreatorContent().find((item) => item.id === id) ?? null;
+/** Sync load of seeded markdown only (CLI / tests). */
+export function loadMarkdownContent(): CreatorContent[] {
+  return loadMarkdownCreatorContent();
 }
 
-export function searchCreatorContent(query: string, limit = 3): CreatorContent[] {
+/** Database posts first, then legacy markdown seeds. */
+export async function loadAllCreatorContent(): Promise<CreatorContent[]> {
+  const dbPosts = await loadPublishedPostsFromDb();
+  const markdown = loadMarkdownCreatorContent();
+  const dbIds = new Set(dbPosts.map((p) => p.id));
+  const seeds = markdown.filter((item) => !dbIds.has(item.id));
+  return [...dbPosts, ...seeds];
+}
+
+export async function getCreatorContentById(id: string): Promise<CreatorContent | null> {
+  const fromDb = await getPublishedPostById(id);
+  if (fromDb) return fromDb;
+  return loadMarkdownCreatorContent().find((item) => item.id === id) ?? null;
+}
+
+export async function searchCreatorContent(
+  query: string,
+  limit = 3,
+): Promise<CreatorContent[]> {
   const terms = query
     .toLowerCase()
     .split(/\s+/)
     .filter((term) => term.length > 2);
 
+  const all = await loadAllCreatorContent();
+
   if (terms.length === 0) {
-    return loadAllCreatorContent().slice(0, limit);
+    return all.slice(0, limit);
   }
 
-  const scored = loadAllCreatorContent()
+  const scored = all
     .map((item) => {
       const haystack = [
         item.title,
         item.author,
-        item.excerpt,
+        item.subheading,
         item.body,
         item.tags.join(" "),
       ]

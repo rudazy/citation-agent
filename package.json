@@ -14,7 +14,10 @@
     "verify:attestation": "node --experimental-transform-types --no-warnings scripts/verify-attestation.mts",
     "attest": "node --experimental-transform-types --no-warnings --env-file=.env.local scripts/attest-target.mts",
     "decode-batch": "node --experimental-transform-types --no-warnings scripts/decode-batch.mts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:marketplace": "vitest run lib/publish-auth.test.ts lib/creator-posts.test.ts lib/citation-unlock-client.test.ts lib/creator-trust.test.ts",
+    "smoke:marketplace": "node --experimental-transform-types --no-warnings --env-file=.env.local scripts/smoke-marketplace.mts",
+    "smoke:marketplace:full": "node --experimental-transform-types --no-warnings --env-file=.env.local scripts/smoke-marketplace.mts --full"
   },
   "dependencies": {
     "@circle-fin/x402-batching": "^2.0.4",

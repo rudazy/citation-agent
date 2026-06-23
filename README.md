@@ -18,10 +18,12 @@ Citation Agent is a full-stack reference for agentic commerce over paywalled kno
 
 | Surface | Role |
 | --- | --- |
-| **Marketplace** | MetaMask checkout, citation catalog, on-chain claims registry |
-| **Dashboard** | Payments, royalties, agent reputation, withdrawals, claims |
-| **Attestations** | Stake USDC on a target; public registry shows who claimed what and why |
-| **Research agent** | CLI that discovers citations, pays via Gateway, optional CanteenUSDC wrap |
+| **Marketplace** | Wallet-signed publish, x402 citation unlock, TrustGate signals, attestations, payment trace |
+| **Dashboard** | Payments, royalties, agent reputation, operator fees, withdrawals, claims, trace |
+| **Attestations** | Stake USDC on a target (0.1 USDC min + 0.1 USDC platform fee); public on-chain registry |
+| **Research agent** | CLI that discovers citations, pays via Gateway, optional CanteenUSDC royalty wrap |
+
+Full platform documentation: [docs/platform-overview.md](docs/platform-overview.md)
 
 ---
 
@@ -56,7 +58,7 @@ flowchart TB
   end
 
   subgraph Data
-    Supabase[("Supabase · optional")]
+    Supabase[("Supabase · creator_posts · payments")]
     Creators["content/creators/*.md"]
   end
 
@@ -136,7 +138,7 @@ sequenceDiagram
 | Payments | x402 v2, Circle Gateway, viem |
 | Attestations | Solidity + Foundry, Arc USDC `transferFrom` |
 | Chain | Arc Testnet (5042002) |
-| Data | Supabase Postgres (optional; app degrades gracefully) |
+| Data | Supabase Postgres (optional for UI; required for publish + royalty dashboard) |
 | Deploy | Vercel |
 
 ---
@@ -151,7 +153,7 @@ copy .env.example .env.local
 npm run generate-wallets
 ```
 
-Fund the printed buyer address at the faucet. Set attestation vars in `.env.local` (see `.env.example`). Supabase is optional for local UI.
+Fund the printed buyer address at the faucet. Set attestation vars in `.env.local` (see `.env.example`). For creator publish and the royalty dashboard, configure Supabase and run migrations in `supabase/migrations/`.
 
 ```cmd
 npm run dev
@@ -159,9 +161,9 @@ npm run dev
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Landing |
-| `/marketplace` | x402 demo, citations, public claims |
-| `/dashboard` | Settlements, royalties, **Claims** tab |
+| `/` | Redirects to `/dashboard` |
+| `/marketplace` | Publish, pay-to-unlock citations, trust refresh, claims, payment trace |
+| `/dashboard` | Payments, royalties, agents, operator fees, withdrawals, claims, trace |
 
 **Research agent**
 
@@ -179,13 +181,20 @@ npm run agent -- --help
 
 `--min-trust <number>` skips sources below the score (and prints them as skipped). `--strict-unscored` additionally skips unscored wallets when the gate is active; without it, unscored sources stay citeable.
 
-**CLI attestation** (agent wallet from `.env.local`)
+**CLI attestation** (`BUYER_PRIVATE_KEY` from `.env.local`)
 
 ```cmd
 npm run attest x:@trustgated "Your claim here" 1
 ```
 
-**Deploy attestation contract** (if not using the bundled testnet address)
+**Marketplace smoke** (dev server must be running)
+
+```cmd
+npm run smoke:marketplace
+npm run smoke:marketplace:full
+```
+
+**Deploy attestation contract** (if not using the reference testnet address below)
 
 ```cmd
 npm run deploy:attestation
@@ -196,60 +205,78 @@ npm run verify:attestation
 
 ## API
 
-### Marketplace & payments
+See [docs/platform-overview.md](docs/platform-overview.md) for the full reference. Summary:
+
+### Marketplace and citations
 
 | Endpoint | Auth | Notes |
 | --- | --- | --- |
+| `GET /api/marketplace/citations` | Public | Catalog (no body, no wallets) |
+| `GET /api/marketplace/citations?id=` | x402 | Unlock citation body; records 70/30 royalty |
+| `POST /api/marketplace/citations` | Wallet signature | Publish a creator post |
 | `GET /api/marketplace/hello` | x402 $0.01 | Hello-world paid resource |
-| `GET /api/marketplace/citations` | x402 | Paid creator citation |
 | `GET /api/marketplace/settlement/:id` | Public | Gateway settlement status |
 | `GET /api/marketplace/decode-batch/:hash` | Public | `submitBatch` decoder |
+
+### Gateway, agent wallet, TrustGate
+
+| Endpoint | Auth | Notes |
+| --- | --- | --- |
+| `POST /api/gateway/deposit` | Session agent | Deposit USDC into Gateway |
+| `POST /api/gateway/pay` | Session agent | Pay an allowlisted x402 path |
+| `GET /api/agent-wallet` | Session | Status · `POST` provisions per-browser agent wallet |
+| `GET /api/trustgate/score?postId=` | Public | Free or cached score; paid paths return 402 |
+| `POST /api/trustgate/score` | Payment proof | Settle paid trust lookup |
 
 ### Attestations
 
 | Endpoint | Method | Notes |
 | --- | --- | --- |
-| `/api/attestation` | POST | Agent-wallet attest (server-side) |
+| `/api/attestation` | POST | Session agent wallet attest (server-side) |
 | `/api/attestation/claims` | GET | All targets + totals |
 | `/api/attestation/claims?target=` | GET | Public claims for one target |
-| `/api/agent-wallet` | GET / POST | Agent wallet status · dev provision |
+| `/api/attestation/fees` | GET | Platform fee ledger (operator signature) |
 
 ### Premium (agent loop)
 
 | Endpoint | Notes |
 | --- | --- |
 | `GET /api/premium/citation/index` | Free citation catalog |
-| `GET /api/premium/citation?id=` | Paid citation ($0.001) |
+| `GET /api/premium/citation?id=` | Paid citation (per-listing price) |
 
-Creator markdown lives in `content/creators/` with frontmatter: `title`, `author`, `author_wallet`, `price_usdc`, `tags`.
+Catalog content merges **markdown seeds** (`content/creators/`) and **Supabase posts** (`creator_posts`). Markdown frontmatter: `id`, `title`, `author`, `author_wallet`, `price_usdc`, `tags`. Published posts use wallet-signed auth and store `subheading` + `body` server-side.
 
 ---
 
 ## Environment
 
-Copy [`.env.example`](.env.example). Minimum for attestations + marketplace:
+Copy [`.env.example`](.env.example). Minimum for attestations + marketplace unlock:
 
 | Variable | Purpose |
 | --- | --- |
-| `BUYER_ADDRESS` / `BUYER_PRIVATE_KEY` | Agent wallet · attestations · agent CLI |
+| `SELLER_ADDRESS` / `SELLER_PRIVATE_KEY` | x402 payee (royalties still split 70/30 in ledger) |
+| `BUYER_ADDRESS` / `BUYER_PRIVATE_KEY` | CLI funder wallet (`npm run agent`, `npm run attest`) |
 | `ATTESTATION_ADDRESS` / `NEXT_PUBLIC_ATTESTATION_ADDRESS` | Deployed `Attestation.sol` |
-| `ATTESTATION_DEPLOY_BLOCK` | Log indexer start block |
+| `ATTESTATION_DEPLOY_BLOCK` | Event indexer start block |
 | `ARC_TESTNET_RPC` | Arc JSON-RPC |
 | `GATEWAY_API` | Circle Gateway facilitator |
-| `SELLER_ADDRESS` / `SELLER_PRIVATE_KEY` | Payment recipient |
+| `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-browser agent keys (32+ chars; production) |
+| `NEXT_PUBLIC_OPERATOR_ADDRESS` | Attestation platform fee recipient; gates operator dashboard APIs |
 
-Optional: Supabase keys (dashboard realtime), `CANTEEN_USDC_ADDRESS`, `OPENAI_API_KEY`, `ARCSCAN_API_KEY`.
+Required for **publish** and **royalty dashboard**: Supabase URL, anon key, and `SUPABASE_SERVICE_ROLE_KEY` (run `supabase/migrations/`).
+
+Optional: `CANTEEN_USDC_ADDRESS`, `ARCSCAN_API_KEY`, TrustGate vars (see below).
 
 ### TrustGate scores (optional)
 
 Wire live TrustGate behavioral scores into the citation cards, claims registry, and research agent. See [`.env.local.example`](.env.local.example). The free reader degrades to `null` when `TRUSTGATE_SCORE_API_URL` is unset or the endpoint requires payment: scores are hidden and the agent cites everyone.
 
-The marketplace also offers a user-paid lookup: clicking **Check trust score (0.001 USDC)** on a citation pays the oracle fee from the user's own wallet (one on-chain USDC payment, x402), then reveals the author's score, tier, and recommendation. Resolved scores are cached per wallet so a second view does not charge again. The research agent never auto-pays.
+The marketplace also offers a user-paid lookup: **Refresh trust (0.001 USDC)** on a citation resolves the author's score by `postId` (wallet never exposed). Payment can come from MetaMask or the session agent wallet. Resolved scores are cached so a second refresh does not charge again. The research agent never auto-pays.
 
 | Variable | Purpose |
 | --- | --- |
 | `TRUSTGATE_SCORE_API_URL` | Free reader endpoint. Use `{address}` placeholder, else the wallet is appended as a path segment |
-| `TRUSTGATE_ORACLE_URL` | Paid lookup endpoint (server only) for the Check trust score action. Same base with `{address}` |
+| `TRUSTGATE_ORACLE_URL` | Paid lookup endpoint (server only) for Refresh trust. Same base with `{address}` |
 | `TRUSTGATE_MIN_SCORE` | Default for the agent `--min-trust` flag (ships unset, so nothing is blocked) |
 | `TRUSTGATE_CACHE_TTL_MS` | Optional free-reader cache TTL in ms (default 300000) |
 | `TRUSTGATE_PAID_CACHE_TTL_MS` | Optional paid-score cache TTL in ms (default 300000) |
@@ -258,12 +285,16 @@ The marketplace also offers a user-paid lookup: clicking **Check trust score (0.
 
 ## Deployed contracts (Arc Testnet)
 
+Reference deployment (platform fee recipient `0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62`). Set these in `.env.local` or redeploy with `npm run deploy:attestation`.
+
 | Contract | Address |
 | --- | --- |
-| Attestation | `0x595de381357e4dc59a0829d7432a532c73ddf1e1` |
+| Attestation | `0xc8886a68f2160a57a01b32aae542b6eec5ca3d02` |
 | USDC | `0x3600000000000000000000000000000000000000` |
 
-[Verified on Arcscan](https://testnet.arcscan.app/address/0x595de381357e4dc59a0829d7432a532c73ddf1e1#code)
+Indexer start block: `48323587`
+
+[Verified on Arcscan](https://testnet.arcscan.app/address/0xc8886a68f2160a57a01b32aae542b6eec5ca3d02#code)
 
 ---
 

@@ -7,14 +7,17 @@ if "%SUPABASE_ACCESS_TOKEN%"=="" (
   exit /b 1
 )
 
-set PROJECT_REF=godzfxbhiixfhtxdwsxi
+if "%SUPABASE_PROJECT_REF%"=="" (
+  echo SUPABASE_PROJECT_REF is required.
+  exit /b 1
+)
 
 echo Logging in to Supabase CLI...
 call npx --yes supabase login --token "%SUPABASE_ACCESS_TOKEN%"
 if errorlevel 1 exit /b 1
 
-echo Linking project %PROJECT_REF% (lepton-citation-agent)...
-call npx --yes supabase link --project-ref %PROJECT_REF% --yes
+echo Linking project %SUPABASE_PROJECT_REF%...
+call npx --yes supabase link --project-ref %SUPABASE_PROJECT_REF% --yes
 if errorlevel 1 exit /b 1
 
 echo Pushing migrations...

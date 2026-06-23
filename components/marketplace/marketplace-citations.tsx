@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, FileText, Loader2, Shield } from "lucide-react";
+import { ChevronDown, FileText, Loader2, LockOpen, Shield, Users } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,66 +13,74 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AttestModal } from "@/components/attest";
 import { AttestTrigger } from "@/components/attest/attest-trigger";
+import {
+  TrustSignalBadge,
+  type PublicTrustSignal,
+} from "@/components/marketplace/trust-signal";
+import {
+  fetchAgentWalletStatus,
+  getConnectedAccount,
+  switchToArcTestnet,
+} from "@/lib/attestation-client";
+import {
+  unlockCitationViaAgent,
+  unlockCitationViaMetaMask,
+} from "@/lib/citation-unlock-client";
+import {
+  payAndFetchTrustByPostId,
+  payTrustByPostIdWithAgent,
+} from "@/lib/trustgate-post-client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import {
-  payAndFetchScore,
-  payWithSessionAgent,
-  type PaidScoreResult,
-} from "@/lib/trustgate-paid-client";
-import { fetchAgentWalletStatus } from "@/lib/attestation-client";
-import type { PaidTrustScore } from "@/lib/trustgate-paid";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import "@/lib/ethereum-provider";
 
 type PayerChoice = "metamask" | "agent";
 
-type TrustScore = {
-  score: number;
-  tier: string;
-  confidence: number;
-};
-
 type CitationListing = {
   id: string;
   title: string;
   author: string;
-  author_wallet?: `0x${string}`;
   price_usdc: string;
   tags: string[];
-  excerpt: string;
+  subheading: string;
+  paid_count: number;
   endpoint: string;
   token: string;
-  trust?: TrustScore | null;
+  trust?: PublicTrustSignal | null;
+  trust_paid_lookup?: boolean;
 };
 
-type ScoreCellState =
-  | { status: "idle" }
+type ExpandState =
+  | { status: "locked" }
   | { status: "loading" }
-  | { status: "done"; score: PaidTrustScore };
+  | { status: "unlocked"; body: string };
 
-const SCORE_FEE_USDC = "0.001";
+type TrustCellState =
+  | { status: "idle"; trust: PublicTrustSignal | null }
+  | { status: "loading"; trust: PublicTrustSignal | null }
+  | { status: "done"; trust: PublicTrustSignal | null };
 
-function formatTrust(trust: TrustScore | null | undefined): string | null {
-  if (!trust) return null;
-  const score = Math.round(trust.score);
-  return trust.tier ? `TrustGate ${score} · ${trust.tier}` : `TrustGate ${score}`;
+const PAID_TRUST_FEE = "0.001";
+
+function paidCountLabel(count: number): string {
+  if (count === 0) return "0 paid unlocks";
+  if (count === 1) return "1 reader paid";
+  return `${count} readers paid`;
 }
 
-function formatPaidScore(score: PaidTrustScore): string {
-  const parts = [`TrustGate ${Math.round(score.score)}`];
-  if (score.tier) parts.push(score.tier);
-  if (score.recommendation) parts.push(score.recommendation);
-  return parts.join(" · ");
-}
+type Props = {
+  refreshKey?: number;
+};
 
-export function MarketplaceCitations() {
+export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const [listings, setListings] = useState<CitationListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attestOpen, setAttestOpen] = useState(false);
   const [currentTarget, setCurrentTarget] = useState("");
-  const [scoreStates, setScoreStates] = useState<Record<string, ScoreCellState>>({});
+  const [expandStates, setExpandStates] = useState<Record<string, ExpandState>>({});
+  const [trustStates, setTrustStates] = useState<Record<string, TrustCellState>>({});
   const [metamaskAvailable, setMetamaskAvailable] = useState(false);
   const [agentFunded, setAgentFunded] = useState(false);
 
@@ -86,11 +94,7 @@ export function MarketplaceCitations() {
       try {
         const status = await fetchAgentWalletStatus();
         if (cancelled) return;
-        const funded =
-          status.configured &&
-          status.usdcBalance != null &&
-          Number(status.usdcBalance) >= Number(SCORE_FEE_USDC);
-        setAgentFunded(funded);
+        setAgentFunded(status.configured && status.paymentReady === true);
       } catch {
         if (!cancelled) setAgentFunded(false);
       }
@@ -105,107 +109,214 @@ export function MarketplaceCitations() {
     setAttestOpen(true);
   }, []);
 
-  const setCell = useCallback((id: string, state: ScoreCellState) => {
-    setScoreStates((prev) => ({ ...prev, [id]: state }));
+  const setExpand = useCallback((id: string, state: ExpandState) => {
+    setExpandStates((prev) => ({ ...prev, [id]: state }));
   }, []);
 
-  const runLookup = useCallback(
-    async (item: CitationListing, payer: PayerChoice) => {
-      const wallet = item.author_wallet;
-      if (!wallet) {
-        toast.error("No author wallet on this citation");
-        return;
-      }
+  const bumpPaidCount = useCallback((id: string) => {
+    setListings((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, paid_count: item.paid_count + 1 } : item,
+      ),
+    );
+  }, []);
 
-      setCell(item.id, { status: "loading" });
+  const getTrustState = useCallback(
+    (item: CitationListing): TrustCellState => {
+      return (
+        trustStates[item.id] ?? {
+          status: "idle",
+          trust: item.trust ?? null,
+        }
+      );
+    },
+    [trustStates],
+  );
+
+  const runTrustLookup = useCallback(
+    async (item: CitationListing, payer: PayerChoice) => {
+      const prior = getTrustState(item);
+      if (prior.status === "done" && prior.trust?.source === "paid") return;
+
+      setTrustStates((prev) => ({
+        ...prev,
+        [item.id]: { status: "loading", trust: prior.trust },
+      }));
+
       try {
-        let result: PaidScoreResult;
+        let result;
         if (payer === "metamask") {
           const ethereum: EthereumProvider | undefined = window.ethereum;
           if (!ethereum) {
-            setCell(item.id, { status: "idle" });
+            setTrustStates((prev) => ({
+              ...prev,
+              [item.id]: { status: "idle", trust: prior.trust },
+            }));
             toast.error("MetaMask not detected");
             return;
           }
-          const accounts = (await ethereum.request({
-            method: "eth_requestAccounts",
-          })) as string[];
-          const account = accounts?.[0] as `0x${string}` | undefined;
-          if (!account) {
-            setCell(item.id, { status: "idle" });
-            return;
-          }
-          result = await payAndFetchScore({ address: wallet, ethereum, account });
+          await switchToArcTestnet(ethereum);
+          const account = await getConnectedAccount(ethereum);
+          result = await payAndFetchTrustByPostId({
+            postId: item.id,
+            ethereum,
+            account,
+          });
         } else {
-          // Session agent wallet pays server side.
-          result = await payWithSessionAgent(wallet);
+          result = await payTrustByPostIdWithAgent(item.id);
         }
 
         switch (result.status) {
           case "ok":
-            setCell(item.id, { status: "done", score: result.score });
-            toast.success("Trust score revealed", {
-              description: formatPaidScore(result.score),
+            setTrustStates((prev) => ({
+              ...prev,
+              [item.id]: { status: "done", trust: result.trust },
+            }));
+            toast.success("Trust score updated", {
+              description: `TrustGate ${result.trust.score}${result.trust.tier ? ` · ${result.trust.tier}` : ""}`,
             });
             break;
-          case "cached": {
-            const score = result.score;
-            if (score) {
-              setCell(item.id, { status: "done", score });
+          case "cached":
+            setTrustStates((prev) => ({
+              ...prev,
+              [item.id]: {
+                status: "done",
+                trust: result.trust ?? prior.trust,
+              },
+            }));
+            if (result.trust) {
+              toast.message("Using cached trust score");
             } else {
-              setCell(item.id, { status: "idle" });
-              toast.message("No score available for this wallet yet");
+              toast.message("No score available for this creator yet");
             }
             break;
-          }
           case "cancelled":
-            setCell(item.id, { status: "idle" });
+            setTrustStates((prev) => ({
+              ...prev,
+              [item.id]: { status: "idle", trust: prior.trust },
+            }));
             toast.message("Payment cancelled, no charge");
             break;
           case "unconfigured":
-            setCell(item.id, { status: "idle" });
+            setTrustStates((prev) => ({
+              ...prev,
+              [item.id]: { status: "idle", trust: prior.trust },
+            }));
             toast.error("Trust scoring is not configured");
             break;
           case "failed":
-            setCell(item.id, { status: "idle" });
-            toast.error("Trust score lookup failed", { description: result.reason });
+            setTrustStates((prev) => ({
+              ...prev,
+              [item.id]: { status: "idle", trust: prior.trust },
+            }));
+            toast.error("Trust lookup failed", { description: result.reason });
             break;
         }
       } catch (err) {
-        setCell(item.id, { status: "idle" });
-        if ((err as { code?: number }).code !== 4001) {
-          toast.error("Could not check trust score", {
-            description: err instanceof Error ? err.message : "Unknown error",
-          });
-        }
+        setTrustStates((prev) => ({
+          ...prev,
+          [item.id]: { status: "idle", trust: prior.trust },
+        }));
+        toast.error("Could not check trust score", {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
       }
     },
-    [setCell],
+    [getTrustState],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
+  const runUnlock = useCallback(
+    async (item: CitationListing, payer: PayerChoice) => {
+      const current = expandStates[item.id];
+      if (current?.status === "unlocked") return;
+
+      setExpand(item.id, { status: "loading" });
+
       try {
-        const res = await fetch("/api/marketplace/citations");
-        if (!res.ok) throw new Error(`Failed to load citations (${res.status})`);
-        const data = (await res.json()) as { listings?: CitationListing[] };
-        if (!cancelled) setListings(data.listings ?? []);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load citations");
-          setListings([]);
+        let result;
+        if (payer === "metamask") {
+          const ethereum: EthereumProvider | undefined = window.ethereum;
+          if (!ethereum) {
+            setExpand(item.id, { status: "locked" });
+            toast.error("MetaMask not detected");
+            return;
+          }
+          await switchToArcTestnet(ethereum);
+          const account = await getConnectedAccount(ethereum);
+          result = await unlockCitationViaMetaMask({
+            listingId: item.id,
+            author: item.author,
+            account,
+            ethereum,
+          });
+        } else {
+          result = await unlockCitationViaAgent({
+            listingId: item.id,
+            author: item.author,
+          });
         }
-      } finally {
-        if (!cancelled) setLoading(false);
+
+        switch (result.status) {
+          case "ok":
+            setExpand(item.id, { status: "unlocked", body: result.body });
+            bumpPaidCount(item.id);
+            toast.success("Content unlocked", {
+              description: result.amountUsdc
+                ? `Paid ${result.amountUsdc} USDC`
+                : `$${item.price_usdc} USDC`,
+            });
+            break;
+          case "cancelled":
+            setExpand(item.id, { status: "locked" });
+            toast.message("Payment cancelled, no charge");
+            break;
+          case "failed":
+            setExpand(item.id, { status: "locked" });
+            toast.error("Could not unlock content", { description: result.reason });
+            break;
+        }
+      } catch (err) {
+        setExpand(item.id, { status: "locked" });
+        toast.error("Unlock failed", {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    },
+    [bumpPaidCount, setExpand],
+  );
+
+  const loadListings = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/marketplace/citations", { signal });
+      if (!res.ok) throw new Error(`Failed to load citations (${res.status})`);
+      const data = (await res.json()) as { listings?: CitationListing[] };
+      const rows = data.listings ?? [];
+      setListings(rows);
+      setTrustStates((prev) => {
+        const next = { ...prev };
+        for (const row of rows) {
+          if (!next[row.id]) {
+            next[row.id] = { status: "idle", trust: row.trust ?? null };
+          }
+        }
+        return next;
+      });
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      setError(err instanceof Error ? err.message : "Failed to load citations");
+      setListings([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadListings(controller.signal);
+    return () => controller.abort();
+  }, [loadListings, refreshKey]);
 
   return (
     <>
@@ -217,8 +328,8 @@ export function MarketplaceCitations() {
           <div className="min-w-0 space-y-1">
             <h2 className="text-lg font-semibold tracking-wide">Citation catalog</h2>
             <p className="text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
-              Paywalled creator sources. Stake USDC attestations on any citation or author to
-              signal trust on-chain.
+              Trust scores reflect the creator identity wallet (hidden). Expand unlocks the body.
+              Paid unlock counts sit on each subheading.
             </p>
           </div>
         </div>
@@ -238,135 +349,211 @@ export function MarketplaceCitations() {
 
         {!loading && !error && listings.length === 0 && (
           <p className="py-8 text-center font-mono text-sm text-muted-foreground">
-            No citation listings found.
+            No citation listings yet. Publish the first post above.
           </p>
         )}
 
         <div className="grid gap-3">
-          {listings.map((item) => (
-            <article
-              key={item.id}
-              className="rounded border border-[#1f1f1f] bg-[#111]/80 p-4 transition-colors hover:border-[#f5c842]/25"
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <code className="rounded bg-[#141414] px-2 py-0.5 font-mono text-[10px] text-[#888]">
-                      {item.id}
-                    </code>
-                    <Badge variant="outline" className="border-[#333] font-mono text-[10px]">
-                      ${item.price_usdc} {item.token}
-                    </Badge>
-                  </div>
-                  <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
-                    {item.title}
-                  </h3>
-                  <p className="font-mono text-xs text-[#666]">
-                    {item.author}
-                    {(() => {
-                      const cell = scoreStates[item.id];
-                      const text =
-                        cell?.status === "done"
-                          ? formatPaidScore(cell.score)
-                          : formatTrust(item.trust);
-                      return text ? <span className="ml-2 text-[#888]">· {text}</span> : null;
-                    })()}
-                  </p>
-                  <p className="font-mono text-xs leading-relaxed text-[#888] line-clamp-2">
-                    {item.excerpt}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.tags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        className="bg-[#141414] text-[#a3a3a3] border border-[#2a2a2a] hover:bg-[#141414] text-[10px]"
-                      >
-                        {tag}
+          {listings.map((item) => {
+            const expand = expandStates[item.id] ?? { status: "locked" };
+            const isUnlocked = expand.status === "unlocked";
+            const isUnlockLoading = expand.status === "loading";
+            const trustCell = getTrustState(item);
+            const displayTrust = trustCell.trust;
+            const trustLoading = trustCell.status === "loading";
+            const paidTrustDone = trustCell.status === "done" && displayTrust?.source === "paid";
+            const defaultPayer: PayerChoice = metamaskAvailable ? "metamask" : "agent";
+            const canChoosePayer = metamaskAvailable && agentFunded;
+            const showPaidTrust =
+              item.trust_paid_lookup && !paidTrustDone && displayTrust?.source !== "paid";
+
+            const expandButton = (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isUnlockLoading || isUnlocked}
+                onClick={() => void runUnlock(item, defaultPayer)}
+                className={cn(
+                  "gap-1.5 border-[#f5c842]/35 text-[#f5c842] hover:bg-[#f5c842]/10 hover:text-[#f5c842]",
+                )}
+              >
+                {isUnlockLoading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Paying…
+                  </>
+                ) : isUnlocked ? (
+                  <>
+                    <LockOpen size={14} />
+                    Unlocked
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown size={14} />
+                    Expand (${item.price_usdc} USDC)
+                  </>
+                )}
+              </Button>
+            );
+
+            const trustButton = showPaidTrust ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={trustLoading}
+                onClick={() => void runTrustLookup(item, defaultPayer)}
+                className="gap-1.5 border-[#ff8a3d]/30 text-[#ff8a3d] hover:bg-[#ff8a3d]/10"
+              >
+                {trustLoading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Checking…
+                  </>
+                ) : (
+                  <>
+                    <Shield size={14} />
+                    Refresh trust ({PAID_TRUST_FEE} USDC)
+                  </>
+                )}
+              </Button>
+            ) : null;
+
+            return (
+              <article
+                key={item.id}
+                className="rounded border border-[#1f1f1f] bg-[#111]/80 p-4 transition-colors hover:border-[#f5c842]/25"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 space-y-2 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="rounded bg-[#141414] px-2 py-0.5 font-mono text-[10px] text-[#888]">
+                        {item.id}
+                      </code>
+                      <Badge variant="outline" className="border-[#333] font-mono text-[10px]">
+                        ${item.price_usdc} {item.token}
                       </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                  <AttestTrigger
-                    target={`citation:${item.id}`}
-                    onAttest={openAttest}
-                    label="Attest citation"
-                  />
-                  <AttestTrigger
-                    target={`author:${item.author}`}
-                    onAttest={openAttest}
-                    label="Attest author"
-                    variant="ghost"
-                    className="text-[#888] hover:text-[#f5c842] border-transparent"
-                  />
-                  {scoreStates[item.id]?.status !== "done" &&
-                    (() => {
-                      const loading = scoreStates[item.id]?.status === "loading";
-                      const disabled = loading || !item.author_wallet;
-                      const defaultPayer: PayerChoice = metamaskAvailable ? "metamask" : "agent";
-                      const mainButton = (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={disabled}
-                          onClick={() => void runLookup(item, defaultPayer)}
-                          className={cn(
-                            "gap-1.5 border-[#ff8a3d]/30 text-[#ff8a3d] hover:bg-[#ff8a3d]/10 hover:text-[#ff8a3d]",
-                          )}
+                      <TrustSignalBadge trust={displayTrust} />
+                    </div>
+                    <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
+                      {item.title}
+                    </h3>
+                    <p className="font-mono text-xs text-[#666]">{item.author}</p>
+
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
+                      <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-[#888]">
+                        <Users size={10} className="text-[#666]" />
+                        {paidCountLabel(item.paid_count)}
+                      </span>
+                      <p className="font-mono text-xs leading-relaxed text-[#888]">
+                        {item.subheading}
+                      </p>
+                    </div>
+
+                    {isUnlocked && (
+                      <div className="rounded border border-[#f5c842]/20 bg-[#0a0a0a] px-3 py-3">
+                        <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-[#f5c842]/80">
+                          Full content
+                        </p>
+                        <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-[#d4d4d4]">
+                          {expand.body}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.tags.map((tag) => (
+                        <Badge
+                          key={tag}
+                          className="bg-[#141414] text-[#a3a3a3] border border-[#2a2a2a] hover:bg-[#141414] text-[10px]"
                         >
-                          {loading ? (
-                            <>
-                              <Loader2 size={14} className="animate-spin" />
-                              Checking…
-                            </>
-                          ) : (
-                            <>
-                              <Shield size={14} />
-                              Check trust score ({SCORE_FEE_USDC} USDC)
-                            </>
-                          )}
-                        </Button>
-                      );
-
-                      // Only when both payers are available does the user get to choose.
-                      // The plain button keeps paying with MetaMask by default.
-                      if (!(metamaskAvailable && agentFunded)) return mainButton;
-
-                      return (
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                    {canChoosePayer ? (
+                      <div className="flex items-center gap-1">
+                        {expandButton}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={isUnlockLoading || isUnlocked}
+                              aria-label="Choose unlock payer"
+                              className="px-2 border-[#f5c842]/35 text-[#f5c842]"
+                            >
+                              <ChevronDown size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => void runUnlock(item, "metamask")}>
+                              Pay with MetaMask
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void runUnlock(item, "agent")}>
+                              Pay with agent wallet
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ) : (
+                      expandButton
+                    )}
+                    {trustButton &&
+                      (canChoosePayer ? (
                         <div className="flex items-center gap-1">
-                          {mainButton}
+                          {trustButton}
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                disabled={disabled}
-                                aria-label="Choose payer"
-                                className={cn(
-                                  "px-2 border-[#ff8a3d]/30 text-[#ff8a3d] hover:bg-[#ff8a3d]/10 hover:text-[#ff8a3d]",
-                                )}
+                                disabled={trustLoading}
+                                aria-label="Choose trust payer"
+                                className="px-2 border-[#ff8a3d]/30 text-[#ff8a3d]"
                               >
                                 <ChevronDown size={14} />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => void runLookup(item, "metamask")}>
+                              <DropdownMenuItem
+                                onClick={() => void runTrustLookup(item, "metamask")}
+                              >
                                 Pay with MetaMask
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => void runLookup(item, "agent")}>
+                              <DropdownMenuItem
+                                onClick={() => void runTrustLookup(item, "agent")}
+                              >
                                 Pay with agent wallet
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
-                      );
-                    })()}
+                      ) : (
+                        trustButton
+                      ))}
+                    <AttestTrigger
+                      target={`citation:${item.id}`}
+                      onAttest={openAttest}
+                      label="Attest citation"
+                    />
+                    <AttestTrigger
+                      target={`author:${item.author}`}
+                      onAttest={openAttest}
+                      label="Attest author"
+                      variant="ghost"
+                      className="text-[#888] hover:text-[#f5c842] border-transparent"
+                    />
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </Panel>
 

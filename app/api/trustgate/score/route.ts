@@ -1,34 +1,83 @@
 import { NextResponse } from "next/server";
+import { resolveIdentityWalletForPost } from "@/lib/resolve-post-identity";
 import { isAddress, type PaymentProof } from "@/lib/trustgate-paid";
 import { lookupScore, settleProof } from "@/lib/trustgate-oracle";
 
-/**
- * GET ?address= : returns a cached score if one exists (so no second charge), or
- * the live 402 challenge (recipient + amount) the client needs to pay.
- */
-export async function GET(request: Request) {
-  const address = new URL(request.url).searchParams.get("address")?.trim() ?? "";
-  if (!isAddress(address)) {
-    return NextResponse.json({ status: "error", reason: "Invalid address" }, { status: 400 });
+async function resolveLookupTarget(params: {
+  postId: string | null;
+  address: string | null;
+}): Promise<`0x${string}` | null | "invalid"> {
+  if (params.postId) {
+    const wallet = await resolveIdentityWalletForPost(params.postId);
+    return wallet ?? "invalid";
   }
-  return NextResponse.json(await lookupScore(address));
+  if (params.address && isAddress(params.address)) {
+    return params.address;
+  }
+  return null;
 }
 
 /**
- * POST { address, proof } : relays a payment proof produced by the user's own
- * MetaMask wallet and returns the score. The server never holds funds.
+ * GET ?postId= or ?address= : cached score or live 402 challenge.
+ * postId resolves the identity wallet server-side; the address is never returned.
+ */
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const postId = url.searchParams.get("postId")?.trim() ?? "";
+  const addressParam = url.searchParams.get("address")?.trim() ?? "";
+
+  if (!postId && !addressParam) {
+    return NextResponse.json(
+      { status: "error", reason: "postId or address required" },
+      { status: 400 },
+    );
+  }
+
+  const target = await resolveLookupTarget({
+    postId: postId || null,
+    address: addressParam || null,
+  });
+
+  if (target === null) {
+    return NextResponse.json(
+      { status: "error", reason: "Invalid postId or address" },
+      { status: 400 },
+    );
+  }
+  if (target === "invalid") {
+    return NextResponse.json({ status: "error", reason: "Post not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(await lookupScore(target));
+}
+
+/**
+ * POST { postId, proof } or { address, proof } : relay payment proof, return score.
  */
 export async function POST(request: Request) {
-  let payload: { address?: unknown; proof?: unknown };
+  let payload: { postId?: unknown; address?: unknown; proof?: unknown };
   try {
     payload = (await request.json()) as typeof payload;
   } catch {
     return NextResponse.json({ status: "error", reason: "Invalid JSON body" }, { status: 400 });
   }
 
-  const address = typeof payload.address === "string" ? payload.address.trim() : "";
-  if (!isAddress(address)) {
-    return NextResponse.json({ status: "error", reason: "Invalid address" }, { status: 400 });
+  const postId = typeof payload.postId === "string" ? payload.postId.trim() : "";
+  const addressParam = typeof payload.address === "string" ? payload.address.trim() : "";
+
+  const target = await resolveLookupTarget({
+    postId: postId || null,
+    address: addressParam || null,
+  });
+
+  if (target === null) {
+    return NextResponse.json(
+      { status: "error", reason: "postId or address required" },
+      { status: 400 },
+    );
+  }
+  if (target === "invalid") {
+    return NextResponse.json({ status: "error", reason: "Post not found" }, { status: 404 });
   }
 
   const proof = payload.proof as Partial<PaymentProof> | undefined;
@@ -46,7 +95,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(
-    await settleProof(address, {
+    await settleProof(target, {
       txHash: proof.txHash,
       nonce: proof.nonce,
       from: proof.from,

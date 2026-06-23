@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { loadAllCreatorContent } from "@/lib/citations";
 
 export async function GET() {
-  const items = loadAllCreatorContent().map((item) => ({
+  const content = await loadAllCreatorContent();
+  const items = content.map((item) => ({
     id: item.id,
     title: item.title,
     author: item.author,
     price_usdc: item.priceUsdc,
     tags: item.tags,
-    excerpt: item.excerpt,
+    subheading: item.subheading,
+    paid_count: item.paidCount,
     endpoint: `/api/premium/citation?id=${item.id}`,
   }));
 

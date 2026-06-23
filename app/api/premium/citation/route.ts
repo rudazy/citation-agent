@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCreatorContentById } from "@/lib/citations";
+import { incrementPostPaidCount } from "@/lib/creator-posts";
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
 import { withGateway, type GatewayContext } from "@/lib/x402";
@@ -15,7 +16,7 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
     );
   }
 
-  const content = getCreatorContentById(id);
+  const content = await getCreatorContentById(id);
   if (!content) {
     return NextResponse.json({ error: `Citation not found: ${id}` }, { status: 404 });
   }
@@ -26,7 +27,7 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
   await recordCitationRoyalty({
     citationId: content.id,
     creatorName: content.author,
-    creatorWallet: content.authorWallet,
+    creatorWallet: content.payoutWallet,
     payer: ctx.payer,
     grossUsdc: content.priceUsdc,
     gatewayTx: ctx.gatewayTx,
@@ -34,14 +35,18 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
     paymentMemo,
   });
 
+  if (content.source === "database") {
+    await incrementPostPaidCount(content.id);
+  }
+
   return NextResponse.json({
     citation: {
       id: content.id,
       title: content.title,
       author: content.author,
-      author_wallet: content.authorWallet,
       price_usdc: content.priceUsdc,
       tags: content.tags,
+      subheading: content.subheading,
       body: content.body,
       royalty_split: {
         creator_share: "70%",
@@ -49,7 +54,7 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
       },
     },
     attribution:
-      "Paid citation — royalty recorded for creator wallet at settlement time.",
+      "Paid citation — royalty recorded for creator payout wallet at settlement time.",
     payment_memo: paymentMemo,
     timestamp: new Date().toISOString(),
   });
@@ -57,7 +62,7 @@ const handler = async (req: NextRequest, ctx: GatewayContext) => {
 
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
-  const content = id ? getCreatorContentById(id) : null;
+  const content = id ? await getCreatorContentById(id) : null;
   const price = content ? `$${content.priceUsdc}` : "$0.001";
 
   return withGateway(handler, price, "/api/premium/citation")(req);

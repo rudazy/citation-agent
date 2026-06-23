@@ -10,6 +10,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "viem/chains";
+import { resolveIdentityWalletForPost } from "@/lib/resolve-post-identity";
 import { requireUserAgent } from "@/lib/resolve-user-agent";
 import { buildPaymentProof, isAddress } from "@/lib/trustgate-paid";
 import { lookupScore, settleProof } from "@/lib/trustgate-oracle";
@@ -18,22 +19,34 @@ const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 const FAUCET = "https://faucet.circle.com/";
 
 /**
- * POST { address } : pays the oracle fee from the browser's session agent wallet
- * server side, then relays the proof. Reuses the same encrypted-key loading and
- * on-chain signing as the attestation route. One explicit request per lookup;
- * never auto-paid.
+ * POST { postId } or { address } : pays the oracle fee from the session agent
+ * wallet server side, then relays the proof. postId resolves identity wallet
+ * without exposing it to the client.
  */
 export async function POST(request: Request) {
-  let payload: { address?: unknown };
+  let payload: { postId?: unknown; address?: unknown };
   try {
     payload = (await request.json()) as typeof payload;
   } catch {
     return NextResponse.json({ status: "error", reason: "Invalid JSON body" }, { status: 400 });
   }
 
-  const address = typeof payload.address === "string" ? payload.address.trim() : "";
-  if (!isAddress(address)) {
-    return NextResponse.json({ status: "error", reason: "Invalid address" }, { status: 400 });
+  const postId = typeof payload.postId === "string" ? payload.postId.trim() : "";
+  const addressParam = typeof payload.address === "string" ? payload.address.trim() : "";
+
+  let address: `0x${string}` | null = null;
+  if (postId) {
+    address = await resolveIdentityWalletForPost(postId);
+    if (!address) {
+      return NextResponse.json({ status: "error", reason: "Post not found" }, { status: 404 });
+    }
+  } else if (isAddress(addressParam)) {
+    address = addressParam;
+  } else {
+    return NextResponse.json(
+      { status: "error", reason: "postId or address required" },
+      { status: 400 },
+    );
   }
 
   // Cached score, or the live challenge to pay. Cache hit means no second charge.
