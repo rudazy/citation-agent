@@ -13,6 +13,7 @@ import {
   classifyTarget,
   formatTargetLabel,
 } from "@/lib/attestation-client";
+import { getTrustScores, type TrustScore } from "@/lib/trustgate";
 
 export type IndexedAttestation = {
   target: string;
@@ -31,6 +32,10 @@ export type TargetSummary = {
   kind: ReturnType<typeof classifyTarget>;
   totalUsdc: string;
   claimCount: number;
+  /** Display-only stake scaled by each staker's normalized TrustGate score. */
+  trustWeightedUsdc: string;
+  /** Stakers with no TrustGate score (counted at raw stake in the aggregate). */
+  unscoredStakers: number;
 };
 
 /** JSON-safe claim row for API responses (no bigint). */
@@ -41,9 +46,13 @@ export type PublicClaim = {
   staker: `0x${string}`;
   timestamp: number;
   txHash: `0x${string}` | null;
+  trust?: TrustScore | null;
 };
 
-function toPublicClaim(row: IndexedAttestation): PublicClaim {
+function toPublicClaim(
+  row: IndexedAttestation,
+  scores: Map<string, TrustScore | null>,
+): PublicClaim {
   return {
     target: row.canonicalTarget,
     claim: row.claim,
@@ -51,7 +60,40 @@ function toPublicClaim(row: IndexedAttestation): PublicClaim {
     staker: row.staker,
     timestamp: row.timestamp,
     txHash: row.txHash,
+    trust: scores.get(row.staker.toLowerCase()) ?? null,
   };
+}
+
+/**
+ * Display-only trust weighting. Each stake is scaled by the staker's score
+ * normalized against the highest scored staker in the same set (a relative,
+ * self contained measure that hardcodes no absolute range or weight). Unscored
+ * stakers fall back to their raw stake with no weighting.
+ */
+function computeTrustWeighted(
+  rows: IndexedAttestation[],
+  scores: Map<string, TrustScore | null>,
+): { trustWeightedUsdc: string; unscoredStakers: number } {
+  let maxScore = 0;
+  for (const row of rows) {
+    const trust = scores.get(row.staker.toLowerCase()) ?? null;
+    if (trust) maxScore = Math.max(maxScore, trust.score);
+  }
+
+  let weighted = 0;
+  let unscored = 0;
+  for (const row of rows) {
+    const trust = scores.get(row.staker.toLowerCase()) ?? null;
+    const amount = parseFloat(row.amountUsdc) || 0;
+    if (trust && maxScore > 0) {
+      weighted += amount * (trust.score / maxScore);
+    } else {
+      weighted += amount;
+      if (!trust) unscored += 1;
+    }
+  }
+
+  return { trustWeightedUsdc: weighted.toFixed(6), unscoredStakers: unscored };
 }
 
 type CacheEntry<T> = { at: number; data: T };
@@ -256,27 +298,37 @@ export async function getTargetSummaries(): Promise<TargetSummary[]> {
 
   let rows = await fetchIndexedAttestations();
   rows = await supplementFromOnChain(rows);
-  const byTarget = new Map<string, { total: bigint; count: number; displayTarget: string }>();
 
+  const byTarget = new Map<string, IndexedAttestation[]>();
   for (const row of rows) {
     const key = row.canonicalTarget;
     const existing = byTarget.get(key);
     if (existing) {
-      existing.total += row.amountUnits;
-      existing.count += 1;
+      existing.push(row);
     } else {
-      byTarget.set(key, { total: row.amountUnits, count: 1, displayTarget: key });
+      byTarget.set(key, [row]);
     }
   }
 
+  const scores = await getTrustScores(rows.map((row) => row.staker));
+
   const summaries = [...byTarget.entries()]
-    .map(([target, meta]) => ({
-      target,
-      label: formatTargetLabel(target),
-      kind: classifyTarget(target),
-      totalUsdc: formatUnits(meta.total, 6),
-      claimCount: meta.count,
-    }))
+    .map(([target, targetRows]) => {
+      const total = targetRows.reduce((sum, row) => sum + row.amountUnits, BigInt(0));
+      const { trustWeightedUsdc, unscoredStakers } = computeTrustWeighted(
+        targetRows,
+        scores,
+      );
+      return {
+        target,
+        label: formatTargetLabel(target),
+        kind: classifyTarget(target),
+        totalUsdc: formatUnits(total, 6),
+        claimCount: targetRows.length,
+        trustWeightedUsdc,
+        unscoredStakers,
+      };
+    })
     .sort((a, b) => parseFloat(b.totalUsdc) - parseFloat(a.totalUsdc));
 
   summaryCache = { at: Date.now(), data: summaries };
@@ -288,6 +340,8 @@ export async function getTargetClaims(target: string): Promise<{
   label: string;
   kind: ReturnType<typeof classifyTarget>;
   totalUsdc: string;
+  trustWeightedUsdc: string;
+  unscoredStakers: number;
   claims: PublicClaim[];
 }> {
   const canonical = canonicalizeAttestationTarget(target);
@@ -307,14 +361,18 @@ export async function getTargetClaims(target: string): Promise<{
   }
 
   const totalUnits = claims.reduce((sum, row) => sum + row.amountUnits, BigInt(0));
+  const scores = await getTrustScores(claims.map((row) => row.staker));
+  const { trustWeightedUsdc, unscoredStakers } = computeTrustWeighted(claims, scores);
 
   return {
     target: canonical,
     label: formatTargetLabel(canonical),
     kind: classifyTarget(canonical),
     totalUsdc: formatUnits(totalUnits, 6),
+    trustWeightedUsdc,
+    unscoredStakers,
     claims: [...claims]
       .sort((a, b) => b.timestamp - a.timestamp)
-      .map(toPublicClaim),
+      .map((row) => toPublicClaim(row, scores)),
   };
 }

@@ -18,6 +18,21 @@ import {
 import { searchCreatorContent, splitRoyalty, type CreatorContent } from "./citations.ts";
 import { formatUnits } from "viem";
 import { CANTEEN_USDC_ABI, getCanteenUsdcAddress } from "./canteen-usdc.ts";
+import { getTrustScores, type TrustScore } from "./trustgate.ts";
+import { partitionByTrust, type RankableSource } from "./trust-rank.ts";
+
+export type ResearchOptions = {
+  /** Minimum TrustGate score to cite a source. Default 0 = nothing blocked. */
+  minTrust?: number;
+  /** When the gate is active, also skip unscored (null) sources. */
+  strictUnscored?: boolean;
+};
+
+function formatTrust(trust: TrustScore | null): string {
+  if (!trust) return "unscored";
+  const score = Math.round(trust.score);
+  return trust.tier ? `trust ${score} (${trust.tier})` : `trust ${score}`;
+}
 
 const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000" as const;
 const ARC_TESTNET_RPC = "https://rpc.testnet.arc.network";
@@ -72,12 +87,16 @@ async function withNonceRetry<T>(fn: () => Promise<T>, label: string): Promise<T
   throw new Error("unreachable");
 }
 
-export async function runResearchQuery(query: string) {
+export async function runResearchQuery(query: string, options: ResearchOptions = {}) {
   const funderKey = process.env.BUYER_PRIVATE_KEY as `0x${string}` | undefined;
   if (!funderKey) {
     console.error("Missing BUYER_PRIVATE_KEY. Run `npm run generate-wallets` first.");
     process.exit(1);
   }
+
+  const minTrust = options.minTrust ?? 0;
+  const strictUnscored = options.strictUnscored ?? false;
+  const gateActive = minTrust > 0;
 
   const matches = searchCreatorContent(query, 3);
   if (matches.length === 0) {
@@ -85,11 +104,46 @@ export async function runResearchQuery(query: string) {
     return;
   }
 
+  // Resolve a TrustGate score for each candidate source, then rank (and
+  // optionally gate) before paying. Default behavior cites everyone.
+  const scoreMap = await getTrustScores(matches.map((item) => item.authorWallet));
+  const sources: RankableSource<CreatorContent>[] = matches.map((item) => ({
+    item,
+    trust: scoreMap.get(item.authorWallet.toLowerCase()) ?? null,
+  }));
+  const { cited, skipped } = partitionByTrust(sources, { minTrust, strictUnscored });
+
   console.log(`\nResearch query: "${query}"`);
-  console.log(`Matched ${matches.length} citation(s):\n`);
-  for (const item of matches) {
-    console.log(`  - ${item.title} by ${item.author} ($${item.priceUsdc} USDC)`);
+  if (gateActive) {
+    console.log(
+      `Trust gate active: --min-trust ${minTrust}${strictUnscored ? " --strict-unscored" : ""}`,
+    );
   }
+  console.log(`Matched ${matches.length} citation(s), citing ${cited.length}:\n`);
+  for (const source of cited) {
+    console.log(
+      `  - ${source.item.title} by ${source.item.author} ($${source.item.priceUsdc} USDC) [${formatTrust(source.trust)}]`,
+    );
+  }
+
+  if (gateActive && skipped.length > 0) {
+    console.log(`\nSkipped ${skipped.length} source(s):`);
+    for (const source of skipped) {
+      console.log(
+        `  - ${source.item.title} by ${source.item.author} [${formatTrust(source.trust)}]: ${source.reason}`,
+      );
+    }
+  }
+
+  if (cited.length === 0) {
+    console.log("\nNo sources passed the trust gate. Nothing to pay for.");
+    return;
+  }
+
+  const citedItems = cited.map((source) => source.item);
+  const trustByCitation = new Map(
+    cited.map((source) => [source.item.id, source.trust] as const),
+  );
 
   const ephemeralKey = generatePrivateKey();
   const ephemeralAccount = privateKeyToAccount(ephemeralKey);
@@ -145,11 +199,12 @@ export async function runResearchQuery(query: string) {
     excerpt: string;
     amount: string;
     royalty: string;
+    trust: TrustScore | null;
   }> = [];
 
   let totalSpent = 0;
 
-  for (const item of matches) {
+  for (const item of citedItems) {
     const citation: CitationMatch = {
       ...item,
       endpoint: buildCitationEndpoint(item.id, query),
@@ -170,19 +225,20 @@ export async function runResearchQuery(query: string) {
           result.data?.citation?.body?.split("\n\n")[0] ?? item.excerpt,
         amount: result.formattedAmount,
         royalty: creatorAmount,
+        trust: trustByCitation.get(item.id) ?? null,
       });
 
       console.log(
-        `  Paid ${item.id} -> ${result.formattedAmount} USDC (${Date.now() - start}ms)`,
+        `  Paid ${item.id} -> ${result.formattedAmount} USDC (${Date.now() - start}ms) [${formatTrust(trustByCitation.get(item.id) ?? null)}]`,
       );
     } catch (err) {
       console.error(`  Failed ${item.id}:`, (err as Error).message);
     }
   }
 
-  console.log("\n--- Research Synthesis ---\n");
+  console.log("\n--- Research Synthesis (ranked by trust) ---\n");
   for (const cite of paidCitations) {
-    console.log(`[${cite.author}] ${cite.title}`);
+    console.log(`[${cite.author}] ${cite.title} [${formatTrust(cite.trust)}]`);
     console.log(`  ${cite.excerpt}`);
     console.log(`  Paid: $${cite.amount} USDC | Creator royalty: $${cite.royalty}\n`);
   }

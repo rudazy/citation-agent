@@ -11,7 +11,7 @@ describe("isSupportedWithdrawChain", () => {
   });
 
   it("rejects unknown chains", () => {
-    expect(isSupportedWithdrawChain("mainnet")).toBe(false);
+    expect(isSupportedWithdrawChain("notachain")).toBe(false);
   });
 });
 

@@ -131,10 +131,18 @@ export interface AttestModalProps {
   onClose: () => void;
   /** Optional seed when opened from dashboard/marketplace row actions */
   target?: string;
+  /** Optional claim text seed when co-signing (supporting) an existing claim */
+  claim?: string;
   onSuccess?: (txHash: string) => void;
 }
 
-export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSuccess }: AttestModalProps) {
+export function AttestModal({
+  isOpen,
+  onClose,
+  target: targetSeed = "",
+  claim: claimSeed = "",
+  onSuccess,
+}: AttestModalProps) {
   const [targetPreset, setTargetPreset] = useState<TargetPreset>("custom");
   const [targetInput, setTargetInput] = useState("");
   const [claim, setClaim] = useState("");
@@ -286,19 +294,19 @@ export function AttestModal({ isOpen, onClose, target: targetSeed = "", onSucces
     }
   };
 
+  // Seed target + claim from props when opened (or when a seed changes). Kept
+  // separate from wallet refresh so toggling wallet mode never wipes the form.
   useEffect(() => {
     if (!isOpen) return;
     seedTargetFields(targetSeed);
+    setClaim(claimSeed);
+  }, [isOpen, targetSeed, claimSeed, seedTargetFields]);
+
+  useEffect(() => {
+    if (!isOpen) return;
     void refreshAgentWallet();
     if (walletMode === "connected") void refreshConnectedWallet();
-  }, [
-    isOpen,
-    targetSeed,
-    seedTargetFields,
-    refreshAgentWallet,
-    refreshConnectedWallet,
-    walletMode,
-  ]);
+  }, [isOpen, walletMode, refreshAgentWallet, refreshConnectedWallet]);
 
   const resetForm = useCallback(() => {
     setPhase("idle");

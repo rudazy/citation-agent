@@ -12,12 +12,37 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import * as readline from "node:readline/promises";
 import { runResearchQuery } from "./lib/research-agent.mts";
 
+// Flags that consume the following argument, so their values never leak into
+// the research query string.
+const VALUE_FLAGS = new Set(["--limit", "--min-trust"]);
+
+function printUsage(): void {
+  console.log(
+    [
+      "Citation Agent CLI",
+      "",
+      'Research mode:  npm run agent -- "your research question" [flags]',
+      "Load-test mode: npm run agent -- [--limit <usdc>]",
+      "",
+      "Flags:",
+      "  --min-trust <number>   Only cite sources at or above this TrustGate score.",
+      "                         Default 0 (unset) cites everyone and ranks by score.",
+      "  --strict-unscored      With --min-trust active, also skip unscored sources.",
+      "                         Default keeps unscored sources citeable.",
+      "  --limit <usdc>         Load-test mode only: cap total spend, then prompt.",
+      "  --help, -h             Show this message.",
+      "",
+      "Env: TRUSTGATE_MIN_SCORE may set the default for --min-trust (ships unset).",
+    ].join("\n"),
+  );
+}
+
 function getResearchQuery(): string | null {
   const args = process.argv.slice(2);
   const parts: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--limit") {
+    if (VALUE_FLAGS.has(args[i])) {
       i++;
       continue;
     }
@@ -29,9 +54,39 @@ function getResearchQuery(): string | null {
   return parts.length > 0 ? parts.join(" ") : null;
 }
 
+function parseTrustOptions(): { minTrust?: number; strictUnscored: boolean } {
+  const args = process.argv.slice(2);
+  let minTrust: number | undefined;
+  let strictUnscored = false;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--min-trust" && args[i + 1]) {
+      const val = parseFloat(args[i + 1]);
+      if (!isNaN(val)) minTrust = val;
+      i++;
+    } else if (args[i] === "--strict-unscored") {
+      strictUnscored = true;
+    }
+  }
+
+  if (minTrust === undefined) {
+    const envDefault = process.env.TRUSTGATE_MIN_SCORE;
+    if (envDefault && !isNaN(parseFloat(envDefault))) {
+      minTrust = parseFloat(envDefault);
+    }
+  }
+
+  return { minTrust, strictUnscored };
+}
+
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  printUsage();
+  process.exit(0);
+}
+
 const researchQuery = getResearchQuery();
 if (researchQuery) {
-  await runResearchQuery(researchQuery);
+  await runResearchQuery(researchQuery, parseTrustOptions());
   process.exit(0);
 }
 

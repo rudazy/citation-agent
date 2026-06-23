@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   AtSign,
   Bot,
+  ChevronDown,
   ChevronRight,
   ExternalLink,
   Globe,
@@ -26,12 +27,20 @@ import type { TargetKind } from "@/lib/attestation-client";
 
 const EXPLORER = "https://testnet.arcscan.app/tx/";
 
+type TrustScore = {
+  score: number;
+  tier: string;
+  confidence: number;
+};
+
 type TargetSummary = {
   target: string;
   label: string;
   kind: TargetKind;
   totalUsdc: string;
   claimCount: number;
+  trustWeightedUsdc?: string;
+  unscoredStakers?: number;
 };
 
 type TargetClaim = {
@@ -41,6 +50,7 @@ type TargetClaim = {
   staker: `0x${string}`;
   timestamp: number;
   txHash: `0x${string}` | null;
+  trust?: TrustScore | null;
 };
 
 type TargetDetail = {
@@ -48,8 +58,16 @@ type TargetDetail = {
   label: string;
   kind: TargetKind;
   totalUsdc: string;
+  trustWeightedUsdc?: string;
+  unscoredStakers?: number;
   claims: TargetClaim[];
 };
+
+function formatTrust(trust: TrustScore | null | undefined): string | null {
+  if (!trust) return null;
+  const score = Math.round(trust.score);
+  return trust.tier ? `TrustGate ${score} · ${trust.tier}` : `TrustGate ${score}`;
+}
 
 const KIND_META: Record<TargetKind, { label: string; icon: LucideIcon; accent: string }> = {
   wallet: { label: "Wallet", icon: Wallet, accent: "text-[#f5c842]" },
@@ -121,36 +139,132 @@ function TargetRow({
   );
 }
 
-function ClaimCard({ claim }: { claim: TargetClaim }) {
+type ClaimGroup = {
+  claimText: string;
+  target: string;
+  totalUsdc: string;
+  stakes: TargetClaim[];
+};
+
+/** Group stakes by exact claim text (same target), preserving first-seen order. */
+function groupClaims(claims: TargetClaim[]): ClaimGroup[] {
+  const groups = new Map<string, ClaimGroup>();
+  const order: string[] = [];
+  for (const stake of claims) {
+    const existing = groups.get(stake.claim);
+    if (existing) {
+      existing.stakes.push(stake);
+    } else {
+      groups.set(stake.claim, {
+        claimText: stake.claim,
+        target: stake.target,
+        totalUsdc: "0",
+        stakes: [stake],
+      });
+      order.push(stake.claim);
+    }
+  }
+  for (const key of order) {
+    const group = groups.get(key)!;
+    const sum = group.stakes.reduce((acc, s) => acc + (parseFloat(s.amountUsdc) || 0), 0);
+    group.totalUsdc = String(Number(sum.toFixed(6)));
+  }
+  return order.map((key) => groups.get(key)!);
+}
+
+function StakeRow({ stake }: { stake: TargetClaim }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-xs font-semibold text-[#f5c842] tabular-nums">
+          {stake.amountUsdc} USDC
+        </span>
+        <span className="font-mono text-[10px] text-muted-foreground shrink-0">
+          {formatWhen(stake.timestamp)}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono text-muted-foreground">
+        <span>
+          {stake.staker.slice(0, 6)}…{stake.staker.slice(-4)}
+        </span>
+        {formatTrust(stake.trust) && <span>· {formatTrust(stake.trust)}</span>}
+        {stake.txHash && (
+          <a
+            href={`${EXPLORER}${stake.txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded border border-[#ff8a3d]/30 px-2 py-1 text-[#ff8a3d] hover:bg-[#ff8a3d]/10"
+          >
+            Arcscan
+            <ExternalLink size={10} />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ClaimGroupCard({
+  group,
+  onSupport,
+}: {
+  group: ClaimGroup;
+  onSupport: (target: string, claimText: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const count = group.stakes.length;
+
   return (
     <article className="rounded border border-[#1f1f1f] bg-[#0a0a0a] overflow-hidden touch-manipulation">
       <div className="flex items-center justify-between gap-2 border-b border-[#1f1f1f] bg-[#141414]/60 px-3.5 py-2.5">
         <span className="font-mono text-sm font-semibold text-[#f5c842] tabular-nums">
-          {claim.amountUsdc} USDC
+          {group.totalUsdc} USDC
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground shrink-0">
-          {formatWhen(claim.timestamp)}
-        </span>
+        <Badge
+          variant="outline"
+          title={`${count} staker${count !== 1 ? "s" : ""}`}
+          className="border-[#333] font-mono text-[10px] text-[#a3a3a3] tabular-nums"
+        >
+          {count}
+        </Badge>
       </div>
       <div className="space-y-2 px-3.5 py-3">
         <p className="text-[10px] uppercase tracking-wider text-[#666] font-mono">Why they staked</p>
-        <p className="font-mono text-sm sm:text-base text-[#f5f5f5] leading-relaxed">{claim.claim}</p>
-        <div className="flex flex-wrap items-center gap-2 pt-1 text-[10px] font-mono text-muted-foreground">
-          <span>
-            {claim.staker.slice(0, 6)}…{claim.staker.slice(-4)}
-          </span>
-          {claim.txHash && (
-            <a
-              href={`${EXPLORER}${claim.txHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded border border-[#ff8a3d]/30 px-2 py-1 text-[#ff8a3d] hover:bg-[#ff8a3d]/10"
-            >
-              Arcscan
-              <ExternalLink size={10} />
-            </a>
-          )}
-        </div>
+        <p className="font-mono text-sm sm:text-base text-[#f5f5f5] leading-relaxed">
+          {group.claimText}
+        </p>
+
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex items-center gap-1 pt-0.5 text-[10px] font-mono text-muted-foreground hover:text-[#ccc]"
+        >
+          <ChevronDown
+            size={12}
+            className={cn("transition-transform", expanded && "rotate-180")}
+          />
+          {expanded ? "Hide" : "Show"} {count} stake{count !== 1 ? "s" : ""}
+        </button>
+
+        {expanded && (
+          <div className="space-y-3 border-l border-[#1f1f1f] pl-3">
+            {group.stakes.map((stake, index) => (
+              <StakeRow key={`${stake.timestamp}-${index}`} stake={stake} />
+            ))}
+          </div>
+        )}
+
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => onSupport(group.target, group.claimText)}
+          className="h-7 gap-1.5 border-[#ff8a3d]/30 px-2 text-[10px] text-[#ff8a3d] hover:bg-[#ff8a3d]/10 hover:text-[#ff8a3d]"
+        >
+          <Shield size={12} />
+          Support this claim
+        </Button>
       </div>
     </article>
   );
@@ -164,6 +278,7 @@ function DetailPanel({
   onBack,
   onRetry,
   onAttest,
+  onSupport,
 }: {
   detail: TargetDetail | null;
   detailLoading: boolean;
@@ -172,6 +287,7 @@ function DetailPanel({
   onBack: () => void;
   onRetry: () => void;
   onAttest: (target: string) => void;
+  onSupport: (target: string, claimText: string) => void;
 }) {
   const selectedMeta = detail ? KIND_META[detail.kind] : null;
   const SelectedIcon = selectedMeta?.icon ?? Shield;
@@ -269,13 +385,28 @@ function DetailPanel({
             </p>
           </div>
 
+          {detail.trustWeightedUsdc && (
+            <p className="font-mono text-[11px] text-muted-foreground px-0.5">
+              Trust-weighted stake: {detail.trustWeightedUsdc} USDC
+              {detail.unscoredStakers
+                ? ` · ${detail.unscoredStakers} unscored staker${
+                    detail.unscoredStakers !== 1 ? "s" : ""
+                  } counted at raw stake`
+                : ""}
+            </p>
+          )}
+
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono px-0.5">
             What stakers claimed publicly
           </p>
 
           <div className="space-y-3 flex-1 overflow-y-auto pr-0.5 max-h-none lg:max-h-[360px] pb-2">
-            {detail.claims.map((claim, index) => (
-              <ClaimCard key={`${claim.timestamp}-${index}`} claim={claim} />
+            {groupClaims(detail.claims).map((group, index) => (
+              <ClaimGroupCard
+                key={`${group.claimText}-${index}`}
+                group={group}
+                onSupport={onSupport}
+              />
             ))}
           </div>
 
@@ -307,6 +438,7 @@ export function AttestationRegistry({ className }: { className?: string }) {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [attestOpen, setAttestOpen] = useState(false);
   const [attestSeed, setAttestSeed] = useState("");
+  const [attestClaim, setAttestClaim] = useState("");
 
   const totals = useMemo(() => {
     const usdc = targets.reduce((sum, row) => sum + parseFloat(row.totalUsdc || "0"), 0);
@@ -372,10 +504,20 @@ export function AttestationRegistry({ className }: { className?: string }) {
     setDetailError(null);
   };
 
+  const seedFromTarget = (target: string) =>
+    target.startsWith("x:@") ? target.slice(2) : target;
+
   const openAttest = (target: string) => {
-    const seed =
-      target.startsWith("x:@") ? target.slice(2) : target.startsWith("agent:") ? target : target;
-    setAttestSeed(seed);
+    setAttestSeed(seedFromTarget(target));
+    setAttestClaim("");
+    setAttestOpen(true);
+  };
+
+  // Co-sign an existing stake: same target, same claim text prefilled. The user
+  // only picks the amount and confirms, via the existing attestation flow.
+  const supportClaim = (target: string, claimText: string) => {
+    setAttestSeed(seedFromTarget(target));
+    setAttestClaim(claimText);
     setAttestOpen(true);
   };
 
@@ -499,6 +641,7 @@ export function AttestationRegistry({ className }: { className?: string }) {
                   onBack={closeDetail}
                   onRetry={() => void loadDetail(selectedTarget, true)}
                   onAttest={openAttest}
+                  onSupport={supportClaim}
                 />
               ) : (
                 <DetailPanel
@@ -509,6 +652,7 @@ export function AttestationRegistry({ className }: { className?: string }) {
                   onBack={closeDetail}
                   onRetry={() => {}}
                   onAttest={openAttest}
+                  onSupport={supportClaim}
                 />
               )}
             </div>
@@ -520,6 +664,7 @@ export function AttestationRegistry({ className }: { className?: string }) {
         isOpen={attestOpen}
         onClose={() => setAttestOpen(false)}
         target={attestSeed}
+        claim={attestClaim}
         onSuccess={handleAttestSuccess}
       />
     </>

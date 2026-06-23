@@ -169,6 +169,16 @@ npm run dev
 npm run agent -- "How do nanopayments enable trust infrastructure?"
 ```
 
+By default the agent cites every matching source and ranks them by TrustGate score (nothing is blocked). A trust threshold is opt in:
+
+```cmd
+npm run agent -- "trust infrastructure" --min-trust 50
+npm run agent -- "trust infrastructure" --min-trust 50 --strict-unscored
+npm run agent -- --help
+```
+
+`--min-trust <number>` skips sources below the score (and prints them as skipped). `--strict-unscored` additionally skips unscored wallets when the gate is active; without it, unscored sources stay citeable.
+
 **CLI attestation** (agent wallet from `.env.local`)
 
 ```cmd
@@ -229,6 +239,20 @@ Copy [`.env.example`](.env.example). Minimum for attestations + marketplace:
 | `SELLER_ADDRESS` / `SELLER_PRIVATE_KEY` | Payment recipient |
 
 Optional: Supabase keys (dashboard realtime), `CANTEEN_USDC_ADDRESS`, `OPENAI_API_KEY`, `ARCSCAN_API_KEY`.
+
+### TrustGate scores (optional)
+
+Wire live TrustGate behavioral scores into the citation cards, claims registry, and research agent. See [`.env.local.example`](.env.local.example). The free reader degrades to `null` when `TRUSTGATE_SCORE_API_URL` is unset or the endpoint requires payment: scores are hidden and the agent cites everyone.
+
+The marketplace also offers a user-paid lookup: clicking **Check trust score (0.001 USDC)** on a citation pays the oracle fee from the user's own wallet (one on-chain USDC payment, x402), then reveals the author's score, tier, and recommendation. Resolved scores are cached per wallet so a second view does not charge again. The research agent never auto-pays.
+
+| Variable | Purpose |
+| --- | --- |
+| `TRUSTGATE_SCORE_API_URL` | Free reader endpoint. Use `{address}` placeholder, else the wallet is appended as a path segment |
+| `TRUSTGATE_ORACLE_URL` | Paid lookup endpoint (server only) for the Check trust score action. Same base with `{address}` |
+| `TRUSTGATE_MIN_SCORE` | Default for the agent `--min-trust` flag (ships unset, so nothing is blocked) |
+| `TRUSTGATE_CACHE_TTL_MS` | Optional free-reader cache TTL in ms (default 300000) |
+| `TRUSTGATE_PAID_CACHE_TTL_MS` | Optional paid-score cache TTL in ms (default 300000) |
 
 ---
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCreatorContentById, loadAllCreatorContent } from "@/lib/citations";
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
+import { getTrustScores } from "@/lib/trustgate";
 import { withGateway, type GatewayContext } from "@/lib/x402";
 
 const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
@@ -67,15 +68,22 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
 
   if (!id) {
-    const items = loadAllCreatorContent().map((item) => ({
+    const content = loadAllCreatorContent();
+    // Enrich each listing with its author's TrustGate score server side, in one
+    // deduped pass. Degrades to null (rendered as nothing) when the API is unset.
+    const scores = await getTrustScores(content.map((item) => item.authorWallet));
+
+    const items = content.map((item) => ({
       id: item.id,
       title: item.title,
       author: item.author,
+      author_wallet: item.authorWallet,
       price_usdc: item.priceUsdc,
       tags: item.tags,
       excerpt: item.excerpt,
       endpoint: `/api/marketplace/citations?id=${item.id}`,
       token: process.env.CANTEEN_USDC_ADDRESS ? "cUSDC" : "USDC",
+      trust: scores.get(item.authorWallet.toLowerCase()) ?? null,
     }));
 
     return NextResponse.json({

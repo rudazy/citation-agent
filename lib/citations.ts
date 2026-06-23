@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import type { TrustScore } from "@/lib/trustgate";
 
 export type CreatorContent = {
   id: string;
@@ -10,6 +11,8 @@ export type CreatorContent = {
   tags: string[];
   excerpt: string;
   body: string;
+  /** TrustGate score for authorWallet, attached server side by consumers. */
+  trust?: TrustScore | null;
 };
 
 const CREATORS_DIR = path.join(process.cwd(), "content", "creators");
