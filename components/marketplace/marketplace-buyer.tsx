@@ -429,11 +429,11 @@ export function MarketplaceBuyer({
           <Wallet size={18} className="text-[#ff8a3d]" />
         </div>
         <div className="min-w-0 space-y-1">
-          <h2 className="text-lg font-semibold tracking-wide">Pay with agent wallet</h2>
+          <h2 className="text-lg font-semibold tracking-wide">Agent buys research</h2>
           <p className="text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
-            Pay $0.01 USDC for <code className="text-[#ff8a3d]/90">/api/marketplace/hello</code> with
-            your personal agent wallet (default) or MetaMask. Create a wallet first — each browser
-            gets its own. Deposit to Gateway if balance is $0.
+            Same catalog as humans — different payer. Fund the agent wallet, deposit to Circle
+            Gateway, then unlock reports without a wallet popup. Run the hello-world x402 demo below
+            to trace a payment end-to-end.
           </p>
         </div>
       </div>
@@ -481,9 +481,9 @@ export function MarketplaceBuyer({
           >
             <div className="flex items-center gap-2">
               <Wallet size={14} className="text-[#ff8a3d]" />
-              <span className="text-sm font-medium">Connected</span>
+              <span className="text-sm font-medium">MetaMask</span>
             </div>
-            <p className="mt-1 font-mono text-[10px] text-[#666]">MetaMask / injected</p>
+            <p className="mt-1 font-mono text-[10px] text-[#666]">Connected wallet override</p>
           </button>
         </div>
       </div>

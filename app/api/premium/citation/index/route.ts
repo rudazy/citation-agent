@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { loadAllCreatorContent } from "@/lib/citations";
+import { filterPublicResearchCatalog } from "@/lib/catalog-filter";
 
 export async function GET() {
-  const content = await loadAllCreatorContent();
+  const content = filterPublicResearchCatalog(await loadAllCreatorContent());
   const items = content.map((item) => ({
     id: item.id,
     title: item.title,

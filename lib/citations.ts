@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { getAddress } from "viem";
 import type { TrustScore } from "@/lib/trustgate";
+import { filterPublicResearchCatalog } from "@/lib/catalog-filter";
 import { loadPublishedPostsFromDb, getPublishedPostById } from "@/lib/creator-posts";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -136,7 +137,7 @@ export async function searchCreatorContent(
     .split(/\s+/)
     .filter((term) => term.length > 2);
 
-  const all = await loadAllCreatorContent();
+  const all = filterPublicResearchCatalog(await loadAllCreatorContent());
 
   if (terms.length === 0) {
     return all.slice(0, limit);

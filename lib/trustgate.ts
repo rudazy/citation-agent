@@ -1,3 +1,5 @@
+import { coerceTrustScore, normalizeTrustScore } from "@/lib/trustgate-score-parse";
+
 /**
  * TrustGate behavioral score client.
  *
@@ -71,8 +73,9 @@ function buildUrl(base: string, address: string): string {
 function parseScore(body: unknown): TrustScore | null {
   if (!body || typeof body !== "object") return null;
   const record = body as Record<string, unknown>;
-  const score = record.score;
-  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  const raw = coerceTrustScore(record.score);
+  if (raw === null) return null;
+  const score = normalizeTrustScore(raw);
   const tier = typeof record.tier === "string" ? record.tier : "";
   const confidence =
     typeof record.confidence === "number" && Number.isFinite(record.confidence)

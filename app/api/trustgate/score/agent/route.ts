@@ -147,6 +147,7 @@ export async function POST(request: Request) {
     txHash,
     from: account.address,
     network: challenge.network,
+    challenge,
   });
 
   return NextResponse.json(await settleProof(address, proof));

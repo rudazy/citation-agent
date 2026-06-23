@@ -1,66 +1,34 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  formatTrustLabel,
+  type PublicTrustSignal,
+} from "@/lib/creator-trust";
 import { cn } from "@/lib/utils";
-import { Shield } from "lucide-react";
 
-export type PublicTrustSignal = {
-  score: number;
-  tier: string;
-  confidence: number;
-  recommendation?: string;
-  source: "free" | "paid";
-  /** Post id this signal was computed for; display is bound to it (see lib/trust-display.ts). */
-  forPostId?: string;
-};
-
-export function formatTrustLabel(signal: PublicTrustSignal | null | undefined): string | null {
-  if (!signal) return null;
-  const parts = [`${signal.score}`];
-  if (signal.tier) parts.push(signal.tier);
-  if (signal.recommendation) parts.push(signal.recommendation);
-  return parts.join(" · ");
-}
+export type { PublicTrustSignal };
 
 type Props = {
   trust: PublicTrustSignal | null | undefined;
   className?: string;
 };
 
-/** Visible trust score for a creator. Never shows a wallet address. */
+/** Shown only when a score exists — ranking is otherwise invisible to buyers. */
 export function TrustSignalBadge({ trust, className }: Props) {
   const label = formatTrustLabel(trust);
-  if (!label) {
-    return (
-      <Badge
-        variant="outline"
-        className={cn(
-          "gap-1 border-[#333] font-mono text-[10px] text-[#666]",
-          className,
-        )}
-      >
-        <Shield size={10} />
-        Unscored
-      </Badge>
-    );
-  }
+  if (!label) return null;
 
   return (
     <Badge
       variant="outline"
       className={cn(
-        "gap-1 border-[#ff8a3d]/30 font-mono text-[10px] text-[#ff8a3d]",
-        trust?.source === "paid" && "border-[#f5c842]/40 text-[#f5c842]",
+        "border-[#333] font-mono text-[10px] text-[#666]",
         className,
       )}
-      title={
-        trust?.source === "paid"
-          ? "Paid TrustGate lookup (wallet hidden)"
-          : "Free TrustGate reader (wallet hidden)"
-      }
+      title="Researcher reputation influences catalog ranking"
     >
-      <Shield size={10} />
-      TrustGate {label}
+      Score {label}
     </Badge>
   );
 }

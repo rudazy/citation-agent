@@ -28,9 +28,9 @@ const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
   : "http://localhost:3000";
 
-const siteTitle = "Citation Agent + CanteenUSDC";
+const siteTitle = "Citation Agent";
 const siteDescription =
-  "Pay-per-citation research agent with x402 nanopayments, cUSDC creator royalties, marketplace listings, and full settlement trace on Arc Testnet.";
+  "Researchers sell crypto research. AI agents and humans buy it. A marketplace for paywalled protocol analysis, wallet investigations, and ecosystem reports.";
 
 export const viewport: Viewport = {
   width: "device-width",

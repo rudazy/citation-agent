@@ -55,8 +55,8 @@ function NavLink({
 export function AppHeader({
   active,
   showBack = false,
-  backHref = "/dashboard",
-  backLabel = "Dashboard",
+  backHref = "/marketplace",
+  backLabel = "Marketplace",
   trailing,
   className,
 }: AppHeaderProps) {
@@ -67,16 +67,16 @@ export function AppHeader({
 
   const navItems = [
     {
+      href: "/marketplace",
+      label: "Research",
+      icon: Store,
+      isActive: active === "marketplace",
+    },
+    {
       href: "/dashboard",
       label: "Dashboard",
       icon: LayoutDashboard,
       isActive: active === "dashboard" && !onTraceTab,
-    },
-    {
-      href: "/marketplace",
-      label: "Marketplace",
-      icon: Store,
-      isActive: active === "marketplace",
     },
     {
       href: "/dashboard?tab=trace",
@@ -100,7 +100,7 @@ export function AppHeader({
               <Link href={backHref}>{backLabel}</Link>
             </Button>
           )}
-          <AppLogo href="/dashboard" compact />
+          <AppLogo href="/marketplace" compact />
         </div>
 
         <nav className="hidden md:flex items-center gap-1 rounded-md border border-border/60 bg-[#111111]/80 p-1">

@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   formatTrustLabel,
+  isDisplayableTrustScore,
   paidScoreToSignal,
   trustScoreToSignal,
 } from "./creator-trust";
 
 describe("creator-trust", () => {
-  it("maps free trust to public signal", () => {
-    const signal = trustScoreToSignal({ score: 72.4, tier: "MEDIUM", confidence: 0.8 });
+  it("maps free trust to public signal with derived recommendation", () => {
+    const signal = trustScoreToSignal({ score: 72, tier: "HIGH", confidence: 0.8 });
     expect(signal).toEqual({
       score: 72,
-      tier: "MEDIUM",
+      tier: "HIGH",
       confidence: 0.8,
+      recommendation: "INSTANT",
       source: "free",
     });
   });
@@ -26,6 +28,14 @@ describe("creator-trust", () => {
     expect(signal.recommendation).toBe("TIME_LOCKED");
   });
 
+  it("hides blocked zero scores from catalog display", () => {
+    expect(trustScoreToSignal({ score: 0, tier: "BLOCKED", confidence: 0 })).toBeNull();
+    expect(
+      paidScoreToSignal({ score: 0, tier: "BLOCKED", recommendation: "BLOCKED" }),
+    ).toBeNull();
+    expect(isDisplayableTrustScore({ score: 92, tier: "HIGH" })).toBe(true);
+  });
+
   it("formats trust label without wallet", () => {
     expect(
       formatTrustLabel({
@@ -35,6 +45,6 @@ describe("creator-trust", () => {
         recommendation: "TIME_LOCKED",
         source: "paid",
       }),
-    ).toBe("TrustGate 20 · LOW · TIME_LOCKED");
+    ).toBe("20 · LOW · TIME_LOCKED");
   });
 });

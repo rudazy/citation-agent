@@ -1,3 +1,9 @@
+import {
+  coerceTrustScore,
+  deriveWalletRecommendation,
+  normalizeTrustScore,
+} from "@/lib/trustgate-score-parse";
+
 /**
  * Shared helpers for the user-paid TrustGate score lookup (x402).
  *
@@ -28,6 +34,10 @@ export type PaymentProof = {
   nonce: string;
   from: string;
   network: string;
+  chainId?: number;
+  amount?: string;
+  currency?: string;
+  recipient?: `0x${string}`;
 };
 
 /** GET /api/trustgate/score response (challenge or a cached result). */
@@ -58,11 +68,14 @@ export function isAddress(value: unknown): value is `0x${string}` {
 export function parseOracleScore(body: unknown): PaidTrustScore | null {
   if (!body || typeof body !== "object") return null;
   const record = body as Record<string, unknown>;
-  const score = record.score;
-  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  const raw = coerceTrustScore(record.score);
+  if (raw === null) return null;
+  const score = normalizeTrustScore(raw);
   const tier = typeof record.tier === "string" ? record.tier : "";
   const recommendation =
-    typeof record.recommendation === "string" ? record.recommendation : "";
+    typeof record.recommendation === "string" && record.recommendation.length > 0
+      ? record.recommendation
+      : deriveWalletRecommendation(score);
   return { score, tier, recommendation };
 }
 
@@ -89,6 +102,9 @@ export function parseOracleChallenge(body: unknown): OracleChallenge | null {
 }
 
 function randomNonce(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);
   return `0x${Array.from(bytes)
@@ -97,22 +113,30 @@ function randomNonce(): string {
 }
 
 /**
- * Build the payment proof the oracle expects after an on-chain payment. `network`
- * is echoed from the challenge (the oracle only accepts "arc-testnet"); `nonce`
- * is a fresh random value for replay protection unless supplied (tests pass one).
+ * Build the x402 payment envelope the TrustGate oracle proxy expects. Includes
+ * challenge fields (amount, recipient, chainId) so verification matches the
+ * trustgated.xyz oracle playground.
  */
 export function buildPaymentProof(params: {
   txHash: string;
   from: string;
   network: string;
+  challenge?: OracleChallenge;
   nonce?: string;
 }): PaymentProof {
-  return {
+  const proof: PaymentProof = {
     txHash: params.txHash,
     nonce: params.nonce ?? randomNonce(),
     from: params.from,
     network: params.network,
   };
+  if (params.challenge) {
+    proof.chainId = params.challenge.chainId;
+    proof.amount = params.challenge.amount;
+    proof.currency = "USDC";
+    proof.recipient = params.challenge.recipient;
+  }
+  return proof;
 }
 
 function toBase64(value: string): string {
@@ -150,6 +174,11 @@ function okTtlMs(): number {
     if (value > 0) return value;
   }
   return DEFAULT_OK_TTL_MS;
+}
+
+/** TTL for a cache entry (success vs failure). Used by the Supabase store layer. */
+export function paidScoreCacheTtlMs(value: PaidTrustScore | null): number {
+  return value ? okTtlMs() : FAIL_TTL_MS;
 }
 
 /** Returns { hit } so a cached null (a prior failure) is distinguishable from a miss. */

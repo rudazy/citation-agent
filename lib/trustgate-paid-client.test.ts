@@ -67,6 +67,8 @@ describe("payAndFetchScore", () => {
     expect(body.proof.txHash).toBe("0xpaymenttx");
     expect(body.proof.from).toBe(ACCOUNT);
     expect(body.proof.network).toBe("arc-testnet");
+    expect(body.proof.amount).toBe("0.001");
+    expect(body.proof.recipient).toBe(CHALLENGE.recipient);
   });
 
   it("returns cancelled (no charge) when the user rejects the wallet prompt", async () => {

@@ -1,10 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCreatorContentById, loadAllCreatorContent, resolveUnlockPayee } from "@/lib/citations";
+import { filterPublicResearchCatalog } from "@/lib/catalog-filter";
+import { resolveTrustIdentityWallet } from "@/lib/catalog-identity";
 import { incrementPostPaidCount, insertPublishedPost } from "@/lib/creator-posts";
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
 import { verifyPublishRequest } from "@/lib/publish-auth";
 import { isPaidTrustLookupAvailable, trustScoreToSignal } from "@/lib/creator-trust";
+import {
+  getBackingSummariesForTargets,
+  invalidateAttestationCache,
+} from "@/lib/attestation-index";
+import { getPriorUnlockIds } from "@/lib/citation-prior-unlock";
+import {
+  authorBackingTarget,
+  indexBackingSummaries,
+  reportBackingTarget,
+} from "@/lib/research-backing";
+import { resolveUserAgent } from "@/lib/resolve-user-agent";
 import { getTrustScores } from "@/lib/trustgate";
 import { withGateway, type GatewayContext } from "@/lib/x402";
 
@@ -81,30 +94,52 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
 
   if (!id) {
-    const content = await loadAllCreatorContent();
-    const scores = await getTrustScores(
-      content.map((item) => item.connectedWallet),
-    );
+    const forceBackingRefresh = req.nextUrl.searchParams.get("refresh") === "1";
+    if (forceBackingRefresh) invalidateAttestationCache();
+
+    const content = filterPublicResearchCatalog(await loadAllCreatorContent());
+    const backingTargets = content.flatMap((item) => [
+      authorBackingTarget(item.author),
+      reportBackingTarget(item.id),
+    ]);
+
+    const agent = await resolveUserAgent();
+    const citationIds = content.map((item) => item.id);
+
+    const [scores, backingIndex, priorUnlocks] = await Promise.all([
+      getTrustScores(content.map((item) => resolveTrustIdentityWallet(item))),
+      getBackingSummariesForTargets(backingTargets, {
+        forceOnChain: forceBackingRefresh,
+      }).then(indexBackingSummaries),
+      agent ? getPriorUnlockIds(agent.address, citationIds) : Promise.resolve(new Set<string>()),
+    ]);
 
     const paidTrustAvailable = isPaidTrustLookupAvailable();
 
-    const items = content.map((item) => ({
-      id: item.id,
-      title: item.title,
-      author: item.author,
-      price_usdc: item.priceUsdc,
-      tags: item.tags,
-      subheading: item.subheading,
-      paid_count: item.paidCount,
-      endpoint: `/api/marketplace/citations?id=${item.id}`,
-      token: process.env.CANTEEN_USDC_ADDRESS ? "cUSDC" : "USDC",
-      trust: trustScoreToSignal(
-        scores.get(item.connectedWallet.toLowerCase()) ?? null,
-        "free",
-        item.id,
-      ),
-      trust_paid_lookup: paidTrustAvailable,
-    }));
+    const items = content.map((item) => {
+      const alreadyUnlocked = priorUnlocks.has(item.id);
+      return {
+        id: item.id,
+        title: item.title,
+        author: item.author,
+        price_usdc: item.priceUsdc,
+        tags: item.tags,
+        subheading: item.subheading,
+        paid_count: item.paidCount,
+        endpoint: `/api/marketplace/citations?id=${item.id}`,
+        token: process.env.CANTEEN_USDC_ADDRESS ? "cUSDC" : "USDC",
+        trust: trustScoreToSignal(
+          scores.get(resolveTrustIdentityWallet(item).toLowerCase()) ?? null,
+          "free",
+          item.id,
+        ),
+        trust_paid_lookup: paidTrustAvailable,
+        author_backing: backingIndex.get(authorBackingTarget(item.author)) ?? null,
+        report_backing: backingIndex.get(reportBackingTarget(item.id)) ?? null,
+        already_unlocked: alreadyUnlocked,
+        ...(alreadyUnlocked ? { unlocked_body: item.body } : {}),
+      };
+    });
 
     return NextResponse.json({
       marketplace: "citation-agent",

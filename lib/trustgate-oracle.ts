@@ -8,12 +8,14 @@
  */
 
 import {
+  getCachedPaidScore,
+  setCachedPaidScore,
+} from "@/lib/trustgate-paid-store";
+import {
   buildOracleUrl,
   encodePaymentHeader,
-  getCachedPaidScore,
   parseOracleChallenge,
   parseOracleScore,
-  setCachedPaidScore,
   type PaymentProof,
   type ScoreLookupResponse,
   type ScoreSettleResponse,
@@ -52,17 +54,24 @@ async function fetchOracle(
 function reasonFrom(body: unknown, fallback: string): string {
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
-    if (typeof record.reason === "string") return record.reason;
-    if (typeof record.error === "string") return record.error;
+    if (typeof record.reason === "string") return sanitizeOracleReason(record.reason);
+    if (typeof record.error === "string") return sanitizeOracleReason(record.error);
   }
-  return fallback;
+  return sanitizeOracleReason(fallback);
+}
+
+function sanitizeOracleReason(reason: string): string {
+  if (/rate limit/i.test(reason)) {
+    return "Score service is busy. If you already paid, wait a moment and try again.";
+  }
+  return reason;
 }
 
 /**
  * Returns a cached score (no charge) or the live 402 challenge needed to pay.
  */
 export async function lookupScore(address: string): Promise<ScoreLookupResponse> {
-  const cached = getCachedPaidScore(address);
+  const cached = await getCachedPaidScore(address);
   if (cached.hit) return { status: "cached", score: cached.value };
 
   const base = oracleBase();
@@ -73,7 +82,7 @@ export async function lookupScore(address: string): Promise<ScoreLookupResponse>
 
   if (result.status === 200) {
     const score = parseOracleScore(result.body);
-    setCachedPaidScore(address, score);
+    await setCachedPaidScore(address, score);
     return { status: "cached", score };
   }
 
@@ -103,23 +112,23 @@ export async function settleProof(
 
   const header = encodePaymentHeader(proof);
   const result = await fetchOracle(buildOracleUrl(base, address), {
-    headers: { "X-PAYMENT": header },
+    headers: { "X-Payment": header },
   });
 
   if (!result) {
     // Paid but no result. Cache the failure briefly so a re-view does not re-fire instantly.
-    setCachedPaidScore(address, null);
+    await setCachedPaidScore(address, null);
     return { status: "failed", reason: "Oracle timed out after payment" };
   }
 
   if (result.status === 200) {
     const score = parseOracleScore(result.body);
-    setCachedPaidScore(address, score);
+    await setCachedPaidScore(address, score);
     if (!score) return { status: "failed", reason: "Oracle returned no score" };
     return { status: "ok", score };
   }
 
-  setCachedPaidScore(address, null);
+  await setCachedPaidScore(address, null);
   return {
     status: "failed",
     reason: reasonFrom(result.body, `Payment rejected (${result.status})`),

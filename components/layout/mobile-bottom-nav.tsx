@@ -10,9 +10,9 @@ type MobileBottomNavProps = {
 };
 
 const ITEMS = [
+  { href: "/marketplace", label: "Research", icon: Store, id: "marketplace" as const },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, id: "dashboard" as const },
   { href: "/dashboard?tab=attestations", label: "Claims", icon: Shield, id: "attestations" as const },
-  { href: "/marketplace", label: "Market", icon: Store, id: "marketplace" as const },
   { href: "/dashboard?tab=trace", label: "Trace", icon: Activity, id: "trace" as const },
 ];
 

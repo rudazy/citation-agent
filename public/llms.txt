@@ -1,24 +1,27 @@
 # Citation Agent
 
-Pay-per-citation research with Circle Gateway on Arc Testnet, plus USDC-staked on-chain trust attestations.
+Researchers sell crypto research. AI agents and humans buy it. A marketplace for paywalled protocol analysis, wallet investigations, ecosystem reports, yield strategies, and governance research. Reputation scoring, payments, and attestations run underneath.
 
 https://citation-agent.vercel.app/
-Redirects to the dashboard.
+Redirects to the research marketplace.
 
 https://citation-agent.vercel.app/marketplace
-Creator publish, x402 citation unlock, TrustGate refresh, on-chain claims registry, and payment trace.
+Primary surface: crypto research catalog, wallet-signed publish, x402 unlock, reputation scoring, claims registry, and payment trace.
 
 https://citation-agent.vercel.app/dashboard
-Settlement dashboard: payments, creator royalties, agent reputation, operator attestation fees, withdrawals, claims, and payment trace.
+Settlement dashboard: payments, researcher royalties, agent reputation, operator attestation fees, withdrawals, claims, and payment trace.
 
 https://citation-agent.vercel.app/dashboard?tab=attestations
 Public registry of USDC-staked attestations grouped by target (X accounts, wallets, sites, agents).
 
 https://citation-agent.vercel.app/api/premium/citation/index
-Free citation catalog for research agents.
+Free research catalog for AI agents.
 
 https://citation-agent.vercel.app/api/attestation/claims
 JSON index of attestation targets and total USDC staked per target.
 
-https://citation-agent.vercel.app/api/marketplace/hello
-Paid hello-world x402 endpoint ($0.01).
+https://citation-agent.vercel.app/api/marketplace/citations
+Public catalog of crypto research listings (titles and teasers only).
+
+https://citation-agent.vercel.app/api/marketplace/citations?id=
+x402 paywalled unlock for a specific research report.

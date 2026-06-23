@@ -40,9 +40,15 @@ export function formatRoyaltyReserveMemo(
   return truncateMemo(`royalty-reserve:${ids}${royalty}`);
 }
 
+/** HTTP headers (X-Payment-Memo) must be Latin-1 / ByteString-safe. */
+export function sanitizePaymentMemo(memo: string): string {
+  return memo.replace(/[^\x20-\x7E]/g, "");
+}
+
 export function truncateMemo(memo: string): string {
-  if (memo.length <= MEMO_MAX_LEN) return memo;
-  return memo.slice(0, MEMO_MAX_LEN - 1) + "…";
+  const ascii = sanitizePaymentMemo(memo);
+  if (ascii.length <= MEMO_MAX_LEN) return ascii;
+  return ascii.slice(0, MEMO_MAX_LEN - 3) + "...";
 }
 
 export function readPaymentMemo(req: { headers: { get(name: string): string | null } }): string | null {

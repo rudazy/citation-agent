@@ -2,11 +2,11 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Citation Agent + CanteenUSDC",
+    name: "Citation Agent",
     short_name: "Citation Agent",
     description:
-      "Pay-per-citation research agent with x402 nanopayments, creator royalties, and settlement trace on Arc Testnet.",
-    start_url: "/dashboard",
+      "Researchers sell crypto research. AI agents and humans buy paywalled protocol analysis, wallet investigations, and ecosystem reports.",
+    start_url: "/marketplace",
     scope: "/",
     display: "standalone",
     orientation: "portrait-primary",

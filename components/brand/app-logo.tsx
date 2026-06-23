@@ -37,7 +37,7 @@ type AppLogoProps = {
 };
 
 export function AppLogo({
-  href = "/dashboard",
+  href = "/marketplace",
   showSubtitle = true,
   compact = false,
   className,
@@ -53,12 +53,10 @@ export function AppLogo({
           )}
         >
           Citation Agent
-          <span className="text-muted-foreground font-normal"> + </span>
-          <span className="text-[#c8a832]">CanteenUSDC</span>
         </p>
         {showSubtitle && !compact && (
           <p className="hidden sm:block text-[10px] sm:text-[11px] font-mono text-muted-foreground truncate">
-            x402 · Arc Testnet
+            Crypto research marketplace
           </p>
         )}
       </div>

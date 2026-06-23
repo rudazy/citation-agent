@@ -3,6 +3,7 @@
  */
 
 import { getCreatorContentById } from "@/lib/citations";
+import { resolveTrustIdentityWallet } from "@/lib/catalog-identity";
 
 export async function resolveIdentityWalletForPost(
   postId: string,
@@ -11,5 +12,5 @@ export async function resolveIdentityWalletForPost(
   if (!id) return null;
   const content = await getCreatorContentById(id);
   if (!content) return null;
-  return content.connectedWallet;
+  return resolveTrustIdentityWallet(content);
 }

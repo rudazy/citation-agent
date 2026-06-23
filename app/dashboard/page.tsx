@@ -366,7 +366,9 @@ export default function Dashboard() {
             Settlement dashboard
           </h1>
           <p className="text-muted-foreground text-xs sm:text-sm font-mono max-w-xl leading-relaxed">
-            Nanopayments, creator royalties, agent reputation, and withdrawals on Arc.
+            Settlement machinery: payments, royalties, agent wallets, attestations, gateway
+            balances, and full trace. The marketplace sells research — the dashboard reveals
+            how it settles.
           </p>
         </div>
         <AttestTrigger

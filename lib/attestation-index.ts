@@ -32,6 +32,8 @@ export type TargetSummary = {
   kind: ReturnType<typeof classifyTarget>;
   totalUsdc: string;
   claimCount: number;
+  /** Distinct wallets that staked on this target. */
+  backerCount: number;
   /** Display-only stake scaled by each staker's normalized TrustGate score. */
   trustWeightedUsdc: string;
   /** Stakers with no TrustGate score (counted at raw stake in the aggregate). */
@@ -319,12 +321,16 @@ export async function getTargetSummaries(): Promise<TargetSummary[]> {
         targetRows,
         scores,
       );
+      const backerCount = new Set(
+        targetRows.map((row) => row.staker.toLowerCase()),
+      ).size;
       return {
         target,
         label: formatTargetLabel(target),
         kind: classifyTarget(target),
         totalUsdc: formatUnits(total, 6),
         claimCount: targetRows.length,
+        backerCount,
         trustWeightedUsdc,
         unscoredStakers,
       };
@@ -333,6 +339,76 @@ export async function getTargetSummaries(): Promise<TargetSummary[]> {
 
   summaryCache = { at: Date.now(), data: summaries };
   return summaries;
+}
+
+function buildTargetSummary(
+  target: string,
+  targetRows: IndexedAttestation[],
+  scores: Map<string, TrustScore | null>,
+): TargetSummary {
+  const total = targetRows.reduce((sum, row) => sum + row.amountUnits, BigInt(0));
+  const { trustWeightedUsdc, unscoredStakers } = computeTrustWeighted(targetRows, scores);
+  const backerCount = new Set(targetRows.map((row) => row.staker.toLowerCase())).size;
+  return {
+    target,
+    label: formatTargetLabel(target),
+    kind: classifyTarget(target),
+    totalUsdc: formatUnits(total, 6),
+    claimCount: targetRows.length,
+    backerCount,
+    trustWeightedUsdc,
+    unscoredStakers,
+  };
+}
+
+/**
+ * Backing stats for catalog targets. Log index can lag; on-chain reads fill gaps.
+ */
+export async function getBackingSummariesForTargets(
+  targets: string[],
+  options?: { forceOnChain?: boolean },
+): Promise<TargetSummary[]> {
+  const unique = [
+    ...new Set(targets.map((t) => canonicalizeAttestationTarget(t)).filter(Boolean)),
+  ];
+  if (unique.length === 0) return [];
+
+  const indexed = await getTargetSummaries();
+  const byTarget = new Map(indexed.map((row) => [row.target, row]));
+
+  const contractAddress = getAttestationAddress();
+  if (!contractAddress) return [...byTarget.values()];
+
+  const needsOnChain = options?.forceOnChain
+    ? unique
+    : unique.filter((target) => (byTarget.get(target)?.backerCount ?? 0) < 1);
+
+  if (needsOnChain.length === 0) return [...byTarget.values()];
+
+  const client = rpcClient();
+  const onChainRows = await Promise.all(
+    needsOnChain.map(async (target) => {
+      const count = await client.readContract({
+        address: contractAddress,
+        abi: ATTESTATION_ABI,
+        functionName: "attestationCount",
+        args: [target],
+      });
+      if (count === BigInt(0)) return { target, rows: [] as IndexedAttestation[] };
+      const rows = await readOnChainClaims(target);
+      return { target, rows };
+    }),
+  );
+
+  const allStakers = onChainRows.flatMap((entry) => entry.rows.map((row) => row.staker));
+  const scores = await getTrustScores(allStakers);
+
+  for (const { target, rows } of onChainRows) {
+    if (rows.length === 0) continue;
+    byTarget.set(target, buildTargetSummary(target, rows, scores));
+  }
+
+  return [...byTarget.values()];
 }
 
 export async function getTargetClaims(target: string): Promise<{

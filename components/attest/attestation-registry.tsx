@@ -66,7 +66,7 @@ type TargetDetail = {
 function formatTrust(trust: TrustScore | null | undefined): string | null {
   if (!trust) return null;
   const score = Math.round(trust.score);
-  return trust.tier ? `TrustGate ${score} · ${trust.tier}` : `TrustGate ${score}`;
+  return trust.tier ? `Score ${score} · ${trust.tier}` : `Score ${score}`;
 }
 
 const KIND_META: Record<TargetKind, { label: string; icon: LucideIcon; accent: string }> = {

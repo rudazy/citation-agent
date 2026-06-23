@@ -5,6 +5,7 @@
 import { oracleBase } from "@/lib/trustgate-oracle";
 import type { TrustScore } from "@/lib/trustgate";
 import type { PaidTrustScore } from "@/lib/trustgate-paid";
+import { deriveWalletRecommendation } from "@/lib/trustgate-score-parse";
 
 export type PublicTrustSignal = {
   score: number;
@@ -24,16 +25,24 @@ export function isPaidTrustLookupAvailable(): boolean {
   return oracleBase() != null;
 }
 
+/** Unscored wallets (zero activity) should not show a misleading catalog badge. */
+export function isDisplayableTrustScore(trust: TrustScore | PaidTrustScore): boolean {
+  if (trust.score <= 0) return false;
+  if (trust.tier.toUpperCase() === "BLOCKED") return false;
+  return true;
+}
+
 export function trustScoreToSignal(
   trust: TrustScore | null | undefined,
   source: "free" | "paid" = "free",
   forPostId?: string,
 ): PublicTrustSignal | null {
-  if (!trust) return null;
+  if (!trust || !isDisplayableTrustScore(trust)) return null;
   return {
-    score: Math.round(trust.score),
+    score: trust.score,
     tier: trust.tier,
     confidence: trust.confidence,
+    recommendation: deriveWalletRecommendation(trust.score),
     source,
     ...(forPostId ? { forPostId } : {}),
   };
@@ -42,9 +51,10 @@ export function trustScoreToSignal(
 export function paidScoreToSignal(
   score: PaidTrustScore,
   forPostId?: string,
-): PublicTrustSignal {
+): PublicTrustSignal | null {
+  if (!isDisplayableTrustScore(score)) return null;
   return {
-    score: Math.round(score.score),
+    score: score.score,
     tier: score.tier,
     confidence: 0,
     recommendation: score.recommendation || undefined,
@@ -55,7 +65,7 @@ export function paidScoreToSignal(
 
 export function formatTrustLabel(signal: PublicTrustSignal | null | undefined): string | null {
   if (!signal) return null;
-  const parts = [`TrustGate ${signal.score}`];
+  const parts = [`${signal.score}`];
   if (signal.tier) parts.push(signal.tier);
   if (signal.recommendation) parts.push(signal.recommendation);
   return parts.join(" · ");

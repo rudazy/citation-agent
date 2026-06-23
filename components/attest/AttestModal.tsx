@@ -109,7 +109,7 @@ const TARGET_PRESETS: {
     id: "custom",
     label: "Custom",
     icon: Hash,
-    placeholder: "citation:trust-infrastructure, author:name, …",
+    placeholder: "citation:hyperliquid-market-share, author:name, …",
     hint: "Any verifiable target string",
   },
 ];
@@ -126,6 +126,44 @@ const TARGET_META: Record<
   other: { label: "Custom", icon: Hash, accent: "text-[#a3a3a3]" },
 };
 
+export type AttestCopyMode = "default" | "research";
+
+function resolveAttestCopy(mode: AttestCopyMode, target: string) {
+  const isResearch = mode === "research";
+  const title = (() => {
+    if (!isResearch) return "Stake a claim";
+    if (target.startsWith("citation:")) return "Back this research";
+    if (target.startsWith("author:")) return "Back this researcher";
+    return "Back a research source";
+  })();
+
+  return {
+    badge: isResearch ? "Research backing" : "Trust Attestation",
+    title,
+    description: isResearch
+      ? "Put USDC behind this report or researcher. Your note and amount are recorded on-chain as public backing."
+      : "Pick a target type, enter the subject, and put USDC behind your assertion on-chain.",
+    claimLabel: isResearch ? "Why you're backing it" : "Your claim",
+    claimPlaceholder: isResearch
+      ? "This research is worth backing because…"
+      : "This source is reliable because…",
+    amountLabel: isResearch ? "Backing amount (USDC)" : "Stake (USDC)",
+    amountLockedLabel: isResearch ? "Backing (locked on-chain)" : "Stake (locked on-chain)",
+    platformFeeLabel: isResearch ? "Platform fee" : "Platform fee (attestations only)",
+    successTitle: isResearch ? "Backing recorded" : "Attestation live",
+    successDetail: (amount: number, label: string) =>
+      isResearch
+        ? `${amount} USDC behind ${label}`
+        : `${amount} USDC staked on ${label}`,
+    submitLabel: isResearch ? "Back with USDC" : "Attest + Stake",
+    busyLabel: isResearch ? "Recording backing…" : "Attesting…",
+    toastSuccess: isResearch ? "Backing recorded" : "Attestation recorded",
+    toastFailed: isResearch ? "Backing failed" : "Attestation failed",
+    claimMinHint: isResearch ? "Note must be at least" : "Claim must be at least",
+    amountMinHint: isResearch ? "Backing must be at least" : "Stake must be at least",
+  };
+}
+
 export interface AttestModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -133,6 +171,8 @@ export interface AttestModalProps {
   target?: string;
   /** Optional claim text seed when co-signing (supporting) an existing claim */
   claim?: string;
+  /** Marketplace cards use research-backing language; dashboard keeps infra copy. */
+  copyMode?: AttestCopyMode;
   onSuccess?: (txHash: string) => void;
 }
 
@@ -141,6 +181,7 @@ export function AttestModal({
   onClose,
   target: targetSeed = "",
   claim: claimSeed = "",
+  copyMode = "default",
   onSuccess,
 }: AttestModalProps) {
   const [targetPreset, setTargetPreset] = useState<TargetPreset>("custom");
@@ -201,13 +242,22 @@ export function AttestModal({
     agentBalanceSufficient &&
     !agentWalletLoading;
 
+  const copy = useMemo(
+    () => resolveAttestCopy(copyMode, resolvedTarget ?? targetSeed),
+    [copyMode, resolvedTarget, targetSeed],
+  );
+
   const submitBlockers = useMemo(() => {
     const blockers: string[] = [];
     if (!contractAddress) blockers.push("Attestation contract not configured");
     if (!targetInput.trim()) blockers.push("Enter a target (e.g. @trustgated)");
     else if (targetError) blockers.push(targetError);
-    if (!claimValid) blockers.push(`Claim must be at least ${MIN_CLAIM_CHARS} characters`);
-    if (!stakeValid) blockers.push(`Stake must be at least ${MIN_STAKE_USDC} USDC`);
+    if (!claimValid) {
+      blockers.push(`${copy.claimMinHint} ${MIN_CLAIM_CHARS} characters`);
+    }
+    if (!stakeValid) {
+      blockers.push(`${copy.amountMinHint} ${MIN_STAKE_USDC} USDC`);
+    }
     if (walletMode === "agent" && agentWalletLoading) blockers.push("Loading agent wallet…");
     if (walletMode === "agent" && !agentWalletLoading && !agentWalletReady) {
       blockers.push("Create or configure agent wallet");
@@ -231,6 +281,8 @@ export function AttestModal({
     targetError,
     targetInput,
     walletMode,
+    copy.claimMinHint,
+    copy.amountMinHint,
   ]);
 
   const seedTargetFields = useCallback((seed: string) => {
@@ -355,8 +407,8 @@ export function AttestModal({
         setPhase("success");
         onSuccess?.(result.attestTxHash);
         void refreshAgentWallet();
-        toast.success("Attestation recorded", {
-          description: `${stake} USDC staked · ${ATTESTATION_PLATFORM_FEE_USDC} USDC platform fee`,
+        toast.success(copy.toastSuccess, {
+          description: `${stake} USDC · ${ATTESTATION_PLATFORM_FEE_USDC} USDC platform fee`,
         });
         return;
       }
@@ -388,12 +440,12 @@ export function AttestModal({
       } catch {
         // On-chain fee still settled; dashboard record is best-effort for connected wallets
       }
-      toast.success("Attestation recorded", {
-        description: `${stake} USDC staked · ${ATTESTATION_PLATFORM_FEE_USDC} USDC platform fee`,
+      toast.success(copy.toastSuccess, {
+        description: `${stake} USDC · ${ATTESTATION_PLATFORM_FEE_USDC} USDC platform fee`,
       });
     } catch (err) {
       setPhase("idle");
-      toast.error("Attestation failed", {
+      toast.error(copy.toastFailed, {
         description: err instanceof Error ? err.message : "Unknown error",
       });
     }
@@ -436,7 +488,7 @@ export function AttestModal({
             <div className="flex flex-wrap items-center gap-2">
               <Badge className="bg-[#ff8a3d]/10 text-[#ff8a3d] border border-[#ff8a3d]/25 hover:bg-[#ff8a3d]/10">
                 <Shield size={12} className="mr-1" />
-                Trust Attestation
+                {copy.badge}
               </Badge>
               <Badge variant="outline" className="border-[#333] text-[#888] bg-transparent font-mono text-[10px]">
                 Arc · 5042002
@@ -444,10 +496,10 @@ export function AttestModal({
             </div>
 
             <DialogTitle className="text-xl tracking-wide text-[#f5f5f5]">
-              Stake a claim
+              {copy.title}
             </DialogTitle>
             <DialogDescription className="font-mono text-xs text-[#666] leading-relaxed">
-              Pick a target type, enter the subject, and put USDC behind your assertion on-chain.
+              {copy.description}
             </DialogDescription>
           </DialogHeader>
 
@@ -477,9 +529,9 @@ export function AttestModal({
                 <CheckCircle2 size={28} className="text-[#c8f135]" />
               </div>
               <div>
-                <p className="text-lg font-medium tracking-wide text-[#f5f5f5]">Attestation live</p>
+                <p className="text-lg font-medium tracking-wide text-[#f5f5f5]">{copy.successTitle}</p>
                 <p className="mt-1 font-mono text-xs text-[#666]">
-                  {stake} USDC staked on {formatTargetLabel(resolvedTarget)}
+                  {copy.successDetail(stake, formatTargetLabel(resolvedTarget))}
                 </p>
               </div>
             </div>
@@ -565,7 +617,7 @@ export function AttestModal({
 
             <div className="space-y-2">
               <Label htmlFor="attest-claim" className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
-                Your claim
+                {copy.claimLabel}
               </Label>
               <textarea
                 id="attest-claim"
@@ -575,7 +627,7 @@ export function AttestModal({
                   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff8a3d]/50",
                   "disabled:opacity-50",
                 )}
-                placeholder="This source is reliable because…"
+                placeholder={copy.claimPlaceholder}
                 value={claim}
                 onChange={(e) => setClaim(e.target.value)}
                 disabled={busy}
@@ -589,7 +641,7 @@ export function AttestModal({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-[#a3a3a3] font-mono uppercase tracking-wider">
-                  Stake (USDC)
+                  {copy.amountLabel}
                 </Label>
                 <span className="font-mono text-[10px] text-[#666]">min {MIN_STAKE_USDC}</span>
               </div>
@@ -622,11 +674,11 @@ export function AttestModal({
               />
               <div className="rounded border border-[#1f1f1f] bg-[#111]/80 px-3 py-2.5 space-y-1.5 font-mono text-xs">
                 <div className="flex justify-between text-[#888]">
-                  <span>Stake (locked on-chain)</span>
+                  <span>{copy.amountLockedLabel}</span>
                   <span className="text-[#f5f5f5]">{stakeValid ? stake.toFixed(2) : "—"} USDC</span>
                 </div>
                 <div className="flex justify-between text-[#888]">
-                  <span>Platform fee (attestations only)</span>
+                  <span>{copy.platformFeeLabel}</span>
                   <span className="text-[#f5c842]">{ATTESTATION_PLATFORM_FEE_USDC} USDC</span>
                 </div>
                 <div className="flex justify-between border-t border-[#1f1f1f] pt-1.5 font-semibold text-[#f5f5f5]">
@@ -680,9 +732,9 @@ export function AttestModal({
                 >
                   <div className="flex items-center gap-2">
                     <Wallet size={14} className="text-[#ff8a3d]" />
-                    <span className="text-sm font-medium">Connected</span>
+                    <span className="text-sm font-medium">MetaMask</span>
                   </div>
-                  <p className="mt-1 font-mono text-[10px] text-[#666]">MetaMask / injected</p>
+                  <p className="mt-1 font-mono text-[10px] text-[#666]">Connected wallet override</p>
                 </button>
               </div>
 
@@ -739,12 +791,12 @@ export function AttestModal({
                 {busy ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    {phase === "approving" ? "Approving USDC…" : "Attesting…"}
+                    {phase === "approving" ? "Approving USDC…" : copy.busyLabel}
                   </>
                 ) : (
                   <>
                     <Shield size={14} />
-                    Attest + Stake
+                    {copy.submitLabel}
                   </>
                 )}
               </Button>

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Citation Agent — pay-per-citation research on Arc";
+export const alt = "Citation Agent — trusted crypto research marketplace";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -99,7 +99,7 @@ export default function OpenGraphImage() {
                 color: "#666666",
               }}
             >
-              Circle Arc Nanopayments
+              Crypto research marketplace
             </div>
             <div
               style={{
@@ -142,7 +142,7 @@ export default function OpenGraphImage() {
               marginBottom: 20,
             }}
           >
-            Pay-per-citation research with verifiable royalties
+            Researchers sell crypto research. Agents buy it.
           </div>
           <div
             style={{
@@ -152,8 +152,8 @@ export default function OpenGraphImage() {
               color: "#666666",
             }}
           >
-            Agents discover paywalled sources, settle micro-payments via x402, and
-            attribute 70% creator royalties on Arc Testnet.
+            Protocol analysis, wallet investigations, ecosystem reports — paywalled
+            per unlock on Arc Testnet.
           </div>
         </div>
 

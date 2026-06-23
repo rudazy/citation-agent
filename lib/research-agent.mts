@@ -106,10 +106,13 @@ export async function runResearchQuery(query: string, options: ResearchOptions =
 
   // Resolve a TrustGate score for each candidate source, then rank (and
   // optionally gate) before paying. Default behavior cites everyone.
-  const scoreMap = await getTrustScores(matches.map((item) => item.connectedWallet));
+  const { resolveTrustIdentityWallet } = await import("./catalog-identity.ts");
+  const scoreMap = await getTrustScores(
+    matches.map((item) => resolveTrustIdentityWallet(item)),
+  );
   const sources: RankableSource<CreatorContent>[] = matches.map((item) => ({
     item,
-    trust: scoreMap.get(item.connectedWallet.toLowerCase()) ?? null,
+    trust: scoreMap.get(resolveTrustIdentityWallet(item).toLowerCase()) ?? null,
   }));
   const { cited, skipped } = partitionByTrust(sources, { minTrust, strictUnscored });
 

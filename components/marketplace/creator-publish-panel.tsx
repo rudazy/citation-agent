@@ -151,11 +151,11 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           <PenLine size={18} className="text-[#f5c842]" />
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-          <h2 className="text-lg font-semibold tracking-wide">Publish paid content</h2>
+          <h2 className="text-lg font-semibold tracking-wide">Publish research</h2>
           <p className="font-mono text-xs sm:text-sm text-muted-foreground leading-relaxed">
-            Connect your wallet and sign to prove identity. Set a price (min{" "}
-            {MIN_POST_PRICE_USDC} USDC). Optional payout wallet defaults to your connected
-            wallet. Body stays server-side until a reader pays.
+            Connect your wallet and sign to prove identity. List crypto research with a public
+            teaser and paywalled body. Set a price (min {MIN_POST_PRICE_USDC} USDC). Researchers
+            earn when agents or humans unlock.
           </p>
         </div>
         <ChevronDown
@@ -209,7 +209,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             id="publish-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Post title"
+            placeholder="e.g. Berachain liquidity analysis"
             className="border-[#333] bg-[#111] font-mono text-sm"
           />
         </div>
@@ -223,7 +223,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             value={subheading}
             onChange={(e) => setSubheading(e.target.value)}
             rows={2}
-            placeholder="What readers see before they pay"
+            placeholder="Public teaser — what buyers see before they pay"
             className={cn(
               "w-full rounded border border-[#333] bg-[#111] px-3 py-2 font-mono text-sm text-[#f5f5f5]",
               "placeholder:text-[#555] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#f5c842]/40",
@@ -297,7 +297,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             id="publish-tags"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
-            placeholder="research, defi, arc"
+            placeholder="defi, onchain, sui, research"
             className="border-[#333] bg-[#111] font-mono text-sm"
           />
         </div>

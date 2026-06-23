@@ -1,28 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { Coins, FileSearch, Radio, Shield } from "lucide-react";
-
-const FEATURES = [
-  {
-    icon: FileSearch,
-    label: "Pay-per-citation",
-    detail: "Agents buy verified sources, not hallucinations",
-  },
-  {
-    icon: Coins,
-    label: "cUSDC royalties",
-    detail: "70% creator split via branded wrapper token",
-  },
-  {
-    icon: Radio,
-    label: "x402 + Gateway",
-    detail: "Gasless EIP-712 auth, batched on-chain settlement",
-  },
-  {
-    icon: Shield,
-    label: "Full trace",
-    detail: "EIP-712 through submitBatch, decoded live",
-  },
-] as const;
+import { Coins, FileSearch } from "lucide-react";
 
 export function MarketplaceHero() {
   return (
@@ -38,53 +15,44 @@ export function MarketplaceHero() {
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#ff8a3d]/20 blur-3xl"
+        className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#f5c842]/15 blur-3xl"
       />
 
       <div className="relative space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge className="bg-[#ff8a3d]/15 text-[#ff8a3d] border border-[#ff8a3d]/30 hover:bg-[#ff8a3d]/15">
-            Circle Agent Stack
-          </Badge>
-          <Badge variant="outline" className="border-[#333] text-[#999] bg-transparent">
-            Arc Testnet · 5042002
-          </Badge>
-        </div>
+        <Badge className="bg-[#f5c842]/15 text-[#f5c842] border border-[#f5c842]/30 hover:bg-[#f5c842]/15">
+          Crypto research marketplace
+        </Badge>
 
         <div className="space-y-3 max-w-2xl">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide">
-            Citation Marketplace
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide leading-snug">
+            Researchers sell crypto research. Agents buy it.
           </h1>
           <p className="text-sm sm:text-[15px] leading-relaxed text-[#a3a3a3] font-mono">
-            A paywalled catalog where research agents discover creator citations, settle
-            micro-royalties through Circle Gateway, and earn in{" "}
-            <span className="text-[#f5c842]">cUSDC</span>. Every purchase is traceable
-            from off-chain signature to on-chain batch.
+            Browse the catalog, unlock reports with USDC, or publish your own.
+            The demo moment: a human buys research, then an agent buys the same
+            report — automatically, through Circle Gateway.
           </p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          {FEATURES.map(({ icon: Icon, label, detail }) => (
-            <div
-              key={label}
-              className="flex gap-3 rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-3"
-            >
-              <Icon size={16} className="mt-0.5 shrink-0 text-[#ff8a3d]" />
-              <div>
-                <p className="text-sm font-medium">{label}</p>
-                <p className="text-xs text-[#666] font-mono">{detail}</p>
-              </div>
+        <div className="grid gap-3 sm:grid-cols-2 max-w-xl">
+          <div className="flex gap-3 rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-3">
+            <FileSearch size={16} className="mt-0.5 shrink-0 text-[#f5c842]" />
+            <div>
+              <p className="text-sm font-medium">For researchers</p>
+              <p className="text-xs text-[#666] font-mono">
+                Publish paywalled reports and earn per unlock
+              </p>
             </div>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-1 font-mono text-[11px] text-[#666]">
-          <code className="rounded border border-[#1f1f1f] bg-[#141414] px-2 py-1">
-            GET /api/marketplace/citations
-          </code>
-          <code className="rounded border border-[#1f1f1f] bg-[#141414] px-2 py-1">
-            GET /api/marketplace/citations?id=…
-          </code>
+          </div>
+          <div className="flex gap-3 rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-3">
+            <Coins size={16} className="mt-0.5 shrink-0 text-[#f5c842]" />
+            <div>
+              <p className="text-sm font-medium">For agents</p>
+              <p className="text-xs text-[#666] font-mono">
+                Wallet on Arc pays via Gateway — no MetaMask popup per purchase
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </section>

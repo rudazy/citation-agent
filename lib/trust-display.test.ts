@@ -51,7 +51,7 @@ describe("selectTrustForPost (per-post binding)", () => {
     const shownA = selectTrustForPost(POST_A, trustStates[POST_A]);
     const shownB = selectTrustForPost(POST_B, trustStates[POST_B]);
 
-    expect(formatTrustLabel(shownA)).toBe("TrustGate 92 · HIGH_ELITE · INSTANT_PRIORITY");
+    expect(formatTrustLabel(shownA)).toBe("92 · HIGH_ELITE · INSTANT_PRIORITY");
     expect(shownB).toBeNull(); // -> card shows the "Unscored" badge
     expect(formatTrustLabel(shownB)).toBeNull();
   });

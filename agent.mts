@@ -159,7 +159,7 @@ const GAS_FUND_AMOUNT = parseEther("0.01");
 const endpoints = [
   { url: `${BASE_URL}/api/premium/quote`, method: "GET" as const },
   {
-    url: `${BASE_URL}/api/premium/citation?id=trust-infrastructure`,
+    url: `${BASE_URL}/api/premium/citation?id=hyperliquid-market-share`,
     method: "GET" as const,
   },
   { url: `${BASE_URL}/api/premium/dataset`, method: "GET" as const },

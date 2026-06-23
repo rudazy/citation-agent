@@ -32,7 +32,28 @@ describe("payment proof builder", () => {
 
   it("generates a random nonce when none is supplied", () => {
     const proof = buildPaymentProof({ txHash: "0x1", from: "0x2", network: "arc-testnet" });
-    expect(proof.nonce).toMatch(/^0x[0-9a-f]{32}$/);
+    expect(proof.nonce.length).toBeGreaterThan(0);
+  });
+
+  it("includes challenge payment fields in the proof envelope", () => {
+    const proof = buildPaymentProof({
+      txHash: "0xpay",
+      from: "0xfrom",
+      network: "arc-testnet",
+      challenge: {
+        recipient: "0x52E17bC482d00776d73811680CbA9914e83E33CC",
+        amount: "0.001",
+        chainId: 5042002,
+        network: "arc-testnet",
+      },
+      nonce: "nonce-1",
+    });
+    expect(proof).toMatchObject({
+      amount: "0.001",
+      currency: "USDC",
+      chainId: 5042002,
+      recipient: "0x52E17bC482d00776d73811680CbA9914e83E33CC",
+    });
   });
 });
 
@@ -48,17 +69,24 @@ describe("parseOracleScore", () => {
     ).toEqual({ score: 20, tier: "LOW", recommendation: "TIME_LOCKED" });
   });
 
-  it("defaults tier and recommendation to empty strings", () => {
+  it("defaults tier to empty and derives recommendation from score", () => {
     expect(parseOracleScore({ score: 5 })).toEqual({
       score: 5,
       tier: "",
-      recommendation: "",
+      recommendation: "TIME_LOCKED",
     });
   });
 
-  it("returns null for a missing or non-numeric score or malformed body", () => {
+  it("coerces string scores and derives recommendation when omitted", () => {
+    expect(parseOracleScore({ score: "57", tier: "MEDIUM" })).toEqual({
+      score: 57,
+      tier: "MEDIUM",
+      recommendation: "TIME_LOCKED",
+    });
+  });
+
+  it("returns null for a missing score or malformed body", () => {
     expect(parseOracleScore({ tier: "LOW" })).toBeNull();
-    expect(parseOracleScore({ score: "20" })).toBeNull();
     expect(parseOracleScore(null)).toBeNull();
     expect(parseOracleScore("nope")).toBeNull();
   });

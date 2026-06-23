@@ -109,7 +109,12 @@ export async function payAndFetchScore(params: {
   }
 
   // 3. Relay the proof and read the score.
-  const proof = buildPaymentProof({ txHash, from: account, network: challenge.network });
+  const proof = buildPaymentProof({
+    txHash,
+    from: account,
+    network: challenge.network,
+    challenge,
+  });
   try {
     const res = await fetch("/api/trustgate/score", {
       method: "POST",

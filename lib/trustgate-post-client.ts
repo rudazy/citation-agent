@@ -108,7 +108,12 @@ export async function payAndFetchTrustByPostId(params: {
     };
   }
 
-  const proof = buildPaymentProof({ txHash, from: account, network: challenge.network });
+  const proof = buildPaymentProof({
+    txHash,
+    from: account,
+    network: challenge.network,
+    challenge,
+  });
   try {
     const res = await fetch("/api/trustgate/score", {
       method: "POST",
@@ -117,7 +122,11 @@ export async function payAndFetchTrustByPostId(params: {
     });
     const settle = (await res.json()) as ScoreSettleResponse;
     if (settle.status === "ok") {
-      return { status: "ok", trust: paidScoreToSignal(settle.score, postId) };
+      const trust = paidScoreToSignal(settle.score, postId);
+      if (!trust) {
+        return { status: "failed", reason: "Wallet has no Arc trust score yet" };
+      }
+      return { status: "ok", trust };
     }
     if (settle.status === "unconfigured") return { status: "unconfigured" };
     return {
@@ -153,7 +162,11 @@ export async function payTrustByPostIdWithAgent(postId: string): Promise<PostTru
   }
 
   if (data.status === "ok" && data.score) {
-    return { status: "ok", trust: paidScoreToSignal(data.score, postId) };
+    const trust = paidScoreToSignal(data.score, postId);
+    if (!trust) {
+      return { status: "failed", reason: "Wallet has no Arc trust score yet" };
+    }
+    return { status: "ok", trust };
   }
   if (data.status === "cached") {
     return { status: "cached", trust: toTrust(data.score, postId) };
