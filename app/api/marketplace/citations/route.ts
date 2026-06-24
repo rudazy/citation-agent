@@ -138,6 +138,7 @@ export async function GET(req: NextRequest) {
         report_backing: backingIndex.get(reportBackingTarget(item.id)) ?? null,
         already_unlocked: alreadyUnlocked,
         ...(alreadyUnlocked ? { unlocked_body: item.body } : {}),
+        ...(item.publishedAt ? { published_at: item.publishedAt } : {}),
       };
     });
 

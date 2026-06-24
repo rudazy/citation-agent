@@ -1,104 +1,165 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { GatewayBalanceDialog, type GatewayBalances } from "./gateway-balance-dialog";
 import { GatewayWithdrawDialog } from "@/components/gateway/gateway-withdraw-dialog";
-import { Info, Loader2 } from "lucide-react";
-import { fetchAgentWalletStatus, type AgentWalletStatusResponse } from "@/lib/attestation-client";
+import { BanknoteArrowDown } from "lucide-react";
+import {
+  fetchAgentWalletStatus,
+  getConnectedAccount,
+  switchToArcTestnet,
+  type AgentWalletStatusResponse,
+} from "@/lib/attestation-client";
+import { getWalletUsdcBalance } from "@/lib/gateway-metamask";
+import type { EthereumProvider } from "@/lib/ethereum-provider";
+import "@/lib/ethereum-provider";
 
-function toGatewayBalances(wallet: AgentWalletStatusResponse): GatewayBalances | null {
-  if (!wallet.configured || !wallet.address) return null;
-  return {
-    configured: true,
-    walletAddress: wallet.address,
-    nativeGas: wallet.nativeGas ?? "0",
-    wallet: { balance: wallet.usdcBalance ?? "0" },
-    gateway: wallet.gateway ?? {
-      total: wallet.gatewayUsdc ?? "0",
-      available: wallet.gatewayUsdc ?? "0",
-      withdrawing: "0",
-      withdrawable: "0",
-    },
-  };
-}
+type GatewaySource = "agent" | "metamask";
 
 export function TopBarGatewayControls() {
   const [wallet, setWallet] = useState<AgentWalletStatusResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const walletRef = useRef<AgentWalletStatusResponse | null>(null);
+
+  const [metamaskAvailable, setMetamaskAvailable] = useState(false);
+  const [metamaskAccount, setMetamaskAccount] = useState<`0x${string}` | null>(null);
+  const [metamaskGateway, setMetamaskGateway] = useState("0");
+  const [metamaskWalletUsdc, setMetamaskWalletUsdc] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [source, setSource] = useState<GatewaySource>("metamask");
 
   const fetchBalances = useCallback(async () => {
-    setLoading(true);
     try {
       const next = await fetchAgentWalletStatus();
-      walletRef.current = next;
       setWallet(next);
     } catch {
       setWallet(null);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void fetchBalances();
-  }, [fetchBalances]);
+  const fetchMetamaskBalances = useCallback(async (account: `0x${string}`) => {
+    try {
+      const [walletUsdc, gatewayRes] = await Promise.all([
+        getWalletUsdcBalance(account),
+        fetch(`/api/marketplace/gateway-balance?address=${account}`),
+      ]);
+      setMetamaskWalletUsdc(walletUsdc);
+      if (gatewayRes.ok) {
+        const data = (await gatewayRes.json()) as { gateway_usdc?: string };
+        setMetamaskGateway(data.gateway_usdc ?? "0");
+      } else {
+        setMetamaskGateway("0");
+      }
+    } catch {
+      setMetamaskWalletUsdc(null);
+      setMetamaskGateway("0");
+    }
+  }, []);
 
-  const balances = wallet ? toGatewayBalances(wallet) : null;
-  const available = balances?.gateway.available ?? "0";
-  const hasWallet = wallet?.configured === true && !!wallet.address;
+  const syncMetamaskAccount = useCallback(async () => {
+    const ethereum: EthereumProvider | undefined = window.ethereum;
+    if (!ethereum) {
+      setMetamaskAccount(null);
+      return;
+    }
+    try {
+      const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
+      const first = accounts[0];
+      if (first && /^0x[a-fA-F0-9]{40}$/.test(first)) {
+        const account = first as `0x${string}`;
+        setMetamaskAccount(account);
+        await fetchMetamaskBalances(account);
+      } else {
+        setMetamaskAccount(null);
+        setMetamaskGateway("0");
+        setMetamaskWalletUsdc(null);
+      }
+    } catch {
+      setMetamaskAccount(null);
+    }
+  }, [fetchMetamaskBalances]);
+
+  useEffect(() => {
+    setMetamaskAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
+    void fetchBalances();
+    void syncMetamaskAccount();
+  }, [fetchBalances, syncMetamaskAccount]);
+
+  useEffect(() => {
+    const ethereum = window.ethereum;
+    if (!ethereum?.on) return;
+    const onAccounts = () => void syncMetamaskAccount();
+    ethereum.on("accountsChanged", onAccounts);
+    return () => {
+      ethereum.removeListener?.("accountsChanged", onAccounts);
+    };
+  }, [syncMetamaskAccount]);
+
+  const connectMetamask = useCallback(async () => {
+    const ethereum: EthereumProvider | undefined = window.ethereum;
+    if (!ethereum) return;
+    setConnecting(true);
+    try {
+      await switchToArcTestnet(ethereum);
+      const account = await getConnectedAccount(ethereum);
+      setMetamaskAccount(account);
+      setSource("metamask");
+      await fetchMetamaskBalances(account);
+    } finally {
+      setConnecting(false);
+    }
+  }, [fetchMetamaskBalances]);
+
+  const hasAgentWallet = wallet?.configured === true && !!wallet.address;
+  const agentAvailable = wallet?.gateway?.available ?? wallet?.gatewayUsdc ?? "0";
+
+  const refreshAll = useCallback(() => {
+    void fetchBalances();
+    if (metamaskAccount) {
+      void fetchMetamaskBalances(metamaskAccount);
+    }
+  }, [fetchBalances, fetchMetamaskBalances, metamaskAccount]);
+
+  const handleOpen = useCallback(() => {
+    refreshAll();
+  }, [refreshAll]);
 
   return (
-    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-      {hasWallet ? (
-        <GatewayWithdrawDialog
-          role="agent"
-          maxAvailable={available}
-          walletAddress={wallet?.address}
-          nativeGas={wallet?.nativeGas}
-          walletUsdc={wallet?.usdcBalance}
-          onSuccess={fetchBalances}
-          trigger={
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 border-[#f5c842]/35 text-[10px] sm:text-xs text-[#f5c842] hover:bg-[#f5c842]/10"
-            >
-              Withdraw
-            </Button>
-          }
-        />
-      ) : null}
-      <Badge
-        variant="outline"
-        className="gap-1 text-[10px] sm:text-xs border-[#f5c842]/25 bg-[#f5c842]/5 max-w-[4.5rem] sm:max-w-none"
-      >
-        <span className="text-muted-foreground font-sans hidden sm:inline">Your Gateway</span>
-        <span className="font-mono leading-none inline-flex items-center gap-1">
-          {loading && !wallet ? <Loader2 size={12} className="animate-spin" /> : null}
-          {hasWallet ? `$${available}` : loading ? "…" : "—"}
-        </span>
-        {hasWallet && balances ? (
-          <GatewayBalanceDialog
-            balances={balances}
-            loading={loading}
-            onRefresh={fetchBalances}
-            variant="agent"
-            trigger={
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 -mr-0.5"
-                aria-label="Open your gateway balance details"
-              >
-                <Info size={12} className="text-muted-foreground" />
-              </Button>
-            }
-          />
-        ) : null}
-      </Badge>
+    <div className="flex items-center shrink-0">
+      <GatewayWithdrawDialog
+        role="agent"
+        maxAvailable={agentAvailable}
+        dualWallet={{
+          source,
+          onSourceChange: setSource,
+          metamaskAvailable,
+          metamaskConnected: Boolean(metamaskAccount),
+          onConnectMetamask: connectMetamask,
+          connectingMetamask: connecting,
+          agent: {
+            configured: hasAgentWallet,
+            maxAvailable: agentAvailable,
+            walletAddress: wallet?.address ?? undefined,
+            nativeGas: wallet?.nativeGas ?? undefined,
+            walletUsdc: wallet?.usdcBalance ?? undefined,
+          },
+          metamask: {
+            maxAvailable: metamaskGateway,
+            account: metamaskAccount,
+            walletUsdc: metamaskWalletUsdc ?? undefined,
+          },
+        }}
+        onOpen={handleOpen}
+        onSuccess={refreshAll}
+        trigger={
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 border-[#f5c842]/35 text-[10px] sm:text-xs text-[#f5c842] hover:bg-[#f5c842]/10"
+          >
+            <BanknoteArrowDown size={12} />
+            Withdraw
+          </Button>
+        }
+      />
     </div>
   );
 }

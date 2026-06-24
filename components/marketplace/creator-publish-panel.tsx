@@ -11,6 +11,7 @@ import {
   switchToArcTestnet,
 } from "@/lib/attestation-client";
 import { ArticleBodyEditor } from "@/components/marketplace/article-body-editor";
+import { CreatorGatewayEarnings } from "@/components/marketplace/creator-gateway-earnings";
 import { publishHeaders, signPublishAuth } from "@/lib/publish-client";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -178,27 +179,29 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           )}
 
           {walletAvailable && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={connecting}
-                onClick={() => void connectWallet()}
-                className="gap-1.5 border-[#333] font-mono text-xs"
-              >
-                {connecting ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Wallet size={14} />
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={connecting}
+                  onClick={() => void connectWallet()}
+                  className="gap-1.5 border-[#333] font-mono text-xs"
+                >
+                  {connecting ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Wallet size={14} />
+                  )}
+                  {shortAddress ? `Connected ${shortAddress}` : "Connect wallet"}
+                </Button>
+                {shortAddress && (
+                  <span className="font-mono text-[10px] text-[#666]">
+                    Signature required on publish
+                  </span>
                 )}
-                {shortAddress ? `Connected ${shortAddress}` : "Connect wallet"}
-              </Button>
-              {shortAddress && (
-                <span className="font-mono text-[10px] text-[#666]">
-                  Signature required on publish
-                </span>
-              )}
+              </div>
             </div>
           )}
 
@@ -315,6 +318,8 @@ export function CreatorPublishPanel({ onPublished }: Props) {
               </div>
             )}
           </div>
+
+          <CreatorGatewayEarnings connected={connected} payoutWalletInput={payoutWallet} />
 
           <Button
             type="button"

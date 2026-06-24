@@ -120,6 +120,7 @@ export function rowToCreatorContent(row: CreatorPostRow): CreatorContent {
     body: row.body,
     paidCount: row.paid_count ?? 0,
     source: "database",
+    publishedAt: row.published_at,
   };
 }
 

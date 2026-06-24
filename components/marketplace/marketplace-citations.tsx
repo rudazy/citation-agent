@@ -9,6 +9,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AttestModal } from "@/components/attest";
@@ -36,6 +37,9 @@ import {
   loadStoredUnlocks,
   storeUnlock,
 } from "@/lib/citation-unlock-session";
+import { depositToGatewayViaMetaMask } from "@/lib/gateway-metamask";
+import { depositAgentGatewayViaApi } from "@/lib/gateway-pay";
+import { formatPaymentDate } from "@/lib/format-datetime";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -57,6 +61,7 @@ type CitationListing = {
   report_backing?: ResearchBackingStats | null;
   already_unlocked?: boolean;
   unlocked_body?: string;
+  published_at?: string;
 };
 
 type ExpandState =
@@ -70,6 +75,7 @@ type TrustCellState =
   | { status: "done"; trust: PublicTrustSignal | null };
 
 const PAID_TRUST_FEE = "0.001";
+const GATEWAY_DEPOSIT_USDC = "1";
 
 function paidCountLabel(count: number): string {
   if (count === 0) return "0 readers";
@@ -91,6 +97,8 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const [trustStates, setTrustStates] = useState<Record<string, TrustCellState>>({});
   const [metamaskAvailable, setMetamaskAvailable] = useState(false);
   const [expandedListingIds, setExpandedListingIds] = useState<Record<string, boolean>>({});
+  const [catalogExpanded, setCatalogExpanded] = useState(true);
+  const [gatewayFunding, setGatewayFunding] = useState(false);
 
   useEffect(() => {
     setMetamaskAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
@@ -273,6 +281,36 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     [bumpPaidCount, expandStates, setExpand],
   );
 
+  const runGatewayDeposit = useCallback(async (payer: PaymentPayer) => {
+    setGatewayFunding(true);
+    try {
+      if (payer === "metamask") {
+        const ethereum: EthereumProvider | undefined = window.ethereum;
+        if (!ethereum) {
+          toast.error("MetaMask not detected");
+          return;
+        }
+        await switchToArcTestnet(ethereum);
+        const account = await getConnectedAccount(ethereum);
+        await depositToGatewayViaMetaMask(ethereum, account, GATEWAY_DEPOSIT_USDC);
+        toast.success("Gateway deposit complete", {
+          description: `Deposited ${GATEWAY_DEPOSIT_USDC} USDC via MetaMask`,
+        });
+      } else {
+        const result = await depositAgentGatewayViaApi();
+        toast.success("Gateway deposit complete", {
+          description: `Available: $${result.gatewayAvailable} USDC`,
+        });
+      }
+    } catch (err) {
+      toast.error("Gateway deposit failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setGatewayFunding(false);
+    }
+  }, []);
+
   const loadListings = useCallback(async (signal?: AbortSignal, options?: { refresh?: boolean }) => {
     setLoading(true);
     setError(null);
@@ -328,19 +366,87 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   return (
     <>
       <Panel glow className="space-y-4 p-4 sm:p-5 border-[#f5c842]/20">
-        <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={() => setCatalogExpanded((v) => !v)}
+          aria-expanded={catalogExpanded}
+          className="flex w-full items-start gap-3 text-left"
+        >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-[#f5c842]/30 bg-[#f5c842]/10">
             <FileText size={18} className="text-[#f5c842]" />
           </div>
           <div className="min-w-0 flex-1 space-y-1">
             <h2 className="text-lg font-semibold tracking-wide">Research catalog</h2>
             <p className="text-xs sm:text-sm text-muted-foreground font-mono leading-relaxed">
-              {loading
-                ? "Loading reports…"
-                : `${listings.length} reports — browse, unlock, and cite. Reputation and backing are optional on each card.`}
+              {catalogExpanded
+                ? loading
+                  ? "Loading reports…"
+                  : `${listings.length} reports — unlock pays from Circle Gateway. Deposit below before unlocking.`
+                : "Browse paywalled crypto research — expand to unlock, fund Gateway, and cite."}
             </p>
           </div>
-        </div>
+          <ChevronDown
+            size={18}
+            className={cn(
+              "mt-1 shrink-0 text-[#888] transition-transform",
+              catalogExpanded && "rotate-180",
+            )}
+          />
+        </button>
+
+        {catalogExpanded && (
+          <div className="space-y-4 border-t border-[#1f1f1f] pt-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded border border-[#1f1f1f] bg-[#111] px-3 py-2.5">
+              <p className="font-mono text-[10px] text-[#666] leading-relaxed">
+                Unlocks debit Circle Gateway, not your wallet directly. Deposit USDC first.
+              </p>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={gatewayFunding}
+                    className="shrink-0 gap-1.5 border-[#333] text-[#a3a3a3] hover:text-[#f5f5f5] font-mono text-[10px]"
+                  >
+                    {gatewayFunding ? (
+                      <>
+                        <Loader2 size={12} className="animate-spin" />
+                        Depositing…
+                      </>
+                    ) : (
+                      <>
+                        Deposit to Gateway
+                        <ChevronDown size={12} />
+                      </>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[220px]">
+                  <DropdownMenuItem
+                    disabled={gatewayFunding}
+                    onClick={() => void runGatewayDeposit("agent")}
+                  >
+                    {GATEWAY_DEPOSIT_USDC} USDC · agent wallet
+                  </DropdownMenuItem>
+                  {metamaskAvailable && (
+                    <DropdownMenuItem
+                      disabled={gatewayFunding}
+                      onClick={() => void runGatewayDeposit("metamask")}
+                    >
+                      {GATEWAY_DEPOSIT_USDC} USDC · MetaMask
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled
+                    className="text-[10px] font-mono text-[#666] focus:bg-transparent"
+                  >
+                    Then use Unlock on any report
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
         {loading && (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground font-mono">
@@ -439,11 +545,18 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                     <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
                       {item.title}
                     </h3>
-                    <p className="font-mono text-xs text-[#666]">{item.author}</p>
+                    <div className="space-y-0.5">
+                      <p className="font-mono text-xs text-[#666]">{item.author}</p>
+                      {item.published_at && (
+                        <p className="font-mono text-[10px] text-[#666]">
+                          {formatPaymentDate(item.published_at)}
+                        </p>
+                      )}
+                    </div>
                   </button>
 
                   <div className="flex shrink-0 flex-col gap-2 sm:items-end sm:min-w-[148px]">
-                    {canChoosePayer ? (
+                    {!isUnlocked ? (
                       <div className="flex items-center gap-1 w-full sm:w-auto">
                         {unlockButton}
                         <DropdownMenu>
@@ -452,20 +565,43 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                               type="button"
                               size="sm"
                               variant="outline"
-                              disabled={isUnlockLoading || isUnlocked}
-                              aria-label="Choose payment wallet"
+                              disabled={isUnlockLoading || gatewayFunding}
+                              aria-label="Unlock and Gateway options"
                               className="px-2 border-[#f5c842]/35 text-[#f5c842]"
                             >
                               ···
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
+                          <DropdownMenuContent align="end" className="min-w-[220px]">
                             <DropdownMenuItem onClick={() => void runUnlock(item, "agent")}>
-                              Agent wallet (default)
+                              Unlock · agent wallet (default)
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => void runUnlock(item, "metamask")}>
-                              MetaMask / connected wallet
+                            {canChoosePayer && (
+                              <DropdownMenuItem onClick={() => void runUnlock(item, "metamask")}>
+                                Unlock · MetaMask / connected wallet
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              disabled
+                              className="text-[10px] font-mono text-[#666] focus:bg-transparent"
+                            >
+                              Fund Circle Gateway before unlock
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={gatewayFunding}
+                              onClick={() => void runGatewayDeposit("agent")}
+                            >
+                              Deposit {GATEWAY_DEPOSIT_USDC} USDC · agent wallet
+                            </DropdownMenuItem>
+                            {canChoosePayer && (
+                              <DropdownMenuItem
+                                disabled={gatewayFunding}
+                                onClick={() => void runGatewayDeposit("metamask")}
+                              >
+                                Deposit {GATEWAY_DEPOSIT_USDC} USDC · MetaMask
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -573,6 +709,8 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             );
           })}
         </div>
+          </div>
+        )}
       </Panel>
 
       <AttestModal

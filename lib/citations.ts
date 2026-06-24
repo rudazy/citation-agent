@@ -23,6 +23,8 @@ export type CreatorContent = {
   body: string;
   paidCount: number;
   source: "markdown" | "database";
+  /** ISO timestamp when the post was published (database posts only). */
+  publishedAt?: string;
   /** TrustGate score for connectedWallet, attached server side by consumers. */
   trust?: TrustScore | null;
 };
