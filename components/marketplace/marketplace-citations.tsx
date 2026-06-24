@@ -14,6 +14,7 @@ import {
 import { AttestModal } from "@/components/attest";
 import { AttestTrigger } from "@/components/attest/attest-trigger";
 import { BackingHint } from "@/components/marketplace/backing-hint";
+import { CitationBodyMarkdown } from "@/components/marketplace/citation-body-markdown";
 import {
   TrustSignalBadge,
   type PublicTrustSignal,
@@ -549,10 +550,8 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                     </p>
 
                     {isUnlocked && (
-                      <div className="rounded border border-[#f5c842]/20 bg-[#0a0a0a] px-3 py-3">
-                        <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-[#d4d4d4]">
-                          {expand.body}
-                        </p>
+                      <div className="rounded border border-[#f5c842]/20 bg-[#0a0a0a] px-3 py-3 sm:px-4 sm:py-4">
+                        <CitationBodyMarkdown content={expand.body} />
                       </div>
                     )}
 

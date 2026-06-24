@@ -10,6 +10,7 @@ import {
   getConnectedAccount,
   switchToArcTestnet,
 } from "@/lib/attestation-client";
+import { ArticleBodyEditor } from "@/components/marketplace/article-body-editor";
 import { publishHeaders, signPublishAuth } from "@/lib/publish-client";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -250,22 +251,13 @@ export function CreatorPublishPanel({ onPublished }: Props) {
                   />
                 </div>
 
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="publish-body" className="font-mono text-xs text-[#888]">
-                    Body (paywalled)
-                  </Label>
-                  <textarea
-                    id="publish-body"
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    rows={6}
-                    placeholder="Full content released only after payment"
-                    className={cn(
-                      "w-full rounded border border-[#333] bg-[#111] px-3 py-2 font-mono text-sm text-[#f5f5f5]",
-                      "placeholder:text-[#555] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#f5c842]/40",
-                    )}
-                  />
-                </div>
+                <ArticleBodyEditor
+                  id="publish-body"
+                  value={body}
+                  onChange={setBody}
+                  connected={connected}
+                  disabled={publishing}
+                />
 
                 <div className="space-y-2">
                   <Label htmlFor="publish-price" className="font-mono text-xs text-[#888]">

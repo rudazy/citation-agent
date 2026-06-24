@@ -26,11 +26,17 @@ export async function signPublishAuth(
   return { address: account, timestamp, signature };
 }
 
-export function publishHeaders(auth: PublishAuth): Record<string, string> {
+export function publishAuthHeaderFields(auth: PublishAuth): Record<string, string> {
   return {
     "x-publish-address": auth.address,
     "x-publish-timestamp": auth.timestamp,
     "x-publish-signature": auth.signature,
+  };
+}
+
+export function publishHeaders(auth: PublishAuth): Record<string, string> {
+  return {
+    ...publishAuthHeaderFields(auth),
     "content-type": "application/json",
   };
 }
