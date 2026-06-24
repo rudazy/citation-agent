@@ -47,7 +47,10 @@ export async function ensureAgentGatewayDeposit(gateway: GatewayClient): Promise
   );
 }
 
-export async function depositAgentGateway(privateKey: `0x${string}`): Promise<{
+export async function depositAgentGateway(
+  privateKey: `0x${string}`,
+  amount: string = DEPOSIT_AMOUNT,
+): Promise<{
   depositTxHash: string;
   gatewayAvailable: string;
 }> {
@@ -60,7 +63,7 @@ export async function depositAgentGateway(privateKey: `0x${string}`): Promise<{
     );
   }
 
-  const result = await gateway.deposit(DEPOSIT_AMOUNT);
+  const result = await gateway.deposit(amount);
   const updated = await gateway.getBalances();
   return {
     depositTxHash: result.depositTxHash,

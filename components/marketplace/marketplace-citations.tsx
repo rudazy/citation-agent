@@ -5,6 +5,7 @@ import { ChevronDown, FileText, Loader2, LockOpen, Shield, Users } from "lucide-
 import { Panel } from "@/components/layout/panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +38,11 @@ import {
   loadStoredUnlocks,
   storeUnlock,
 } from "@/lib/citation-unlock-session";
+import {
+  gatewayDepositPromptMessage,
+  isInsufficientGatewayBalance,
+  suggestGatewayDepositAmount,
+} from "@/lib/citation-unlock-errors";
 import { depositToGatewayViaMetaMask } from "@/lib/gateway-metamask";
 import { depositAgentGatewayViaApi } from "@/lib/gateway-pay";
 import { formatPaymentDate } from "@/lib/format-datetime";
@@ -67,7 +73,14 @@ type CitationListing = {
 type ExpandState =
   | { status: "locked" }
   | { status: "loading" }
-  | { status: "unlocked"; body: string };
+  | { status: "unlocked"; body: string }
+  | {
+      status: "needs_deposit";
+      payer: PaymentPayer;
+      depositAmount: string;
+      message: string;
+    }
+  | { status: "depositing"; payer: PaymentPayer; depositAmount: string };
 
 type TrustCellState =
   | { status: "idle"; trust: PublicTrustSignal | null }
@@ -224,6 +237,22 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     [getTrustState],
   );
 
+  const showDepositPrompt = useCallback(
+    (item: CitationListing, payer: PaymentPayer) => {
+      const depositAmount = suggestGatewayDepositAmount(
+        item.price_usdc,
+        GATEWAY_DEPOSIT_USDC,
+      );
+      setExpand(item.id, {
+        status: "needs_deposit",
+        payer,
+        depositAmount,
+        message: gatewayDepositPromptMessage(depositAmount, item.price_usdc),
+      });
+    },
+    [setExpand],
+  );
+
   const runUnlock = useCallback(
     async (item: CitationListing, payer: PaymentPayer) => {
       const current = expandStates[item.id];
@@ -267,21 +296,87 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             toast.message("Payment cancelled");
             break;
           case "failed":
-            setExpand(item.id, { status: "locked" });
-            toast.error("Could not unlock", { description: result.reason });
+            if (isInsufficientGatewayBalance(result.reason)) {
+              showDepositPrompt(item, payer);
+            } else {
+              setExpand(item.id, { status: "locked" });
+              toast.error("Could not unlock", { description: result.reason });
+            }
             break;
         }
       } catch (err) {
-        setExpand(item.id, { status: "locked" });
-        toast.error("Unlock failed", {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        if (isInsufficientGatewayBalance(message)) {
+          showDepositPrompt(item, payer);
+        } else {
+          setExpand(item.id, { status: "locked" });
+          toast.error("Unlock failed", { description: message });
+        }
+      }
+    },
+    [bumpPaidCount, expandStates, setExpand, showDepositPrompt],
+  );
+
+  const runDepositForUnlock = useCallback(
+    async (item: CitationListing, payer: PaymentPayer, depositAmount: string) => {
+      setExpand(item.id, { status: "depositing", payer, depositAmount });
+      try {
+        if (payer === "metamask") {
+          const ethereum: EthereumProvider | undefined = window.ethereum;
+          if (!ethereum) {
+            setExpand(item.id, { status: "locked" });
+            toast.error("MetaMask not detected");
+            return;
+          }
+          await switchToArcTestnet(ethereum);
+          const account = await getConnectedAccount(ethereum);
+          await depositToGatewayViaMetaMask(ethereum, account, depositAmount);
+        } else {
+          await depositAgentGatewayViaApi(depositAmount);
+        }
+        await runUnlock(item, payer);
+      } catch (err) {
+        if ((err as { code?: number }).code === 4001) {
+          setExpand(item.id, { status: "locked" });
+          toast.message("Deposit cancelled");
+          return;
+        }
+        setExpand(item.id, {
+          status: "needs_deposit",
+          payer,
+          depositAmount,
+          message: gatewayDepositPromptMessage(depositAmount, item.price_usdc),
+        });
+        toast.error("Deposit failed", {
           description: err instanceof Error ? err.message : "Unknown error",
         });
       }
     },
-    [bumpPaidCount, expandStates, setExpand],
+    [runUnlock, setExpand],
   );
 
-  const runGatewayDeposit = useCallback(async (payer: PaymentPayer) => {
+  const updateDepositAmount = useCallback(
+    (listingId: string, depositAmount: string) => {
+      setExpandStates((prev) => {
+        const current = prev[listingId];
+        if (current?.status !== "needs_deposit") return prev;
+        return {
+          ...prev,
+          [listingId]: {
+            ...current,
+            depositAmount,
+            message: gatewayDepositPromptMessage(
+              depositAmount,
+              listings.find((l) => l.id === listingId)?.price_usdc ?? "0",
+            ),
+          },
+        };
+      });
+    },
+    [listings],
+  );
+
+  const runGatewayDeposit = useCallback(async (payer: PaymentPayer, amount = GATEWAY_DEPOSIT_USDC) => {
     setGatewayFunding(true);
     try {
       if (payer === "metamask") {
@@ -292,18 +387,18 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
         }
         await switchToArcTestnet(ethereum);
         const account = await getConnectedAccount(ethereum);
-        await depositToGatewayViaMetaMask(ethereum, account, GATEWAY_DEPOSIT_USDC);
-        toast.success("Gateway deposit complete", {
-          description: `Deposited ${GATEWAY_DEPOSIT_USDC} USDC via MetaMask`,
+        await depositToGatewayViaMetaMask(ethereum, account, amount);
+        toast.success("Payment balance funded", {
+          description: `Deposited ${amount} USDC`,
         });
       } else {
-        const result = await depositAgentGatewayViaApi();
-        toast.success("Gateway deposit complete", {
+        const result = await depositAgentGatewayViaApi(amount);
+        toast.success("Payment balance funded", {
           description: `Available: $${result.gatewayAvailable} USDC`,
         });
       }
     } catch (err) {
-      toast.error("Gateway deposit failed", {
+      toast.error("Deposit failed", {
         description: err instanceof Error ? err.message : "Unknown error",
       });
     } finally {
@@ -472,12 +567,18 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             const expand = expandStates[item.id] ?? { status: "locked" };
             const isUnlocked = expand.status === "unlocked";
             const isUnlockLoading = expand.status === "loading";
+            const isDepositing = expand.status === "depositing";
+            const needsDeposit = expand.status === "needs_deposit";
             const trustCell = getTrustState(item);
             const displayTrust = selectTrustForPost(item.id, trustCell.trust);
             const trustLoading = trustCell.status === "loading";
             const paidTrustDone =
               trustCell.status === "done" && displayTrust?.source === "paid";
             const defaultPayer = DEFAULT_PAYMENT_PAYER;
+            const depositAmount =
+              needsDeposit || isDepositing ? expand.depositAmount : GATEWAY_DEPOSIT_USDC;
+            const depositPayer =
+              needsDeposit || isDepositing ? expand.payer : defaultPayer;
             const canChoosePayer = metamaskAvailable;
             const showVerifyReputation =
               item.trust_paid_lookup && !paidTrustDone && displayTrust?.source !== "paid";
@@ -488,14 +589,14 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={isUnlockLoading || isUnlocked}
+                disabled={isUnlockLoading || isDepositing || isUnlocked}
                 onClick={() => void runUnlock(item, defaultPayer)}
                 className="gap-1.5 border-[#f5c842]/35 text-[#f5c842] hover:bg-[#f5c842]/10 hover:text-[#f5c842]"
               >
-                {isUnlockLoading ? (
+                {isUnlockLoading || isDepositing ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    Unlocking…
+                    {isDepositing ? "Depositing…" : "Unlocking…"}
                   </>
                 ) : isUnlocked ? (
                   <>
@@ -565,7 +666,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                               type="button"
                               size="sm"
                               variant="outline"
-                              disabled={isUnlockLoading || gatewayFunding}
+                              disabled={isUnlockLoading || isDepositing || gatewayFunding}
                               aria-label="Unlock and Gateway options"
                               className="px-2 border-[#f5c842]/35 text-[#f5c842]"
                             >
@@ -607,6 +708,56 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                       </div>
                     ) : (
                       unlockButton
+                    )}
+
+                    {(needsDeposit || isDepositing) && (
+                      <div className="w-full rounded border border-[#1f1f1f] bg-[#111] px-3 py-2.5 space-y-2">
+                        {needsDeposit && (
+                          <p className="font-mono text-[10px] text-[#a3a3a3] leading-relaxed">
+                            {expand.message}
+                          </p>
+                        )}
+                        {isDepositing && (
+                          <p className="font-mono text-[10px] text-[#888]">
+                            Moving USDC into your payment balance…
+                          </p>
+                        )}
+                        {needsDeposit && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={depositAmount}
+                              onChange={(e) =>
+                                updateDepositAmount(item.id, e.target.value)
+                              }
+                              className="h-8 w-20 border-[#333] bg-[#141414] font-mono text-xs"
+                              aria-label="Deposit amount in USDC"
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={gatewayFunding}
+                              onClick={() =>
+                                void runDepositForUnlock(item, depositPayer, depositAmount)
+                              }
+                              className="h-8 border-[#f5c842]/35 font-mono text-[10px] text-[#f5c842] hover:bg-[#f5c842]/10"
+                            >
+                              Deposit and unlock
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setExpand(item.id, { status: "locked" })}
+                              className="h-8 font-mono text-[10px] text-[#666]"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     <div className="flex flex-wrap gap-1.5 justify-end w-full">

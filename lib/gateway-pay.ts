@@ -46,9 +46,12 @@ export async function payViaAgentWallet(params: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  const data = (await res.json()) as AgentGatewayPayResponse & { error?: string };
+  const data = (await res.json()) as AgentGatewayPayResponse & {
+    error?: string;
+    reason?: string;
+  };
   if (!res.ok) {
-    throw new Error(data.error ?? "Agent gateway payment failed");
+    throw new Error(data.reason ?? data.error ?? "Agent gateway payment failed");
   }
   return data;
 }
@@ -95,11 +98,15 @@ export async function withdrawGatewayViaApi(params: {
   };
 }
 
-export async function depositAgentGatewayViaApi(): Promise<{
+export async function depositAgentGatewayViaApi(amount?: string): Promise<{
   depositTxHash: string;
   gatewayAvailable: string;
 }> {
-  const res = await fetch("/api/gateway/deposit", { method: "POST" });
+  const res = await fetch("/api/gateway/deposit", {
+    method: "POST",
+    headers: amount ? { "Content-Type": "application/json" } : undefined,
+    body: amount ? JSON.stringify({ amount }) : undefined,
+  });
   const data = (await res.json()) as {
     depositTxHash?: string;
     gatewayAvailable?: string;
