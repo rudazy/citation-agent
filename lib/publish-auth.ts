@@ -26,12 +26,18 @@ export function normalizeWalletAddress(value: string): `0x${string}` | null {
   }
 }
 
+export type VerifiedPublishRequest = {
+  connectedWallet: `0x${string}`;
+  /** Milliseconds since epoch from x-publish-timestamp (embedded in the signed message). */
+  signedAtMs: number;
+};
+
 /**
- * Verify publish auth headers. Returns the proven connected wallet, or null.
+ * Verify publish auth headers. Returns the proven wallet and sign timestamp, or null.
  */
 export async function verifyPublishRequest(
   request: Request,
-): Promise<`0x${string}` | null> {
+): Promise<VerifiedPublishRequest | null> {
   const address = request.headers.get("x-publish-address");
   const timestamp = request.headers.get("x-publish-timestamp");
   const signature = request.headers.get("x-publish-signature");
@@ -51,7 +57,7 @@ export async function verifyPublishRequest(
       message: publishMessage(timestamp),
       signature: signature as `0x${string}`,
     });
-    return valid ? connectedWallet : null;
+    return valid ? { connectedWallet, signedAtMs: ts } : null;
   } catch {
     return null;
   }

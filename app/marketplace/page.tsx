@@ -15,9 +15,9 @@ export default function MarketplacePage() {
     <div className="mx-auto max-w-4xl w-full min-w-0 space-y-6 sm:space-y-8">
       <MarketplaceHero />
 
-      <MarketplaceCitations refreshKey={catalogRefresh} />
-
       <CreatorPublishPanel onPublished={() => setCatalogRefresh((n) => n + 1)} />
+
+      <MarketplaceCitations refreshKey={catalogRefresh} />
 
       <MarketplaceInfrastructureLayers traceId={traceId} onTraceId={setTraceId} />
     </div>

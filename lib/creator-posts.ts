@@ -13,6 +13,8 @@ export type CreatorPostRow = {
   created_at: string;
   updated_at: string;
   published_at: string;
+  /** ISO timestamp from the wallet publish signature (x-publish-timestamp). */
+  publish_signed_at: string | null;
   status: string;
   title: string;
   subheading: string;
@@ -34,6 +36,8 @@ export type PublishPostInput = {
   authorName?: string;
   payoutWallet?: string;
   connectedWallet: `0x${string}`;
+  /** Wallet sign time (ms) — persisted as publish_signed_at for audit. */
+  signedAtMs: number;
 };
 
 export type PublishPostResult =
@@ -187,6 +191,7 @@ export async function insertPublishedPost(
     author_name: input.authorName?.trim() || defaultAuthorName(connectedWallet),
     connected_wallet: connectedWallet.toLowerCase(),
     payout_wallet: payoutWallet.toLowerCase(),
+    publish_signed_at: new Date(input.signedAtMs).toISOString(),
   };
 
   const { data, error } = await supabase

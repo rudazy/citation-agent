@@ -158,8 +158,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const connectedWallet = await verifyPublishRequest(req);
-  if (!connectedWallet) {
+  const publishAuth = await verifyPublishRequest(req);
+  if (!publishAuth) {
     return NextResponse.json(
       { error: "Connect your wallet and sign to publish" },
       { status: 401 },
@@ -199,7 +199,8 @@ export async function POST(req: NextRequest) {
         : typeof body.payoutWallet === "string"
           ? body.payoutWallet
           : undefined,
-    connectedWallet,
+    connectedWallet: publishAuth.connectedWallet,
+    signedAtMs: publishAuth.signedAtMs,
   });
 
   if (!result.ok) {
@@ -216,6 +217,7 @@ export async function POST(req: NextRequest) {
         paid_count: result.post.paid_count,
         author: result.post.author_name,
         tags: result.post.tags,
+        publish_signed_at: result.post.publish_signed_at,
         endpoint: `/api/marketplace/citations?id=${result.post.id}`,
       },
     },

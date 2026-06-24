@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Loader2, LockOpen, Shield, Users } from "lucide-react";
+import { ChevronDown, FileText, Loader2, LockOpen, Shield, Users } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import {
   loadStoredUnlocks,
   storeUnlock,
 } from "@/lib/citation-unlock-session";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import "@/lib/ethereum-provider";
@@ -88,6 +89,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const [expandStates, setExpandStates] = useState<Record<string, ExpandState>>({});
   const [trustStates, setTrustStates] = useState<Record<string, TrustCellState>>({});
   const [metamaskAvailable, setMetamaskAvailable] = useState(false);
+  const [expandedListingIds, setExpandedListingIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setMetamaskAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
@@ -96,6 +98,10 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const openAttest = useCallback((target: string) => {
     setCurrentTarget(target);
     setAttestOpen(true);
+  }, []);
+
+  const toggleListingExpanded = useCallback((id: string) => {
+    setExpandedListingIds((prev) => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
   const setExpand = useCallback((id: string, state: ExpandState) => {
@@ -368,6 +374,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             const canChoosePayer = metamaskAvailable;
             const showVerifyReputation =
               item.trust_paid_lookup && !paidTrustDone && displayTrust?.source !== "paid";
+            const listingExpanded = expandedListingIds[item.id] ?? false;
 
             const unlockButton = (
               <Button
@@ -397,10 +404,15 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             return (
               <article
                 key={item.id}
-                className="rounded border border-[#1f1f1f] bg-[#111]/80 p-4 transition-colors hover:border-[#f5c842]/25"
+                className="rounded border border-[#1f1f1f] bg-[#111]/80 transition-colors hover:border-[#f5c842]/25"
               >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 space-y-2 flex-1">
+                <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => toggleListingExpanded(item.id)}
+                    aria-expanded={listingExpanded}
+                    className="min-w-0 flex-1 space-y-2 text-left"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="border-[#333] font-mono text-[10px]">
                         ${item.price_usdc} {item.token}
@@ -410,38 +422,24 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                         <Users size={10} />
                         {paidCountLabel(item.paid_count)}
                       </span>
+                      {isUnlocked && (
+                        <Badge className="bg-[#f5c842]/10 text-[#f5c842] border border-[#f5c842]/30 text-[10px]">
+                          Unlocked
+                        </Badge>
+                      )}
+                      <ChevronDown
+                        size={14}
+                        className={cn(
+                          "ml-auto text-[#666] transition-transform sm:ml-0",
+                          listingExpanded && "rotate-180",
+                        )}
+                      />
                     </div>
                     <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
                       {item.title}
                     </h3>
                     <p className="font-mono text-xs text-[#666]">{item.author}</p>
-                    <BackingHint
-                      authorBacking={item.author_backing}
-                      reportBacking={item.report_backing}
-                    />
-                    <p className="font-mono text-xs leading-relaxed text-[#888]">
-                      {item.subheading}
-                    </p>
-
-                    {isUnlocked && (
-                      <div className="rounded border border-[#f5c842]/20 bg-[#0a0a0a] px-3 py-3">
-                        <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-[#d4d4d4]">
-                          {expand.body}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.tags.map((tag) => (
-                        <Badge
-                          key={tag}
-                          className="bg-[#141414] text-[#a3a3a3] border border-[#2a2a2a] hover:bg-[#141414] text-[10px]"
-                        >
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
+                  </button>
 
                   <div className="flex shrink-0 flex-col gap-2 sm:items-end sm:min-w-[148px]">
                     {canChoosePayer ? (
@@ -539,6 +537,39 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                     </div>
                   </div>
                 </div>
+
+                {listingExpanded && (
+                  <div className="space-y-3 border-t border-[#1f1f1f] px-4 pb-4 pt-3">
+                    <BackingHint
+                      authorBacking={item.author_backing}
+                      reportBacking={item.report_backing}
+                    />
+                    <p className="font-mono text-xs leading-relaxed text-[#888]">
+                      {item.subheading}
+                    </p>
+
+                    {isUnlocked && (
+                      <div className="rounded border border-[#f5c842]/20 bg-[#0a0a0a] px-3 py-3">
+                        <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-[#d4d4d4]">
+                          {expand.body}
+                        </p>
+                      </div>
+                    )}
+
+                    {item.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.tags.map((tag) => (
+                          <Badge
+                            key={tag}
+                            className="bg-[#141414] text-[#a3a3a3] border border-[#2a2a2a] hover:bg-[#141414] text-[10px]"
+                          >
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </article>
             );
           })}
