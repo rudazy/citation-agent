@@ -6,6 +6,7 @@ import { incrementPostPaidCount, insertPublishedPost } from "@/lib/creator-posts
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
 import { verifyPublishRequest } from "@/lib/publish-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { isPaidTrustLookupAvailable, trustScoreToSignal } from "@/lib/creator-trust";
 import {
   getBackingSummariesForTargets,
@@ -164,6 +165,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "Connect your wallet and sign to publish" },
       { status: 401 },
+    );
+  }
+
+  // Conservative: publishing posts is a deliberate action. 10/min per wallet is
+  // far above normal authoring cadence but blocks scripted spam.
+  const rate = checkRateLimit(publishAuth.connectedWallet, {
+    namespace: "citation-publish",
+    limit: 10,
+    windowMs: 60_000,
+  });
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many publish requests. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
     );
   }
 

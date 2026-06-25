@@ -98,7 +98,11 @@ export function buildTargetFromPreset(preset: TargetPreset, raw: string): string
       if (/^https?:\/\//i.test(input)) return input;
       if (/^linkedin:/i.test(input)) return input;
       if (input.includes("linkedin.com")) return `https://${input.replace(/^\/\//, "")}`;
-      return `https://linkedin.com/in/${input.replace(/^\/+/, "")}`;
+      const path = input.replace(/^\/+/, "");
+      // Respect an explicit LinkedIn path segment (in/, company/, school/, pub/)
+      // so "in/jane-doe" is not doubled into "/in/in/jane-doe".
+      if (/^(in|company|school|pub)\//i.test(path)) return `https://linkedin.com/${path}`;
+      return `https://linkedin.com/in/${path}`;
     }
     case "agent": {
       if (/^agent:/i.test(input)) return input;
@@ -117,8 +121,12 @@ export function buildTargetFromPreset(preset: TargetPreset, raw: string): string
 }
 
 export function validateTargetInput(preset: TargetPreset, raw: string): string | null {
+  if (!raw.trim()) return "Enter a target value";
+
+  // Non-empty input may still fail to canonicalize (e.g. "0x123" for a wallet),
+  // in which case `built` is empty and the preset-specific checks below report a
+  // precise reason instead of the generic "Enter a target value".
   const built = buildTargetFromPreset(preset, raw);
-  if (!built) return "Enter a target value";
 
   switch (preset) {
     case "wallet":

@@ -8,6 +8,12 @@ import {
 } from "@/lib/article-image";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseUrl } from "@/lib/supabase/config";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+// Conservative: a creator uploads a handful of images per article. 20/min per
+// wallet leaves ample headroom for normal use while stopping upload spam.
+const UPLOAD_LIMIT = 20;
+const UPLOAD_WINDOW_MS = 60_000;
 
 export async function POST(request: Request) {
   const publishAuth = await verifyPublishRequest(request);
@@ -15,6 +21,18 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Connect your wallet and sign to upload images" },
       { status: 401 },
+    );
+  }
+
+  const rate = checkRateLimit(publishAuth.connectedWallet, {
+    namespace: "article-image-upload",
+    limit: UPLOAD_LIMIT,
+    windowMs: UPLOAD_WINDOW_MS,
+  });
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many image uploads. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
     );
   }
 
