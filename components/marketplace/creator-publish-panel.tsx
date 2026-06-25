@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Loader2, PenLine, Wallet } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import {
 } from "@/lib/attestation-client";
 import { ArticleBodyEditor } from "@/components/marketplace/article-body-editor";
 import { CreatorGatewayEarnings } from "@/components/marketplace/creator-gateway-earnings";
+import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
 import { publishHeaders, signPublishAuth } from "@/lib/publish-client";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -20,10 +22,11 @@ import { toast } from "sonner";
 import "@/lib/ethereum-provider";
 
 type Props = {
-  onPublished?: () => void;
+  onPublished?: (postId?: string) => void;
 };
 
 export function CreatorPublishPanel({ onPublished }: Props) {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [articleExpanded, setArticleExpanded] = useState(false);
   const [walletAvailable, setWalletAvailable] = useState(false);
@@ -102,9 +105,22 @@ export function CreatorPublishPanel({ onPublished }: Props) {
         throw new Error(data.error ?? `Publish failed (${res.status})`);
       }
 
-      toast.success("Post published", {
-        description: data.post?.id ?? "Saved to marketplace",
-      });
+      const postId = data.post?.id;
+      if (postId) {
+        try {
+          const shareUrl = await copyPostShareLink(postId);
+          toast.success("Post published — link copied", {
+            description: shareUrl,
+          });
+        } catch {
+          toast.success("Post published", { description: postId });
+        }
+        router.replace(buildPostSharePath(postId));
+      } else {
+        toast.success("Post published", {
+          description: "Saved to marketplace",
+        });
+      }
 
       setTitle("");
       setSubheading("");
@@ -114,7 +130,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       setAuthorName("");
       setTags("");
       setArticleExpanded(false);
-      onPublished?.();
+      onPublished?.(postId);
     } catch (err) {
       if ((err as { code?: number }).code === 4001) {
         toast.message("Signature cancelled");
@@ -132,6 +148,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     connected,
     onPublished,
     payoutWallet,
+    router,
     priceUsdc,
     subheading,
     tags,

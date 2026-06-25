@@ -1,7 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, FileText, Loader2, LockOpen, Shield, Users } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  ChevronDown,
+  FileText,
+  Link2,
+  Loader2,
+  LockOpen,
+  Shield,
+  Users,
+} from "lucide-react";
 import { Panel } from "@/components/layout/panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +55,7 @@ import {
 import { depositToGatewayViaMetaMask } from "@/lib/gateway-metamask";
 import { depositAgentGatewayViaApi } from "@/lib/gateway-pay";
 import { formatPaymentDate } from "@/lib/format-datetime";
+import { copyPostShareLink, getPostIdFromSearchParams } from "@/lib/post-share-url";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -101,6 +111,10 @@ type Props = {
 };
 
 export function MarketplaceCitations({ refreshKey = 0 }: Props) {
+  const searchParams = useSearchParams();
+  const deepLinkPostId = getPostIdFromSearchParams(searchParams);
+  const deepLinkHandledRef = useRef<string | null>(null);
+
   const [listings, setListings] = useState<CitationListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +126,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const [expandedListingIds, setExpandedListingIds] = useState<Record<string, boolean>>({});
   const [catalogExpanded, setCatalogExpanded] = useState(true);
   const [gatewayFunding, setGatewayFunding] = useState(false);
+  const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
   useEffect(() => {
     setMetamaskAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
@@ -124,6 +139,17 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
 
   const toggleListingExpanded = useCallback((id: string) => {
     setExpandedListingIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  const copyShareLink = useCallback(async (postId: string) => {
+    try {
+      const url = await copyPostShareLink(postId);
+      toast.success("Link copied", { description: url });
+    } catch (err) {
+      toast.error("Could not copy link", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
   }, []);
 
   const setExpand = useCallback((id: string, state: ExpandState) => {
@@ -458,6 +484,38 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     return () => controller.abort();
   }, [loadListings, refreshKey]);
 
+  useEffect(() => {
+    deepLinkHandledRef.current = null;
+  }, [deepLinkPostId, refreshKey]);
+
+  useEffect(() => {
+    if (!deepLinkPostId || loading) return;
+    if (deepLinkHandledRef.current === deepLinkPostId) return;
+
+    const found = listings.some((listing) => listing.id === deepLinkPostId);
+    if (!found) {
+      if (listings.length > 0 || error) {
+        deepLinkHandledRef.current = deepLinkPostId;
+        toast.error("Post not found", { description: deepLinkPostId });
+      }
+      return;
+    }
+
+    deepLinkHandledRef.current = deepLinkPostId;
+    setCatalogExpanded(true);
+    setExpandedListingIds((prev) => ({ ...prev, [deepLinkPostId]: true }));
+    setHighlightPostId(deepLinkPostId);
+
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`post-${deepLinkPostId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+
+    const timer = window.setTimeout(() => setHighlightPostId(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [deepLinkPostId, error, listings, loading, refreshKey]);
+
   return (
     <>
       <Panel glow className="space-y-4 p-4 sm:p-5 border-[#f5c842]/20">
@@ -612,7 +670,12 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             return (
               <article
                 key={item.id}
-                className="rounded border border-[#1f1f1f] bg-[#111]/80 transition-colors hover:border-[#f5c842]/25"
+                id={`post-${item.id}`}
+                className={cn(
+                  "rounded border border-[#1f1f1f] bg-[#111]/80 transition-colors hover:border-[#f5c842]/25",
+                  highlightPostId === item.id &&
+                    "border-[#f5c842]/50 ring-1 ring-[#f5c842]/30",
+                )}
               >
                 <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                   <button
@@ -761,6 +824,16 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                     )}
 
                     <div className="flex flex-wrap gap-1.5 justify-end w-full">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void copyShareLink(item.id)}
+                        className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
+                      >
+                        <Link2 size={12} className="mr-1" />
+                        Copy link
+                      </Button>
                       {showVerifyReputation && (
                         <div className="flex items-center gap-0.5">
                           <Button

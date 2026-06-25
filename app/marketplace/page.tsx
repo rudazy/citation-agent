@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { CreatorPublishPanel } from "@/components/marketplace/creator-publish-panel";
 import { MarketplaceCitations } from "@/components/marketplace/marketplace-citations";
 import { MarketplaceHero } from "@/components/marketplace/marketplace-hero";
@@ -17,7 +17,9 @@ export default function MarketplacePage() {
 
       <CreatorPublishPanel onPublished={() => setCatalogRefresh((n) => n + 1)} />
 
-      <MarketplaceCitations refreshKey={catalogRefresh} />
+      <Suspense fallback={null}>
+        <MarketplaceCitations refreshKey={catalogRefresh} />
+      </Suspense>
 
       <MarketplaceInfrastructureLayers traceId={traceId} onTraceId={setTraceId} />
     </div>
