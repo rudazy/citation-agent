@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback, useEffect, useState } from "react";
 
 export type AgentReputation = {
   payer: string;
@@ -9,47 +8,53 @@ export type AgentReputation = {
   updated_at: string;
 };
 
-export function useAgentReputation() {
-  const [agents, setAgents] = useState<AgentReputation[]>([]);
-  const [loading, setLoading] = useState(true);
+type UseAgentReputationOptions = {
+  enabled?: boolean;
+  getAuthHeaders?: () => Promise<Record<string, string>>;
+};
 
-  useEffect(() => {
-    const supabase = createClient();
-    if (!supabase) {
-      setLoading(false);
+/** Operator-only agent spend leaderboard. */
+export function useAgentReputation({
+  enabled = false,
+  getAuthHeaders,
+}: UseAgentReputationOptions = {}) {
+  const [agents, setAgents] = useState<AgentReputation[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchAgents = useCallback(async () => {
+    if (!enabled || !getAuthHeaders) {
+      setAgents([]);
       return;
     }
-    const client = supabase;
 
-    async function fetchAgents() {
-      const { data, error } = await client
-        .from("agent_reputation")
-        .select("*")
-        .order("total_spent_usdc", { ascending: false });
-
-      if (error) {
-        console.error("Failed to fetch agent reputation:", error.message);
-      } else {
-        setAgents((data ?? []) as AgentReputation[]);
+    setLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/dashboard/agent-reputation", {
+        headers,
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setAgents([]);
+        return;
       }
+      const data = (await res.json()) as { agents?: AgentReputation[] };
+      setAgents(data.agents ?? []);
+    } catch {
+      setAgents([]);
+    } finally {
       setLoading(false);
     }
+  }, [enabled, getAuthHeaders]);
 
-    fetchAgents();
+  useEffect(() => {
+    if (enabled) {
+      void fetchAgents();
+    } else {
+      setAgents([]);
+      setLoading(false);
+    }
+  }, [enabled, fetchAgents]);
 
-    const channel = client
-      .channel("agent-reputation-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "agent_reputation" },
-        () => fetchAgents(),
-      )
-      .subscribe();
-
-    return () => {
-      client.removeChannel(channel);
-    };
-  }, []);
-
-  return { agents, loading };
+  return { agents, loading, refetch: fetchAgents };
 }

@@ -227,7 +227,10 @@ export default function Dashboard() {
     loading: loadingPayments,
     error: paymentsError,
     refetch: refetchPayments,
-  } = usePaymentEvents();
+  } = usePaymentEvents({
+    enabled: operator,
+    getAuthHeaders: getOperatorAuthHeaders,
+  });
   const {
     fees: attestationFees,
     loading: loadingAttestationFees,
@@ -238,8 +241,14 @@ export default function Dashboard() {
     getAuthHeaders: getOperatorAuthHeaders,
   });
   const { withdrawals, loading: loadingWithdrawals } = useWithdrawals();
-  const { earnings, loading: loadingEarnings } = useCreatorEarnings();
-  const { agents, loading: loadingReputation } = useAgentReputation();
+  const { earnings, loading: loadingEarnings } = useCreatorEarnings({
+    enabled: operator,
+    getAuthHeaders: getOperatorAuthHeaders,
+  });
+  const { agents, loading: loadingReputation } = useAgentReputation({
+    enabled: operator,
+    getAuthHeaders: getOperatorAuthHeaders,
+  });
 
   useEffect(() => {
     const tab = searchParams.get("tab");

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAgentWalletStatus } from "@/lib/agent-wallet";
+import { verifyOperatorRequest } from "@/lib/operator";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { getSellerAddress } from "@/lib/payment-wallets";
 
@@ -13,6 +14,10 @@ export async function GET(request: NextRequest) {
   let walletAddress: string | null = null;
 
   if (scope === "seller") {
+    if (!(await verifyOperatorRequest(request))) {
+      return NextResponse.json({ error: "Operator only" }, { status: 403 });
+    }
+
     walletAddress = getSellerAddress();
     if (!walletAddress) {
       return NextResponse.json({ withdrawals: [] });

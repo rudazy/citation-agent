@@ -14,15 +14,27 @@ export type Withdrawal = {
 
 export type WithdrawalScope = "agent" | "seller";
 
-export function useWithdrawals(scope: WithdrawalScope = "agent") {
+type UseWithdrawalsOptions = {
+  scope?: WithdrawalScope;
+  /** Required when scope is seller (operator-only withdrawal history). */
+  getAuthHeaders?: () => Promise<Record<string, string>>;
+};
+
+export function useWithdrawals({
+  scope = "agent",
+  getAuthHeaders,
+}: UseWithdrawalsOptions = {}) {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchWithdrawals = useCallback(async () => {
     setLoading(true);
     try {
+      const headers =
+        scope === "seller" && getAuthHeaders ? await getAuthHeaders() : undefined;
       const res = await fetch(`/api/gateway/withdrawals?scope=${scope}`, {
         cache: "no-store",
+        headers,
       });
       if (!res.ok) {
         setWithdrawals([]);
@@ -35,7 +47,7 @@ export function useWithdrawals(scope: WithdrawalScope = "agent") {
     } finally {
       setLoading(false);
     }
-  }, [scope]);
+  }, [getAuthHeaders, scope]);
 
   useEffect(() => {
     void fetchWithdrawals();

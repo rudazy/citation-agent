@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useCallback, useEffect, useState } from "react";
 
 export type CreatorEarning = {
   id: string;
@@ -16,61 +14,53 @@ export type CreatorEarning = {
   query: string | null;
 };
 
-export function useCreatorEarnings() {
-  const [earnings, setEarnings] = useState<CreatorEarning[]>([]);
-  const [loading, setLoading] = useState(true);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+type UseCreatorEarningsOptions = {
+  enabled?: boolean;
+  getAuthHeaders?: () => Promise<Record<string, string>>;
+};
 
-  useEffect(() => {
-    const supabase = createClient();
-    if (!supabase) {
-      setLoading(false);
+/** Operator-only creator royalty ledger. */
+export function useCreatorEarnings({
+  enabled = false,
+  getAuthHeaders,
+}: UseCreatorEarningsOptions = {}) {
+  const [earnings, setEarnings] = useState<CreatorEarning[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchEarnings = useCallback(async () => {
+    if (!enabled || !getAuthHeaders) {
+      setEarnings([]);
       return;
     }
-    const client = supabase;
 
-    async function fetchInitial() {
-      const { data, error } = await client
-        .from("creator_earnings")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Failed to fetch creator earnings:", error.message);
-      } else {
-        setEarnings((prev) => {
-          if (prev.length === 0) return data as CreatorEarning[];
-          const fetched = data as CreatorEarning[];
-          const existingIds = new Set(fetched.map((e) => e.id));
-          const realtimeOnly = prev.filter((e) => !existingIds.has(e.id));
-          return [...realtimeOnly, ...fetched];
-        });
+    setLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/dashboard/creator-earnings", {
+        headers,
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setEarnings([]);
+        return;
       }
+      const data = (await res.json()) as { earnings?: CreatorEarning[] };
+      setEarnings(data.earnings ?? []);
+    } catch {
+      setEarnings([]);
+    } finally {
       setLoading(false);
     }
+  }, [enabled, getAuthHeaders]);
 
-    const channel = client
-      .channel("creator-earnings-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "creator_earnings" },
-        (payload) => {
-          setEarnings((prev) => {
-            const row = payload.new as CreatorEarning;
-            if (prev.some((e) => e.id === row.id)) return prev;
-            return [row, ...prev];
-          });
-        },
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") fetchInitial();
-      });
+  useEffect(() => {
+    if (enabled) {
+      void fetchEarnings();
+    } else {
+      setEarnings([]);
+      setLoading(false);
+    }
+  }, [enabled, fetchEarnings]);
 
-    channelRef.current = channel;
-    return () => {
-      client.removeChannel(channel);
-    };
-  }, []);
-
-  return { earnings, loading };
+  return { earnings, loading, refetch: fetchEarnings };
 }

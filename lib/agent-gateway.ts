@@ -7,19 +7,45 @@ const DEPOSIT_AMOUNT = process.env.DEPOSIT_AMOUNT ?? "1";
 
 const ALLOWED_PATH_PREFIXES = ["/api/marketplace/", "/api/premium/"] as const;
 
+/** Canonicalize an in-app API path; rejects traversal and absolute URLs. */
+export function canonicalizePayPath(path: string): string | null {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes("\\") || trimmed.includes("..")) return null;
+  if (/^https?:\/\//i.test(trimmed)) return null;
+
+  let url: URL;
+  try {
+    const withLeading = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    url = new URL(withLeading, "http://localhost");
+  } catch {
+    return null;
+  }
+
+  if (url.hostname !== "localhost") return null;
+  if (!url.pathname.startsWith("/api/")) return null;
+
+  return `${url.pathname}${url.search}`;
+}
+
 export function isAllowedPayPath(path: string): boolean {
-  const normalized = path.startsWith("/") ? path : `/${path}`;
-  return ALLOWED_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  const canonical = canonicalizePayPath(path);
+  if (!canonical) return false;
+  return ALLOWED_PATH_PREFIXES.some((prefix) => canonical.startsWith(prefix));
 }
 
 export function resolvePayUrl(path: string): string {
-  const normalized = path.startsWith("/") ? path : `/${path}`;
+  const canonical = canonicalizePayPath(path);
+  if (!canonical) {
+    throw new Error("Invalid payment path");
+  }
+
   const base =
     process.env.BASE_URL ??
     (process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3000");
-  return `${base.replace(/\/$/, "")}${normalized}`;
+  return `${base.replace(/\/$/, "")}${canonical}`;
 }
 
 function normalizePrivateKey(privateKey: string): `0x${string}` {
