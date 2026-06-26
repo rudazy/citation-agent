@@ -247,7 +247,11 @@ The **operator wallet** (`NEXT_PUBLIC_OPERATOR_ADDRESS`) is the Attestation cont
 - Seller-role `POST /api/gateway/withdraw`
 - `GET /api/attestation/fees`
 
-Authorization uses a signed message: `"TrustGate operator access {timestamp}"`, verified server-side with a 15-minute replay window.
+Authorization uses a signed message: `"TrustGate operator access {timestamp}"`, verified server-side with a 15-minute window and one-time signature consumption (replay dedup in Supabase).
+
+Creator publish signs `"Citation Agent publish {timestamp} {payloadDigest}"` where `payloadDigest` is a keccak256 hash of the canonical publish JSON — the body cannot be swapped after signing.
+
+Browser agent wallets bind to an `agent_session` cookie that rotates every 24 hours (7-day max age) and immediately after wallet provisioning.
 
 ---
 

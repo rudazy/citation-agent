@@ -9,11 +9,12 @@
  */
 
 import { verifyMessage } from "viem";
+import { consumeAuthSignature } from "@/lib/signature-replay-store";
 
 export const OPERATOR_MESSAGE_PREFIX = "TrustGate operator access";
 
 /** Signed messages older than this are rejected (limits replay). */
-const MAX_AGE_MS = 15 * 60 * 1000;
+export const OPERATOR_AUTH_MAX_AGE_MS = 15 * 60 * 1000;
 
 export function getOperatorAddress(): `0x${string}` | null {
   const raw = (
@@ -47,14 +48,24 @@ export async function verifyOperatorRequest(request: Request): Promise<boolean> 
   if (!/^\d+$/.test(timestamp)) return false;
 
   const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > MAX_AGE_MS) return false;
+  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > OPERATOR_AUTH_MAX_AGE_MS) {
+    return false;
+  }
 
   try {
-    return await verifyMessage({
+    const valid = await verifyMessage({
       address: address as `0x${string}`,
       message: operatorMessage(timestamp),
       signature: signature as `0x${string}`,
     });
+    if (!valid) return false;
+
+    return consumeAuthSignature(
+      "operator",
+      address,
+      signature,
+      OPERATOR_AUTH_MAX_AGE_MS,
+    );
   } catch {
     return false;
   }

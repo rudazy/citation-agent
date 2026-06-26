@@ -5,6 +5,7 @@ import { resolveTrustIdentityWallet } from "@/lib/catalog-identity";
 import { incrementPostPaidCount, insertPublishedPost } from "@/lib/creator-posts";
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
+import { publishPayloadFromBody } from "@/lib/publish-payload";
 import { verifyPublishRequest } from "@/lib/publish-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { isPaidTrustLookupAvailable, trustScoreToSignal } from "@/lib/creator-trust";
@@ -160,10 +161,18 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const publishAuth = await verifyPublishRequest(req);
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const payload = publishPayloadFromBody(body);
+  const publishAuth = await verifyPublishRequest(req, payload);
   if (!publishAuth) {
     return NextResponse.json(
-      { error: "Connect your wallet and sign to publish" },
+      { error: "Connect your wallet and sign the publish payload" },
       { status: 401 },
     );
   }
@@ -182,39 +191,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const tagsRaw = body.tags;
-  const tags =
-    Array.isArray(tagsRaw)
-      ? tagsRaw.map((t) => String(t))
-      : typeof tagsRaw === "string"
-        ? tagsRaw.split(",").map((t) => t.trim())
-        : undefined;
-
   const result = await insertPublishedPost({
-    title: String(body.title ?? ""),
-    subheading: String(body.subheading ?? ""),
-    body: String(body.body ?? ""),
-    priceUsdc: String(body.price_usdc ?? body.priceUsdc ?? ""),
-    tags,
-    authorName:
-      typeof body.author_name === "string"
-        ? body.author_name
-        : typeof body.authorName === "string"
-          ? body.authorName
-          : undefined,
-    payoutWallet:
-      typeof body.payout_wallet === "string"
-        ? body.payout_wallet
-        : typeof body.payoutWallet === "string"
-          ? body.payoutWallet
-          : undefined,
+    title: payload.title,
+    subheading: payload.subheading,
+    body: payload.body,
+    priceUsdc: payload.priceUsdc,
+    tags: payload.tags,
+    authorName: payload.authorName,
+    payoutWallet: payload.payoutWallet,
     connectedWallet: publishAuth.connectedWallet,
     signedAtMs: publishAuth.signedAtMs,
   });

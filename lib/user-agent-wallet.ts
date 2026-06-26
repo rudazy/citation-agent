@@ -74,3 +74,31 @@ export async function provisionUserAgentWallet(
 
   return { address: account.address, created: true };
 }
+
+/** Move the encrypted wallet from an old browser session to a rotated session id. */
+export async function migrateUserAgentWalletSession(
+  oldSessionId: string,
+  newSessionId: string,
+): Promise<void> {
+  if (!oldSessionId || !newSessionId || oldSessionId === newSessionId) return;
+
+  const supabase = getAdminClient();
+  if (!supabase) return;
+
+  const { data: wallet } = await supabase
+    .from("user_agent_wallets")
+    .select("session_id")
+    .eq("session_id", oldSessionId)
+    .maybeSingle();
+
+  if (!wallet) return;
+
+  const { error } = await supabase
+    .from("user_agent_wallets")
+    .update({ session_id: newSessionId })
+    .eq("session_id", oldSessionId);
+
+  if (error && error.code !== "23505") {
+    throw new Error(error.message);
+  }
+}

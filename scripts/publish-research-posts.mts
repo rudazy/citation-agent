@@ -8,9 +8,13 @@
 
 import { fileURLToPath } from "node:url";
 import { privateKeyToAccount } from "viem/accounts";
+import { publishMessage } from "../lib/publish-auth.ts";
+import {
+  publishPayloadDigest,
+  type PublishPayloadInput,
+} from "../lib/publish-payload.ts";
 
 const BASE_URL = process.env.BASE_URL ?? "https://agentcitation.xyz";
-const PUBLISH_PREFIX = "Citation Agent publish";
 
 type ResearchPost = {
   title: string;
@@ -177,12 +181,26 @@ Appendix includes transaction hashes, mark-index spread charts, and ADL queue de
   },
 ];
 
+function toPublishPayload(post: ResearchPost): PublishPayloadInput {
+  return {
+    title: post.title,
+    subheading: post.subheading,
+    body: post.body,
+    priceUsdc: post.price_usdc,
+    tags: post.tags,
+    authorName: post.author_name,
+    payoutWallet: post.payout_wallet,
+  };
+}
+
 async function publishOne(
   account: ReturnType<typeof privateKeyToAccount>,
   post: ResearchPost,
 ): Promise<string> {
+  const payload = toPublishPayload(post);
   const timestamp = Date.now().toString();
-  const message = `${PUBLISH_PREFIX} ${timestamp}`;
+  const digest = publishPayloadDigest(payload);
+  const message = publishMessage(timestamp, digest);
   const signature = await account.signMessage({ message });
 
   const res = await fetch(`${BASE_URL}/api/marketplace/citations`, {
@@ -192,6 +210,7 @@ async function publishOne(
       "x-publish-address": account.address,
       "x-publish-timestamp": timestamp,
       "x-publish-signature": signature,
+      "x-publish-digest": digest,
     },
     body: JSON.stringify(post),
   });

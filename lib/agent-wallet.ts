@@ -4,7 +4,7 @@ import {
   http,
 } from "viem";
 import { arcTestnet } from "viem/chains";
-import { ensureAgentSession } from "@/lib/agent-session";
+import { ensureAgentSession, rotateAgentSession } from "@/lib/agent-session";
 import { fetchGatewayBalanceSnapshot } from "@/lib/gateway-balances";
 import { hasUserAgentWallet } from "@/lib/resolve-user-agent";
 import {
@@ -108,7 +108,10 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
 /** Creates a unique agent wallet for this browser session (stored encrypted in Supabase). */
 export async function provisionAgentWalletForSession(): Promise<{ address: `0x${string}` }> {
   const sessionId = await ensureAgentSession();
-  const { address } = await provisionUserAgentWallet(sessionId);
+  const { address, created } = await provisionUserAgentWallet(sessionId);
+  if (created) {
+    await rotateAgentSession(sessionId);
+  }
   return { address };
 }
 

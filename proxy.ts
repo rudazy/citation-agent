@@ -18,6 +18,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { AGENT_SESSION_COOKIE } from "@/lib/agent-session";
+import { AGENT_SESSION_MAX_AGE_SECONDS } from "@/lib/agent-session-config";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -34,7 +35,7 @@ export function proxy(request: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 365,
+      maxAge: AGENT_SESSION_MAX_AGE_SECONDS,
     });
   }
 

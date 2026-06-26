@@ -82,21 +82,31 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       const account = connected ?? (await getConnectedAccount(ethereum));
       setConnected(account);
 
-      const auth = await signPublishAuth(ethereum, account);
+      const publishPayload = {
+        title,
+        subheading,
+        body,
+        priceUsdc,
+        payoutWallet: payoutWallet.trim() || undefined,
+        authorName: authorName.trim() || undefined,
+        tags: tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      };
+
+      const auth = await signPublishAuth(ethereum, account, publishPayload);
       const res = await fetch("/api/marketplace/citations", {
         method: "POST",
         headers: publishHeaders(auth),
         body: JSON.stringify({
-          title,
-          subheading,
-          body,
-          price_usdc: priceUsdc,
-          payout_wallet: payoutWallet.trim() || undefined,
-          author_name: authorName.trim() || undefined,
-          tags: tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean),
+          title: publishPayload.title,
+          subheading: publishPayload.subheading,
+          body: publishPayload.body,
+          price_usdc: publishPayload.priceUsdc,
+          payout_wallet: publishPayload.payoutWallet,
+          author_name: publishPayload.authorName,
+          tags: publishPayload.tags,
         }),
       });
 
