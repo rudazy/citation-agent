@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  articleImageUploadDigest,
   canonicalPublishPayload,
   publishPayloadDigest,
   publishPayloadFromBody,
@@ -47,6 +48,20 @@ describe("publish-payload", () => {
     });
 
     expect(publishPayloadDigest(fromSnake)).toBe(publishPayloadDigest(fromCamel));
+  });
+
+  it("binds article image uploads to file metadata", () => {
+    const fileA = articleImageUploadDigest({
+      mime: "image/png",
+      size: 1024,
+      filename: "chart.png",
+    });
+    const fileB = articleImageUploadDigest({
+      mime: "image/png",
+      size: 2048,
+      filename: "chart.png",
+    });
+    expect(fileA).not.toBe(fileB);
   });
 
   it("changes digest when body content changes", () => {

@@ -7,11 +7,9 @@ import { Label } from "@/components/ui/label";
 import { imageMarkdownAtCursor, insertTextAtCursor } from "@/lib/article-image";
 import { imageFileFromClipboard, uploadArticleImage } from "@/lib/article-image-upload";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
-import { signPublishAuth, type PublishAuth } from "@/lib/publish-client";
+import { signArticleImageUploadAuth } from "@/lib/publish-client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-
-const AUTH_MAX_AGE_MS = 14 * 60 * 1000;
 
 type Props = {
   id: string;
@@ -21,16 +19,10 @@ type Props = {
   disabled?: boolean;
 };
 
-function authIsFresh(auth: PublishAuth): boolean {
-  const ts = Number(auth.timestamp);
-  return Number.isFinite(ts) && Date.now() - ts < AUTH_MAX_AGE_MS;
-}
-
 export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [publishAuth, setPublishAuth] = useState<PublishAuth | null>(null);
 
   const insertMarkdown = useCallback(
     (snippet: string) => {
@@ -55,39 +47,31 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
     [onChange, value],
   );
 
-  const ensurePublishAuth = useCallback(async (): Promise<PublishAuth | null> => {
-    if (publishAuth && authIsFresh(publishAuth)) return publishAuth;
-
-    const ethereum: EthereumProvider | undefined = window.ethereum;
-    if (!ethereum || !connected) {
-      toast.error("Connect your wallet first");
-      return null;
-    }
-
-    try {
-      const auth = await signPublishAuth(ethereum, connected);
-      setPublishAuth(auth);
-      return auth;
-    } catch (err) {
-      if ((err as { code?: number }).code === 4001) {
-        toast.message("Signature cancelled");
-        return null;
-      }
-      toast.error("Could not authorize image upload", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      });
-      return null;
-    }
-  }, [connected, publishAuth]);
-
   const uploadAndInsert = useCallback(
     async (file: File) => {
       if (disabled || uploading) return;
 
+      const ethereum: EthereumProvider | undefined = window.ethereum;
+      if (!ethereum || !connected) {
+        toast.error("Connect your wallet first");
+        return;
+      }
+
       setUploading(true);
       try {
-        const auth = await ensurePublishAuth();
-        if (!auth) return;
+        let auth;
+        try {
+          auth = await signArticleImageUploadAuth(ethereum, connected, file);
+        } catch (err) {
+          if ((err as { code?: number }).code === 4001) {
+            toast.message("Signature cancelled");
+            return;
+          }
+          toast.error("Could not authorize image upload", {
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+          return;
+        }
 
         const result = await uploadArticleImage(file, auth);
         if (!result.ok) {
@@ -101,7 +85,7 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
         setUploading(false);
       }
     },
-    [disabled, ensurePublishAuth, insertMarkdown, uploading],
+    [connected, disabled, insertMarkdown, uploading],
   );
 
   const onPaste = useCallback(

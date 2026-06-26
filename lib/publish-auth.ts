@@ -39,18 +39,19 @@ export type VerifiedPublishRequest = {
 };
 
 /**
- * Verify publish auth headers against the expected payload digest.
+ * Verify publish auth headers against an expected payload digest.
  * Returns the proven wallet and sign timestamp, or null.
  */
-export async function verifyPublishRequest(
+export async function verifyPublishRequestWithDigest(
   request: Request,
-  payload: PublishPayloadInput,
+  expectedDigest: `0x${string}`,
 ): Promise<VerifiedPublishRequest | null> {
   const address = request.headers.get("x-publish-address");
   const timestamp = request.headers.get("x-publish-timestamp");
   const signature = request.headers.get("x-publish-signature");
 
   if (!address || !timestamp || !signature) return null;
+  if (!DIGEST_PATTERN.test(expectedDigest)) return null;
 
   const connectedWallet = normalizeWalletAddress(address);
   if (!connectedWallet) return null;
@@ -61,7 +62,6 @@ export async function verifyPublishRequest(
     return null;
   }
 
-  const expectedDigest = publishPayloadDigest(payload);
   const message = publishMessage(timestamp, expectedDigest);
 
   try {
@@ -88,6 +88,14 @@ export async function verifyPublishRequest(
   } catch {
     return null;
   }
+}
+
+/** Verify publish auth for a full research post payload. */
+export async function verifyPublishRequest(
+  request: Request,
+  payload: PublishPayloadInput,
+): Promise<VerifiedPublishRequest | null> {
+  return verifyPublishRequestWithDigest(request, publishPayloadDigest(payload));
 }
 
 /** Parse digest embedded in a publish auth message (for client/server tests). */

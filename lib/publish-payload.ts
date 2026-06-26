@@ -35,6 +35,32 @@ export function publishPayloadDigest(input: PublishPayloadInput): `0x${string}` 
   return keccak256(toBytes(canonicalPublishPayload(input)));
 }
 
+export type ArticleImageUploadInput = {
+  mime: string;
+  size: number;
+  filename: string;
+};
+
+export function canonicalArticleImageUploadPayload(input: ArticleImageUploadInput): string {
+  return JSON.stringify({
+    filename: input.filename.trim(),
+    mime: input.mime.trim().toLowerCase(),
+    size: input.size,
+  });
+}
+
+export function articleImageUploadDigest(input: ArticleImageUploadInput): `0x${string}` {
+  return keccak256(toBytes(canonicalArticleImageUploadPayload(input)));
+}
+
+export function articleImageUploadDigestFromFile(file: File): `0x${string}` {
+  return articleImageUploadDigest({
+    mime: file.type,
+    size: file.size,
+    filename: file.name,
+  });
+}
+
 export function publishPayloadFromBody(body: Record<string, unknown>): PublishPayloadInput {
   const tagsRaw = body.tags;
   const tags = Array.isArray(tagsRaw)

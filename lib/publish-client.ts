@@ -7,6 +7,7 @@ import {
   PUBLISH_MESSAGE_PREFIX,
 } from "@/lib/publish-auth";
 import {
+  articleImageUploadDigestFromFile,
   publishPayloadDigest,
   type PublishPayloadInput,
 } from "@/lib/publish-payload";
@@ -19,20 +20,41 @@ export type PublishAuth = {
   payloadDigest: `0x${string}`;
 };
 
-/** Prompt the connected wallet to sign publish authorization bound to the payload. */
-export async function signPublishAuth(
+/** Sign publish authorization bound to a precomputed payload digest. */
+export async function signPublishAuthForDigest(
   ethereum: EthereumProvider,
   account: `0x${string}`,
-  payload: PublishPayloadInput,
+  payloadDigest: `0x${string}`,
 ): Promise<PublishAuth> {
   const timestamp = Date.now().toString();
-  const payloadDigest = publishPayloadDigest(payload);
   const message = publishMessage(timestamp, payloadDigest);
   const signature = (await ethereum.request({
     method: "personal_sign",
     params: [message, account],
   })) as string;
   return { address: account, timestamp, signature, payloadDigest };
+}
+
+/** Prompt the connected wallet to sign publish authorization bound to the payload. */
+export async function signPublishAuth(
+  ethereum: EthereumProvider,
+  account: `0x${string}`,
+  payload: PublishPayloadInput,
+): Promise<PublishAuth> {
+  return signPublishAuthForDigest(ethereum, account, publishPayloadDigest(payload));
+}
+
+/** Sign authorization bound to a specific image file (mime, size, filename). */
+export async function signArticleImageUploadAuth(
+  ethereum: EthereumProvider,
+  account: `0x${string}`,
+  file: File,
+): Promise<PublishAuth> {
+  return signPublishAuthForDigest(
+    ethereum,
+    account,
+    articleImageUploadDigestFromFile(file),
+  );
 }
 
 export { PUBLISH_MESSAGE_PREFIX };
