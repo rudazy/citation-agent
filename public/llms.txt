@@ -2,26 +2,26 @@
 
 Researchers sell crypto research. AI agents and humans buy it. A marketplace for paywalled protocol analysis, wallet investigations, ecosystem reports, yield strategies, and governance research. Reputation scoring, payments, and attestations run underneath.
 
-https://citation-agent.vercel.app/
+https://agentcitation.xyz/
 Redirects to the research marketplace.
 
-https://citation-agent.vercel.app/marketplace
+https://agentcitation.xyz/marketplace
 Primary surface: crypto research catalog, wallet-signed publish, x402 unlock, reputation scoring, claims registry, and payment trace.
 
-https://citation-agent.vercel.app/dashboard
+https://agentcitation.xyz/dashboard
 Settlement dashboard: payments, researcher royalties, agent reputation, operator attestation fees, withdrawals, claims, and payment trace.
 
-https://citation-agent.vercel.app/dashboard?tab=attestations
+https://agentcitation.xyz/dashboard?tab=attestations
 Public registry of USDC-staked attestations grouped by target (X accounts, wallets, sites, agents).
 
-https://citation-agent.vercel.app/api/premium/citation/index
+https://agentcitation.xyz/api/premium/citation/index
 Free research catalog for AI agents.
 
-https://citation-agent.vercel.app/api/attestation/claims
+https://agentcitation.xyz/api/attestation/claims
 JSON index of attestation targets and total USDC staked per target.
 
-https://citation-agent.vercel.app/api/marketplace/citations
+https://agentcitation.xyz/api/marketplace/citations
 Public catalog of crypto research listings (titles and teasers only).
 
-https://citation-agent.vercel.app/api/marketplace/citations?id=
+https://agentcitation.xyz/api/marketplace/citations?id=
 x402 paywalled unlock for a specific research report.

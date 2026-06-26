@@ -9,7 +9,7 @@
 import { fileURLToPath } from "node:url";
 import { privateKeyToAccount } from "viem/accounts";
 
-const BASE_URL = process.env.BASE_URL ?? "https://citation-agent.vercel.app";
+const BASE_URL = process.env.BASE_URL ?? "https://agentcitation.xyz";
 const PUBLISH_PREFIX = "Citation Agent publish";
 
 type ResearchPost = {

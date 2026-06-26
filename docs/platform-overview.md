@@ -1,5 +1,7 @@
 # Citation Agent — Platform Overview
 
+Live site: [https://agentcitation.xyz](https://agentcitation.xyz)
+
 Citation Agent is a reference application for **agentic commerce over paywalled knowledge**. It demonstrates how research agents and human users can discover citations, pay creators per unlock, settle through Circle Gateway on Arc Testnet, and stake USDC behind public trust claims.
 
 The stack is intentionally production-shaped: typed APIs, server-held paywalled content, encrypted session wallets, optional Postgres persistence, and on-chain attestation records. Everything runs on **Arc Testnet (chain ID 5042002)** using testnet USDC.

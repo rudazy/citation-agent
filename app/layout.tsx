@@ -22,11 +22,10 @@ import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
+import { resolveSiteOrigin } from "@/lib/site-url";
 import "./globals.css";
 
-const defaultUrl = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : "http://localhost:3000";
+const defaultUrl = resolveSiteOrigin();
 
 const siteTitle = "Citation Agent";
 const siteDescription =
@@ -58,11 +57,20 @@ export const metadata: Metadata = {
     title: siteTitle,
     description: siteDescription,
     siteName: siteTitle,
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "Citation Agent — trusted crypto research marketplace",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: siteTitle,
     description: siteDescription,
+    images: ["/opengraph-image"],
   },
 };
 

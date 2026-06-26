@@ -8,7 +8,7 @@
 
 Paywalled research marketplace on Arc Testnet — x402 unlocks, optional reputation scoring, and on-chain research backing underneath.
 
-[Arc Testnet](https://docs.arc.network) · [Circle Gateway](https://developers.circle.com) · [x402](https://www.x402.org)
+[agentcitation.xyz](https://agentcitation.xyz) · [Arc Testnet](https://docs.arc.network) · [Circle Gateway](https://developers.circle.com) · [x402](https://www.x402.org)
 
 </div>
 
@@ -238,6 +238,7 @@ Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.exampl
 | `NEXT_PUBLIC_OPERATOR_ADDRESS` | Platform fee recipient; markdown seed trust identity |
 | `ARC_TESTNET_RPC` / `GATEWAY_API` | Chain and Circle Gateway |
 | `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-session agent keys (32+ chars) |
+| `NEXT_PUBLIC_SITE_URL` / `BASE_URL` | Official origin (`https://agentcitation.xyz` in production) |
 | Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, royalties, agent wallets, paid trust cache |
 
 **TrustGate (optional)**
@@ -270,7 +271,7 @@ Indexer start block: `48323587` (override with `ATTESTATION_DEPLOY_BLOCK` if red
 3. Apply Supabase migrations on the production project.
 4. Deploy from `main`.
 
-Post-deploy: confirm `/llms.txt` is reachable and marketplace catalog loads with research listings.
+Post-deploy: confirm [https://agentcitation.xyz/llms.txt](https://agentcitation.xyz/llms.txt) is reachable and the marketplace catalog loads with research listings.
 
 ---
 

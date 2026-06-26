@@ -1,6 +1,7 @@
 import { GatewayClient } from "@circle-fin/x402-batching/client";
 import { gatewayPayWithMemo } from "@/lib/gateway-pay";
 import { sellerConfigError } from "@/lib/payment-wallets";
+import { resolveSiteOrigin } from "@/lib/site-url";
 
 const REDEPOSIT_THRESHOLD = BigInt(500_000);
 const DEPOSIT_AMOUNT = process.env.DEPOSIT_AMOUNT ?? "1";
@@ -40,12 +41,7 @@ export function resolvePayUrl(path: string): string {
     throw new Error("Invalid payment path");
   }
 
-  const base =
-    process.env.BASE_URL ??
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000");
-  return `${base.replace(/\/$/, "")}${canonical}`;
+  return `${resolveSiteOrigin()}${canonical}`;
 }
 
 function normalizePrivateKey(privateKey: string): `0x${string}` {

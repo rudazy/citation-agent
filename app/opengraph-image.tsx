@@ -1,10 +1,20 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
+import { OFFICIAL_SITE_HOST } from "@/lib/site-url";
 
 export const alt = "Citation Agent — trusted crypto research marketplace";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default function OpenGraphImage() {
+async function loadAppIconDataUrl(): Promise<string> {
+  const iconSvg = await readFile(join(process.cwd(), "app/icon.svg"), "utf8");
+  return `data:image/svg+xml;base64,${Buffer.from(iconSvg).toString("base64")}`;
+}
+
+export default async function OpenGraphImage() {
+  const iconDataUrl = await loadAppIconDataUrl();
+
   return new ImageResponse(
     (
       <div
@@ -55,34 +65,8 @@ export default function OpenGraphImage() {
             zIndex: 1,
           }}
         >
-          <div
-            style={{
-              width: 96,
-              height: 96,
-              borderRadius: 14,
-              border: "1px solid #1f1f1f",
-              backgroundColor: "#111111",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <svg width="52" height="52" viewBox="0 0 32 32" fill="none">
-              <path
-                d="M11 9L7 16L11 23"
-                stroke="#f5f5f5"
-                strokeWidth="1.75"
-                strokeLinecap="square"
-              />
-              <path
-                d="M21 9L25 16L21 23"
-                stroke="#f5f5f5"
-                strokeWidth="1.75"
-                strokeLinecap="square"
-              />
-              <circle cx="16" cy="16" r="2.25" fill="#f5c842" />
-            </svg>
-          </div>
+          {/* Same asset as app/icon.svg and AppLogoMark */}
+          <img src={iconDataUrl} width={96} height={96} alt="" />
           <div
             style={{
               display: "flex",
@@ -178,7 +162,7 @@ export default function OpenGraphImage() {
             x402 · USDC · Circle Gateway
           </div>
           <div style={{ display: "flex", fontSize: 16, color: "#f5c842" }}>
-            citation-agent.vercel.app
+            {OFFICIAL_SITE_HOST}
           </div>
         </div>
       </div>
