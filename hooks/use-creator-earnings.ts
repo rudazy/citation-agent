@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useCallback, useEffect, useState } from "react";
 
 export type CreatorEarning = {
   id: string;
@@ -16,61 +14,59 @@ export type CreatorEarning = {
   query: string | null;
 };
 
-export function useCreatorEarnings() {
+type UseCreatorEarningsOptions = {
+  /** Only fetch when the viewer is the operator (avoids prompting non-operators). */
+  enabled?: boolean;
+  /** Returns signed operator headers for the gated /api/dashboard route. */
+  getAuthHeaders: () => Promise<Record<string, string>>;
+  /** Poll interval; the ledger is no longer realtime (RLS-locked tables). */
+  pollMs?: number;
+};
+
+/**
+ * Creator royalty ledger, read through the operator-gated API route (service-role
+ * admin client). The financial tables are not anon-readable, so this polls rather
+ * than subscribing to Supabase Realtime.
+ */
+export function useCreatorEarnings({
+  enabled = true,
+  getAuthHeaders,
+  pollMs = 12000,
+}: UseCreatorEarningsOptions) {
   const [earnings, setEarnings] = useState<CreatorEarning[]>([]);
   const [loading, setLoading] = useState(true);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+
+  const fetchEarnings = useCallback(async () => {
+    if (!enabled) return;
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/dashboard/creator-earnings", {
+        cache: "no-store",
+        headers,
+      });
+      if (!res.ok) {
+        setEarnings([]);
+        return;
+      }
+      const data = (await res.json()) as { earnings?: CreatorEarning[] };
+      setEarnings(data.earnings ?? []);
+    } catch (err) {
+      console.error("Failed to fetch creator earnings:", err);
+      setEarnings([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [enabled, getAuthHeaders]);
 
   useEffect(() => {
-    const supabase = createClient();
-    if (!supabase) {
+    if (!enabled) {
       setLoading(false);
       return;
     }
-    const client = supabase;
+    void fetchEarnings();
+    const id = setInterval(() => void fetchEarnings(), pollMs);
+    return () => clearInterval(id);
+  }, [enabled, fetchEarnings, pollMs]);
 
-    async function fetchInitial() {
-      const { data, error } = await client
-        .from("creator_earnings")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Failed to fetch creator earnings:", error.message);
-      } else {
-        setEarnings((prev) => {
-          if (prev.length === 0) return data as CreatorEarning[];
-          const fetched = data as CreatorEarning[];
-          const existingIds = new Set(fetched.map((e) => e.id));
-          const realtimeOnly = prev.filter((e) => !existingIds.has(e.id));
-          return [...realtimeOnly, ...fetched];
-        });
-      }
-      setLoading(false);
-    }
-
-    const channel = client
-      .channel("creator-earnings-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "creator_earnings" },
-        (payload) => {
-          setEarnings((prev) => {
-            const row = payload.new as CreatorEarning;
-            if (prev.some((e) => e.id === row.id)) return prev;
-            return [row, ...prev];
-          });
-        },
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") fetchInitial();
-      });
-
-    channelRef.current = channel;
-    return () => {
-      client.removeChannel(channel);
-    };
-  }, []);
-
-  return { earnings, loading };
+  return { earnings, loading, refetch: fetchEarnings };
 }

@@ -16,10 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useCallback, useEffect, useState } from "react";
 
 export type PaymentEvent = {
   id: string;
@@ -33,112 +30,82 @@ export type PaymentEvent = {
   raw: Record<string, unknown> | null;
 };
 
-export function usePaymentEvents() {
+type UsePaymentEventsOptions = {
+  /** Only fetch when the viewer is the operator (avoids prompting non-operators). */
+  enabled?: boolean;
+  /** Returns signed operator headers for the gated /api/dashboard route. */
+  getAuthHeaders: () => Promise<Record<string, string>>;
+  /** Poll interval; the ledger is no longer realtime (RLS-locked tables). */
+  pollMs?: number;
+};
+
+/**
+ * Settled payment events, read through the operator-gated API route (service-role
+ * admin client). The financial tables are not anon-readable, so this polls rather
+ * than subscribing to Supabase Realtime.
+ */
+export function usePaymentEvents({
+  enabled = true,
+  getAuthHeaders,
+  pollMs = 12000,
+}: UsePaymentEventsOptions) {
   const [events, setEvents] = useState<PaymentEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState(true);
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const clientRef = useRef<ReturnType<typeof createClient>>(null);
 
   const fetchEvents = useCallback(async () => {
-    const client = clientRef.current;
-    if (!client) {
-      setConfigured(false);
-      setLoading(false);
-      setError(
-        "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local (and Vercel) so payments appear here.",
-      );
-      return;
-    }
-
+    if (!enabled) return;
     setLoading(true);
     setError(null);
-
-    const { data, error: fetchError } = await client
-      .from("payment_events")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (fetchError) {
-      console.error("Failed to fetch payment events:", fetchError.message);
-      setError(fetchError.message);
-    } else {
-      setEvents((prev) => {
-        if (prev.length === 0) return data as PaymentEvent[];
-        const fetched = data as PaymentEvent[];
-        const existingIds = new Set(fetched.map((e) => e.id));
-        const realtimeOnly = prev.filter((e) => !existingIds.has(e.id));
-        return [...realtimeOnly, ...fetched];
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/dashboard/payment-events", {
+        cache: "no-store",
+        headers,
       });
+
+      if (res.status === 503) {
+        // Supabase service role not configured server-side.
+        setConfigured(false);
+        setEvents([]);
+        setError(
+          "Supabase is not configured. Payments settle on Arc but are not saved until SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL are set.",
+        );
+        return;
+      }
+
+      if (!res.ok) {
+        setEvents([]);
+        setError(
+          res.status === 403
+            ? "Operator access required to view the payment ledger."
+            : `Failed to load payment events (${res.status}).`,
+        );
+        return;
+      }
+
+      setConfigured(true);
+      const data = (await res.json()) as { events?: PaymentEvent[] };
+      setEvents(data.events ?? []);
+    } catch (err) {
+      console.error("Failed to fetch payment events:", err);
+      setEvents([]);
+      setError(err instanceof Error ? err.message : "Failed to load payment events");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, []);
+  }, [enabled, getAuthHeaders]);
 
   useEffect(() => {
-    const supabase = createClient();
-    clientRef.current = supabase;
-
-    if (!supabase) {
-      setConfigured(isSupabaseConfigured());
+    if (!enabled) {
       setLoading(false);
-      setError(
-        "Supabase is not configured. Payments settle on Arc but are not saved until you set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY.",
-      );
       return;
     }
-
-    const client = supabase;
-
-    const channel = client
-      .channel("payment-events-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "payment_events" },
-        (payload) => {
-          setEvents((prev) => {
-            const newEvent = payload.new as PaymentEvent;
-            if (prev.some((ev) => ev.id === newEvent.id)) return prev;
-            return [newEvent, ...prev];
-          });
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "payment_events" },
-        (payload) => {
-          setEvents((prev) =>
-            prev.map((ev) =>
-              ev.id === (payload.new as PaymentEvent).id
-                ? (payload.new as PaymentEvent)
-                : ev,
-            ),
-          );
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "payment_events" },
-        (payload) => {
-          setEvents((prev) =>
-            prev.filter(
-              (ev) => ev.id !== (payload.old as { id: string }).id,
-            ),
-          );
-        },
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          void fetchEvents();
-        }
-      });
-
-    channelRef.current = channel;
-
-    return () => {
-      client.removeChannel(channel);
-    };
-  }, [fetchEvents]);
+    void fetchEvents();
+    const id = setInterval(() => void fetchEvents(), pollMs);
+    return () => clearInterval(id);
+  }, [enabled, fetchEvents, pollMs]);
 
   return { events, loading, error, configured, refetch: fetchEvents };
 }
