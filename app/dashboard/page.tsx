@@ -60,20 +60,20 @@ import {
 import {
   MobileDataCard,
   MobileDataCardList,
-  StatusBadge,
 } from "@/components/dashboard/mobile-data-cards";
 import { Panel } from "@/components/layout/panel";
 import { PaymentTrace } from "@/components/marketplace/payment-trace";
 import { shortenHash } from "@/lib/utils";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
 import { SupabaseSetupBanner } from "@/components/dashboard/supabase-setup-banner";
+import { PlatformSummaryCards } from "@/components/dashboard/platform-summary-cards";
 import { SellerGatewayControls } from "@/components/dashboard/seller-gateway-controls";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { useAttestationFees } from "@/hooks/use-attestation-fees";
 import { usePaymentEvents } from "@/hooks/use-transactions";
-import { useWithdrawals } from "@/hooks/use-withdrawals";
 import { useCreatorEarnings } from "@/hooks/use-creator-earnings";
 import { useAgentReputation } from "@/hooks/use-agent-reputation";
+import { usePlatformTotals } from "@/hooks/use-platform-totals";
 import {
   isOperator,
   operatorHeaders,
@@ -153,6 +153,18 @@ function CopyableCell({
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+
+function OperatorLedgerNotice() {
+  return (
+    <Panel className="p-6 text-center space-y-2">
+      <p className="font-semibold tracking-wide">Operator access required</p>
+      <p className="text-sm text-muted-foreground font-mono leading-relaxed max-w-md mx-auto">
+        The per-row payment ledger is visible only to the platform operator. Summary
+        totals above update live for everyone.
+      </p>
+    </Panel>
+  );
+}
 
 export default function Dashboard() {
   const searchParams = useSearchParams();
@@ -237,7 +249,6 @@ export default function Dashboard() {
     enabled: operator && activeTab === "attestation-fees",
     getAuthHeaders: getOperatorAuthHeaders,
   });
-  const { withdrawals, loading: loadingWithdrawals } = useWithdrawals();
   const { earnings, loading: loadingEarnings } = useCreatorEarnings({
     enabled: operator,
     getAuthHeaders: getOperatorAuthHeaders,
@@ -246,6 +257,12 @@ export default function Dashboard() {
     enabled: operator,
     getAuthHeaders: getOperatorAuthHeaders,
   });
+  const {
+    totals: platformTotals,
+    loading: loadingPlatformTotals,
+    error: platformTotalsError,
+    refetch: refetchPlatformTotals,
+  } = usePlatformTotals();
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -257,6 +274,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (!operator && activeTab === "attestation-fees") setActiveTab("payments");
   }, [operator, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "withdrawals") setActiveTab("payments");
+  }, [activeTab]);
   const [filter, setFilter] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("default");
@@ -311,38 +332,8 @@ export default function Dashboard() {
     return result;
   }, [events, filter, sortField, sortDirection]);
 
-  // ── Withdrawals filtering & sorting ──
-  const filteredWithdrawals = useMemo(() => {
-    let result = withdrawals;
-
-    if (filter) {
-      const query = filter.toLowerCase();
-      result = result.filter(
-        (w) =>
-          (w.tx_hash ?? "").toLowerCase().includes(query) ||
-          w.destination_address.toLowerCase().includes(query) ||
-          w.destination_chain.toLowerCase().includes(query) ||
-          w.status.toLowerCase().includes(query),
-      );
-    }
-
-    if (sortField && sortDirection !== "default") {
-      result = [...result].sort((a, b) => {
-        let cmp: number;
-        if (sortField === "amount") {
-          cmp = parseAmount(a.amount_usdc) - parseAmount(b.amount_usdc);
-        } else {
-          cmp = a.created_at.localeCompare(b.created_at);
-        }
-        return sortDirection === "desc" ? -cmp : cmp;
-      });
-    }
-
-    return result;
-  }, [withdrawals, filter, sortField, sortDirection]);
-
-  const activeData = activeTab === "payments" ? filteredPayments : filteredWithdrawals;
-  const loading = activeTab === "payments" ? loadingPayments : loadingWithdrawals;
+  const activeData = filteredPayments;
+  const loading = loadingPayments;
   const totalPages = Math.max(1, Math.ceil(activeData.length / pageSize));
 
   // Clamp page if data shrinks (e.g. realtime delete)
@@ -353,16 +344,11 @@ export default function Dashboard() {
     return filteredPayments.slice(start, start + pageSize);
   }, [filteredPayments, clampedPage, pageSize]);
 
-  const paginatedWithdrawals = useMemo(() => {
-    const start = (clampedPage - 1) * pageSize;
-    return filteredWithdrawals.slice(start, start + pageSize);
-  }, [filteredWithdrawals, clampedPage, pageSize]);
-
-  const statPayments = events.length;
-  const statRoyalties = earnings.length;
-  const statAgents = agents.length;
-  const statWithdrawals = withdrawals.length;
   const statAttestationFees = attestationFees.length;
+
+  const operatorLedgerCards = operator
+    ? [{ label: "Attest fees", value: statAttestationFees.toLocaleString() }]
+    : [];
 
   return (
     <div className="max-w-6xl mx-auto w-full min-w-0 space-y-4 sm:space-y-5">
@@ -388,25 +374,19 @@ export default function Dashboard() {
       </div>
 
       <SupabaseSetupBanner
-        clientError={paymentsError}
-        onRefresh={() => void refetchPayments()}
-        refreshing={loadingPayments}
+        clientError={platformTotalsError ?? (operator ? paymentsError : null)}
+        onRefresh={() => {
+          void refetchPlatformTotals();
+          if (operator) void refetchPayments();
+        }}
+        refreshing={loadingPlatformTotals || (operator && loadingPayments)}
       />
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 sm:gap-3">
-        {[
-          { label: "Payments", value: statPayments },
-          { label: "Royalties", value: statRoyalties },
-          { label: "Agents", value: statAgents },
-          ...(operator ? [{ label: "Attest fees", value: statAttestationFees }] : []),
-          { label: "Withdrawals", value: statWithdrawals },
-        ].map((stat) => (
-          <Panel key={stat.label} className="px-3 py-2.5 sm:px-4 sm:py-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-            <p className="mt-0.5 font-mono text-lg sm:text-xl font-semibold tabular-nums">{stat.value}</p>
-          </Panel>
-        ))}
-      </div>
+      <PlatformSummaryCards
+        totals={platformTotals}
+        loading={loadingPlatformTotals}
+        extraCards={operatorLedgerCards}
+      />
 
       {activeTab !== "trace" && (
         <button
@@ -434,14 +414,13 @@ export default function Dashboard() {
         </button>
       )}
 
-      {activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && (
+      {activeTab !== "trace" &&
+        activeTab !== "creators" &&
+        activeTab !== "reputation" &&
+        (activeTab !== "payments" || operator) && (
         <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:gap-3">
           <Input
-            placeholder={
-              activeTab === "payments"
-                ? "Filter by tx hash, payer, or endpoint..."
-                : "Filter by tx hash, address, chain, or status..."
-            }
+            placeholder="Filter by tx hash, payer, or endpoint..."
             className="w-full sm:max-w-xs"
             value={filter}
             onChange={(e) => { setFilter(e.target.value); setPage(1); }}
@@ -499,7 +478,6 @@ export default function Dashboard() {
                 Attest fees
               </TabsTrigger>
             )}
-            <TabsTrigger value="withdrawals" className="shrink-0 px-3 text-xs sm:text-sm">Your withdrawals</TabsTrigger>
             <TabsTrigger
               value="attestations"
               className="shrink-0 gap-1.5 px-3 text-xs sm:text-sm data-[state=active]:bg-[#f5c842]/12 data-[state=active]:text-[#f5c842] data-[state=active]:ring-1 data-[state=active]:ring-[#f5c842]/35"
@@ -511,6 +489,10 @@ export default function Dashboard() {
         </div>
 
         <TabsContent value="payments">
+          {!operator ? (
+            <OperatorLedgerNotice />
+          ) : (
+          <>
           <div className="mb-3 flex justify-end">
             <button
               type="button"
@@ -673,9 +655,15 @@ export default function Dashboard() {
               </TableBody>
             </Table>
           </div>
+          </>
+          )}
         </TabsContent>
 
         <TabsContent value="creators">
+          {!operator ? (
+            <OperatorLedgerNotice />
+          ) : (
+          <>
           <MobileDataCardList
             loading={loadingEarnings}
             loadingMessage="Loading creator earnings..."
@@ -834,9 +822,15 @@ export default function Dashboard() {
               </TableBody>
             </Table>
           </div>
+          </>
+          )}
         </TabsContent>
 
         <TabsContent value="reputation">
+          {!operator ? (
+            <OperatorLedgerNotice />
+          ) : (
+          <>
           <MobileDataCardList
             loading={loadingReputation}
             loadingMessage="Loading agent reputation..."
@@ -945,6 +939,8 @@ export default function Dashboard() {
               </TableBody>
             </Table>
           </div>
+          </>
+          )}
         </TabsContent>
 
         {operator && (
@@ -1102,171 +1098,6 @@ export default function Dashboard() {
         </TabsContent>
         )}
 
-        <TabsContent value="withdrawals">
-          <MobileDataCardList
-            loading={loadingWithdrawals}
-            loadingMessage="Loading your withdrawals..."
-            empty={
-              !loadingWithdrawals && paginatedWithdrawals.length === 0
-                ? "No withdrawals for your agent wallet yet. Create a wallet in Marketplace or Attest, deposit to Gateway, then withdraw from the header."
-                : undefined
-            }
-          >
-            {paginatedWithdrawals.map((w) => (
-              <MobileDataCard
-                key={w.id}
-                fields={[
-                  {
-                    label: "Transaction",
-                    value: w.tx_hash ? (
-                      <CopyableCell
-                        value={w.tx_hash}
-                        label={shortenHash(w.tx_hash, 6)}
-                        href={
-                          w.tx_hash.startsWith("0x")
-                            ? `${EXPLORER_BASE}/tx/${w.tx_hash}`
-                            : undefined
-                        }
-                      />
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    ),
-                    className: "font-mono text-xs",
-                  },
-                  {
-                    label: "Destination",
-                    value: (
-                      <CopyableCell
-                        value={w.destination_address}
-                        label={shortenHash(w.destination_address)}
-                        href={`${EXPLORER_BASE}/address/${w.destination_address}`}
-                      />
-                    ),
-                    className: "font-mono text-xs",
-                  },
-                  {
-                    label: "Chain",
-                    value: (
-                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
-                        {w.destination_chain}
-                      </code>
-                    ),
-                  },
-                  {
-                    label: "Status",
-                    value: <StatusBadge status={w.status} />,
-                  },
-                  {
-                    label: "Amount (USDC)",
-                    value: `$${w.amount_usdc}`,
-                    className: "font-mono",
-                  },
-                  {
-                    label: "Date",
-                    value: formatPaymentDate(w.created_at),
-                    className: "text-muted-foreground text-xs",
-                  },
-                ]}
-              />
-            ))}
-          </MobileDataCardList>
-          <div className="hidden lg:block rounded-lg border overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Transaction</TableHead>
-                  <TableHead>Destination</TableHead>
-                  <TableHead>Chain</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">
-                    <button
-                      className="inline-flex items-center gap-1 hover:text-foreground transition-colors ml-auto"
-                      onClick={() => handleSort("amount")}
-                    >
-                      Amount (USDC)
-                      <SortIcon
-                        direction={sortField === "amount" ? sortDirection : "default"}
-                      />
-                    </button>
-                  </TableHead>
-                  <TableHead>
-                    <button
-                      className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-                      onClick={() => handleSort("date")}
-                    >
-                      Date
-                      <SortIcon direction={sortField === "date" ? sortDirection : "default"} />
-                    </button>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingWithdrawals ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      <Loader2 size={16} className="animate-spin inline mr-2" />
-                      Loading your withdrawals...
-                    </TableCell>
-                  </TableRow>
-                ) : paginatedWithdrawals.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      No withdrawals for your agent wallet yet.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedWithdrawals.map((w) => (
-                    <TableRow key={w.id}>
-                      <TableCell className="font-mono text-xs">
-                        {w.tx_hash ? (
-                          <CopyableCell
-                            value={w.tx_hash}
-                            label={shortenHash(w.tx_hash, 6)}
-                            href={
-                              w.tx_hash.startsWith("0x")
-                                ? `${EXPLORER_BASE}/tx/${w.tx_hash}`
-                                : undefined
-                            }
-                          />
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        <CopyableCell
-                          value={w.destination_address}
-                          label={shortenHash(w.destination_address)}
-                          href={`${EXPLORER_BASE}/address/${w.destination_address}`}
-                        />
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
-                          {w.destination_chain}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={w.status} />
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        ${w.amount_usdc}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-xs">
-                        {formatPaymentDate(w.created_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
-
         <TabsContent value="attestations">
           <AttestationRegistry />
         </TabsContent>
@@ -1292,10 +1123,10 @@ export default function Dashboard() {
       </Tabs>
 
       {/* Shared pagination controls */}
-      {!loading && activeTab !== "trace" && activeTab !== "creators" && activeTab !== "reputation" && activeTab !== "attestations" && activeTab !== "attestation-fees" && activeData.length > 0 && (
+      {!loading && activeTab === "payments" && operator && activeData.length > 0 && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-x border-b rounded-b-lg px-3 sm:px-4 py-3 text-xs sm:text-sm">
           <span className="text-muted-foreground">
-            {activeData.length} {activeTab === "payments" ? "transaction" : "withdrawal"}{activeData.length !== 1 ? "s" : ""} total
+            {activeData.length} transaction{activeData.length !== 1 ? "s" : ""} total
           </span>
           <div className="flex items-center justify-between sm:justify-end gap-2">
             <span className="text-muted-foreground">
