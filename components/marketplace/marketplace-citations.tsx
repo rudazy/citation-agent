@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ChevronDown,
@@ -42,6 +42,10 @@ import {
 } from "@/lib/trustgate-post-client";
 import { selectTrustForPost } from "@/lib/trust-display";
 import { isPublicResearchListing } from "@/lib/catalog-filter";
+import {
+  sortCatalogListings,
+  type CatalogSortMode,
+} from "@/lib/catalog-sort";
 import { DEFAULT_PAYMENT_PAYER, type PaymentPayer } from "@/lib/payment-payer";
 import {
   loadStoredUnlocks,
@@ -69,6 +73,9 @@ type CitationListing = {
   tags: string[];
   subheading: string;
   paid_count: number;
+  recent_readers_7d?: number;
+  post_earnings_usdc?: number;
+  creator_earnings_usdc?: number;
   endpoint: string;
   token: string;
   trust?: PublicTrustSignal | null;
@@ -127,6 +134,12 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const [catalogExpanded, setCatalogExpanded] = useState(true);
   const [gatewayFunding, setGatewayFunding] = useState(false);
   const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<CatalogSortMode>("latest");
+
+  const displayListings = useMemo(
+    () => sortCatalogListings(listings, sortMode),
+    [listings, sortMode],
+  );
 
   useEffect(() => {
     setMetamaskAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
@@ -553,6 +566,21 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
               <p className="font-mono text-[10px] text-[#666] leading-relaxed">
                 Unlocks debit Circle Gateway, not your wallet directly. Deposit USDC first.
               </p>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 font-mono text-[10px] text-[#666]">
+                  Sort
+                  <select
+                    value={sortMode}
+                    onChange={(e) => setSortMode(e.target.value as CatalogSortMode)}
+                    className="rounded border border-[#333] bg-[#0a0a0a] px-2 py-1 text-[10px] text-[#a3a3a3] outline-none focus:border-[#f5c842]/40"
+                    aria-label="Sort research catalog"
+                  >
+                    <option value="latest">Latest</option>
+                    <option value="trending">Trending</option>
+                    <option value="readers">Most readers</option>
+                    <option value="earning">Top earning</option>
+                  </select>
+                </label>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -599,6 +627,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              </div>
             </div>
 
         {loading && (
@@ -614,14 +643,14 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
           </p>
         )}
 
-        {!loading && !error && listings.length === 0 && (
+        {!loading && !error && displayListings.length === 0 && (
           <p className="py-8 text-center font-mono text-sm text-muted-foreground">
             No research listings yet.
           </p>
         )}
 
         <div className="grid gap-3">
-          {listings.map((item) => {
+          {displayListings.map((item) => {
             const expand = expandStates[item.id] ?? { status: "locked" };
             const isUnlocked = expand.status === "unlocked";
             const isUnlockLoading = expand.status === "loading";

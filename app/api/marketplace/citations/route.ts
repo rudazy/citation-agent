@@ -13,6 +13,11 @@ import {
   getBackingSummariesForTargets,
   invalidateAttestationCache,
 } from "@/lib/attestation-index";
+import {
+  fetchCitationLedgerStats,
+  getCitationLedgerStats,
+  getCreatorEarningsUsdc,
+} from "@/lib/catalog-earnings-stats";
 import { getPriorUnlockIds } from "@/lib/citation-prior-unlock";
 import {
   authorBackingTarget,
@@ -108,18 +113,24 @@ export async function GET(req: NextRequest) {
     const agent = await resolveUserAgent();
     const citationIds = content.map((item) => item.id);
 
-    const [scores, backingIndex, priorUnlocks] = await Promise.all([
+    const [scores, backingIndex, priorUnlocks, ledgerStats] = await Promise.all([
       getTrustScores(content.map((item) => resolveTrustIdentityWallet(item))),
       getBackingSummariesForTargets(backingTargets, {
         forceOnChain: forceBackingRefresh,
       }).then(indexBackingSummaries),
       agent ? getPriorUnlockIds(agent.address, citationIds) : Promise.resolve(new Set<string>()),
+      fetchCitationLedgerStats(
+        citationIds,
+        content.map((item) => item.payoutWallet),
+      ),
     ]);
 
     const paidTrustAvailable = isPaidTrustLookupAvailable();
 
     const items = content.map((item) => {
       const alreadyUnlocked = priorUnlocks.has(item.id);
+      const ledger = getCitationLedgerStats(ledgerStats, item.id);
+      const paidCount = Math.max(item.paidCount, ledger.allTimeReaders);
       return {
         id: item.id,
         title: item.title,
@@ -127,7 +138,10 @@ export async function GET(req: NextRequest) {
         price_usdc: item.priceUsdc,
         tags: item.tags,
         subheading: item.subheading,
-        paid_count: item.paidCount,
+        paid_count: paidCount,
+        recent_readers_7d: ledger.recentReaders7d,
+        post_earnings_usdc: ledger.postEarningsUsdc,
+        creator_earnings_usdc: getCreatorEarningsUsdc(ledgerStats, item.payoutWallet),
         endpoint: `/api/marketplace/citations?id=${item.id}`,
         token: process.env.CANTEEN_USDC_ADDRESS ? "cUSDC" : "USDC",
         trust: trustScoreToSignal(
