@@ -176,7 +176,7 @@ Operator and analytics view. Tabs:
 
 | Tab | Data source | Purpose |
 | --- | --- | --- |
-| Payments | `payment_events` | Realtime x402 settlements (endpoint, payer, amount, memo, gateway tx) |
+| Payments | `payment_events` | x402 settlements via operator-gated route (12s polling; endpoint, payer, amount, memo, gateway tx) |
 | Creators | `creator_earnings` | Per-citation royalty ledger |
 | Agents | `agent_reputation` | Cumulative spend and citation count per payer wallet |
 | Attest fees | `attestation_platform_fees` | Platform fee from attestations (**operator wallet only**) |
@@ -287,19 +287,19 @@ The agent searches the citation catalog, optionally filters by TrustGate score, 
 
 ## Data model
 
-Supabase is optional for local UI exploration but required for publish, realtime dashboard, and royalty tracking.
+Supabase is optional for local UI exploration but required for publish, operator dashboard, and royalty tracking.
 
 | Table | Role |
 | --- | --- |
-| `payment_events` | Append-only x402 settlement log |
-| `creator_earnings` | Per-unlock royalty records (full amount to creator payout wallet) |
-| `agent_reputation` | Payer spend totals and citation counts |
+| `payment_events` | Append-only x402 settlement log (service-role only) |
+| `creator_earnings` | Per-unlock royalty records (full amount to creator payout wallet; service-role only) |
+| `agent_reputation` | Payer spend totals and citation counts (service-role only) |
 | `creator_posts` | Published marketplace content (service-role access only) |
 | `user_agent_wallets` | Encrypted agent private keys; `session_id`, optional `linked_wallet` (unique), `linked_wallet_verified` |
 | `attestation_platform_fees` | On-chain attest platform fee audit trail |
 | `withdrawals` | Gateway withdrawal records (scoped by wallet and role) |
 
-Row-level security allows public read on settlement and royalty tables. `creator_posts` and `user_agent_wallets` are service-role only so bodies and keys never reach the browser directly.
+Row-level security blocks anon and authenticated reads on `payment_events`, `creator_earnings`, and `agent_reputation`; only the service-role admin client can query them. The dashboard reads these tables through operator-gated API routes (`/api/dashboard/payment-events`, `/api/dashboard/creator-earnings`, `/api/dashboard/agent-reputation`) with signed operator headers. Public summary cards use `/api/dashboard/aggregates` (counts and USDC totals only, no per-row data). `creator_posts` and `user_agent_wallets` are also service-role only so bodies and keys never reach the browser directly.
 
 ---
 
@@ -368,7 +368,7 @@ For publish and dashboard persistence, add Supabase URL, anon key, and service r
 These are intentional gaps in the current reference, not oversights:
 
 - **TrustGate** — fully optional; the app runs without scores
-- **Supabase** — optional for read-only exploration; required for publish and realtime dashboard
+- **Supabase** — optional for read-only exploration; required for publish and operator dashboard
 - **Testnet only** — do not reuse generated keys on mainnet
 
 For setup steps and quick start, see the [README](../README.md).
