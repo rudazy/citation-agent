@@ -4,10 +4,11 @@ import {
   http,
 } from "viem";
 import { arcTestnet } from "viem/chains";
-import { ensureAgentSession, rotateAgentSession } from "@/lib/agent-session";
+import { ensureAgentSession } from "@/lib/agent-session";
 import { fetchGatewayBalanceSnapshot } from "@/lib/gateway-balances";
 import { hasUserAgentWallet } from "@/lib/resolve-user-agent";
 import {
+  getUserAgentPrivateKey,
   getUserAgentWallet,
   provisionUserAgentWallet,
 } from "@/lib/user-agent-wallet";
@@ -17,6 +18,9 @@ const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
 export type AgentWalletStatus = {
   configured: boolean;
   address: `0x${string}` | null;
+  /** MetaMask address linked for cross-device recovery (null until linked). */
+  linkedWallet: `0x${string}` | null;
+  linkedWalletVerified: boolean;
   usdcBalance: string | null;
   gatewayUsdc: string | null;
   nativeGas: string | null;
@@ -49,11 +53,28 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
     return {
       configured: false,
       address: null,
+      linkedWallet: null,
+      linkedWalletVerified: false,
       usdcBalance: null,
       gatewayUsdc: null,
       nativeGas: null,
       gateway: null,
       canProvision,
+    };
+  }
+
+  const privateKey = await getUserAgentPrivateKey(sessionId);
+  if (!privateKey) {
+    return {
+      configured: false,
+      address: stored.address,
+      linkedWallet: stored.linkedWallet,
+      linkedWalletVerified: stored.linkedWalletVerified,
+      usdcBalance: null,
+      gatewayUsdc: null,
+      nativeGas: null,
+      gateway: null,
+      canProvision: false,
     };
   }
 
@@ -86,6 +107,8 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
     return {
       configured: true,
       address,
+      linkedWallet: stored.linkedWallet,
+      linkedWalletVerified: stored.linkedWalletVerified,
       usdcBalance: formatUnits(balance, 6),
       gatewayUsdc: snapshot.gateway.available,
       nativeGas: formatUnits(nativeGas, 18),
@@ -96,6 +119,8 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
     return {
       configured: true,
       address,
+      linkedWallet: stored.linkedWallet,
+      linkedWalletVerified: stored.linkedWalletVerified,
       usdcBalance: null,
       gatewayUsdc: null,
       nativeGas: null,
@@ -106,12 +131,11 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
 }
 
 /** Creates a unique agent wallet for this browser session (stored encrypted in Supabase). */
-export async function provisionAgentWalletForSession(): Promise<{ address: `0x${string}` }> {
+export async function provisionAgentWalletForSession(options?: {
+  recoveryWallet?: `0x${string}` | null;
+}): Promise<{ address: `0x${string}` }> {
   const sessionId = await ensureAgentSession();
-  const { address, created } = await provisionUserAgentWallet(sessionId);
-  if (created) {
-    await rotateAgentSession(sessionId);
-  }
+  const { address } = await provisionUserAgentWallet(sessionId, options);
   return { address };
 }
 

@@ -20,13 +20,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AGENT_SESSION_COOKIE } from "@/lib/agent-session";
 import { AGENT_SESSION_MAX_AGE_SECONDS } from "@/lib/agent-session-config";
 
+/** Seed the httpOnly agent session cookie on page visits (Next.js 16 proxy convention). */
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
   const response = NextResponse.next();
 
   if (!request.cookies.get(AGENT_SESSION_COOKIE)?.value) {
@@ -43,5 +38,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard", "/dashboard/:path*"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icons/|sw.js|llms.txt|manifest.webmanifest).*)"],
 };

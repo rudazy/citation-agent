@@ -77,7 +77,83 @@ Scores are cached in memory with a configurable TTL. A second lookup for the sam
 
 ### Session agent wallets
 
-Each browser gets a persistent **agent wallet** tied to an `agent_session` cookie. Private keys are encrypted in Supabase (`user_agent_wallets`). These wallets are used for Gateway deposits, in-app payments, server-side attestations, and paid trust refresh — separate from the CLI funder wallet (`BUYER_PRIVATE_KEY`).
+Each browser session gets a persistent **agent wallet** tied to an `agent_session` httpOnly cookie. Private keys are encrypted in Supabase (`user_agent_wallets`). These wallets fund Gateway deposits, in-app unlocks, server-side attestations, and paid trust refresh — separate from the CLI funder wallet (`BUYER_PRIVATE_KEY`).
+
+**Recovery model** — paste at create, sign at restore:
+
+| Step | MetaMask required? | What happens |
+| --- | --- | --- |
+| **Create** | No | User may paste a recovery MetaMask address (public). Stored as `linked_wallet` with `linked_wallet_verified = false`. |
+| **Use on same device** | No | Session cookie + encrypted key in Supabase. Pay from Gateway without wallet popups. |
+| **Restore on another device** | Yes | Connect the same MetaMask address and sign once. Server rebinds the existing wallet row to the new session. Balances unchanged. |
+| **Link or verify later** | Optional | Paste via `POST /api/agent-wallet/link`, or connect + sign to set `linked_wallet_verified = true`. |
+
+One recovery address maps to one agent wallet (`linked_wallet` is unique when set). Pasting a wrong address at create is user risk; someone else pasting your public address cannot sign as you.
+
+**Session cookie** (`proxy.ts` seeds on all page routes):
+
+- Max age: **90 days**
+- Rotation interval: **30 days** (limits fixation window)
+- **No rotation on wallet provision** — rotating immediately after create orphaned wallets when DB migrate failed
+
+**Browser UI** (`components/agent/agent-wallet-panel.tsx`): landing → choose (Recover / Create new) → step 2. Re-tap the **Agent wallet** pay card to go back while setup is active.
+
+```mermaid
+flowchart TD
+  Landing["Landing · no wallet yet"]
+  Choose["Step 1 · Choose path"]
+  Create["Step 2 · Create new"]
+  Recover["Step 2 · Recover wallet"]
+  Ready["Configured · fund faucet · deposit Gateway"]
+
+  Landing -->|Set up agent wallet| Choose
+  Choose -->|Create new| Create
+  Choose -->|Recover wallet| Recover
+  Create -->|POST /api/agent-wallet| Ready
+  Recover -->|Connect MetaMask + sign| Ready
+  Choose -->|Back or re-tap Agent wallet card| Landing
+  Create -->|Back| Choose
+  Recover -->|Back| Choose
+```
+
+**Create** — paste only (no wallet popup):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant User
+  participant UI as Agent wallet panel
+  participant API as POST /api/agent-wallet
+  participant DB as user_agent_wallets
+
+  User->>UI: Create new · optional paste recovery address
+  UI->>API: JSON body recoveryWallet
+  API->>DB: provision encrypted private key · linked_wallet
+  API-->>UI: address · configured
+  Note over User: Copy address · Circle faucet · deposit Gateway
+```
+
+**Restore** — connect + sign (no paste on restore step):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant User
+  participant MM as MetaMask
+  participant UI as Agent wallet panel
+  participant API as POST /api/agent-wallet/recover
+  participant DB as user_agent_wallets
+
+  User->>UI: Recover wallet
+  UI->>MM: eth_requestAccounts + personal_sign
+  Note over MM: Citation Agent restore agent wallet timestamp
+  MM-->>UI: linked address + signature
+  UI->>API: mode linked · x-recover-wallet headers
+  API->>DB: lookup by linked_wallet · rebind session_id
+  API-->>UI: restored · Gateway balance unchanged
+```
+
+**Same-browser shortcut** — if `localStorage` still holds the prior agent address, the recover step offers a one-click rebind by agent address + MetaMask sign (`mode` omitted, `agentAddress` in body).
 
 ---
 
@@ -149,8 +225,10 @@ The root path `/` redirects to `/dashboard`.
 | GET | `/api/gateway/balance` | Operator signature | Seller Gateway and wallet balances |
 | POST | `/api/gateway/withdraw` | Operator or session | Withdraw Gateway funds |
 | GET | `/api/gateway/withdrawals?scope=` | Public | Withdrawal history (`seller` or `agent`) |
-| GET | `/api/agent-wallet` | Session | Agent wallet status |
-| POST | `/api/agent-wallet` | Session | Provision agent wallet |
+| GET | `/api/agent-wallet` | Session | Agent wallet status (address, balances, linked recovery) |
+| POST | `/api/agent-wallet` | Session | Provision wallet; optional `{ recoveryWallet }` paste at create |
+| POST | `/api/agent-wallet/link` | Session | Paste `{ recoveryWallet }` or signed link headers (`x-link-*`) to set or verify recovery |
+| POST | `/api/agent-wallet/recover` | MetaMask sign | Restore by linked address (`mode: "linked"` + `x-recover-*`) or by agent address + sign |
 
 ### Attestations
 
@@ -217,7 +295,7 @@ Supabase is optional for local UI exploration but required for publish, realtime
 | `creator_earnings` | Per-unlock royalty records (full amount to creator payout wallet) |
 | `agent_reputation` | Payer spend totals and citation counts |
 | `creator_posts` | Published marketplace content (service-role access only) |
-| `user_agent_wallets` | Encrypted per-session agent private keys |
+| `user_agent_wallets` | Encrypted agent private keys; `session_id`, optional `linked_wallet` (unique), `linked_wallet_verified` |
 | `attestation_platform_fees` | On-chain attest platform fee audit trail |
 | `withdrawals` | Gateway withdrawal records (scoped by wallet and role) |
 
@@ -251,7 +329,7 @@ Authorization uses a signed message: `"TrustGate operator access {timestamp}"`, 
 
 Creator publish signs `"Citation Agent publish {timestamp} {payloadDigest}"` where `payloadDigest` is a keccak256 hash of the canonical publish JSON — the body cannot be swapped after signing.
 
-Browser agent wallets bind to an `agent_session` cookie that rotates every 24 hours (7-day max age) and immediately after wallet provisioning.
+Browser agent wallets bind to an `agent_session` httpOnly cookie (90-day max age, 30-day rotation). Wallet provisioning does not rotate the session — recovery uses `linked_wallet` + MetaMask sign or same-browser local hints.
 
 ---
 
@@ -267,7 +345,7 @@ Copy `.env.example` to `.env.local`. Minimum for marketplace and attestations:
 | `ATTESTATION_DEPLOY_BLOCK` | Event indexer start block |
 | `ARC_TESTNET_RPC` | Arc JSON-RPC |
 | `GATEWAY_API` | Circle Gateway facilitator |
-| `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts session agent keys (32+ chars) |
+| `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts session agent keys (32+ chars); must stay stable across deploys |
 
 For publish and dashboard persistence, add Supabase URL, anon key, and service role key. See `.env.local.example` for TrustGate and operator variables.
 

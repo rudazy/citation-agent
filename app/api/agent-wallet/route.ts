@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import {
   getAgentWalletStatus,
   provisionAgentWalletForSession,
 } from "@/lib/agent-wallet";
+import { parseRecoveryWallet } from "@/lib/recovery-wallet";
 import {
   getSellerAddress,
   hasDistinctPaymentWallets,
@@ -22,15 +23,28 @@ export async function GET() {
   });
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  let body: { recoveryWallet?: string } = {};
   try {
-    const { address } = await provisionAgentWalletForSession();
+    const text = await req.text();
+    if (text.trim()) {
+      body = JSON.parse(text) as { recoveryWallet?: string };
+    }
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const recoveryWallet = parseRecoveryWallet(body.recoveryWallet);
+
+  try {
+    await provisionAgentWalletForSession({ recoveryWallet });
     const status = await getAgentWalletStatus();
     return NextResponse.json({
       ...status,
       created: true,
-      message:
-        "Real Arc agent wallet created. Fund this address with testnet USDC via the Circle faucet, then deposit to Gateway to pay.",
+      message: recoveryWallet
+        ? "Agent wallet created with pasted recovery address. Connect that MetaMask on any device to restore."
+        : "Agent wallet created. Paste a recovery MetaMask address so you can restore on other devices.",
       faucetUrl: "https://faucet.circle.com/",
     });
   } catch (err) {

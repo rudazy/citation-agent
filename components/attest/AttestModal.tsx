@@ -196,6 +196,8 @@ export function AttestModal({
   const [agentWallet, setAgentWallet] = useState<AgentWalletStatusResponse | null>(null);
   const [agentWalletLoading, setAgentWalletLoading] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
+  const [agentSetupResetKey, setAgentSetupResetKey] = useState(0);
+  const [agentSetupActive, setAgentSetupActive] = useState(false);
 
   const contractAddress = getAttestationContractAddress();
   const resolvedTarget = useMemo(
@@ -327,10 +329,10 @@ export function AttestModal({
     }
   }, []);
 
-  const handleCreateAgentWallet = async () => {
+  const handleCreateAgentWallet = async (recoveryWallet?: string) => {
     setCreatingAgent(true);
     try {
-      const result = await provisionAgentWallet();
+      const result = await provisionAgentWallet({ recoveryWallet });
       setAgentWallet(result);
       toast.success("Agent wallet created", {
         description: result.address
@@ -697,6 +699,10 @@ export function AttestModal({
                   type="button"
                   disabled={busy}
                   onClick={() => {
+                    if (walletMode === "agent" && agentSetupActive) {
+                      setAgentSetupResetKey((key) => key + 1);
+                      return;
+                    }
                     setWalletMode("agent");
                     void refreshAgentWallet();
                   }}
@@ -714,7 +720,11 @@ export function AttestModal({
                     <Bot size={14} className="text-[#f5c842]" />
                     <span className="text-sm font-medium">Agent wallet</span>
                   </div>
-                  <p className="mt-1 font-mono text-[10px] text-[#666]">Your wallet on Arc</p>
+                  <p className="mt-1 font-mono text-[10px] text-[#666]">
+                    {walletMode === "agent" && agentSetupActive
+                      ? "Tap again to go back"
+                      : "Your wallet on Arc"}
+                  </p>
                 </button>
                 <button
                   type="button"
@@ -745,10 +755,13 @@ export function AttestModal({
                   creating={creatingAgent}
                   busy={busy}
                   onRefresh={() => void refreshAgentWallet()}
-                  onCreate={() => void handleCreateAgentWallet()}
+                  onCreate={(recoveryWallet) => void handleCreateAgentWallet(recoveryWallet)}
+                  onRecovered={() => void refreshAgentWallet()}
                   minUsdc={totalCostUsdc}
                   showGatewayBalance
                   showWithdraw
+                  setupResetKey={agentSetupResetKey}
+                  onSetupActiveChange={setAgentSetupActive}
                 />
               )}
 

@@ -24,7 +24,7 @@ Citation Agent is a production-style reference for agentic commerce over paywall
 | **Commerce** | Per-report USDC unlock | x402 v2, Gateway batch settlement, royalty ledger |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, on-chain registry |
-| **Agents** | CLI research loop | Session agent wallet, Gateway pay, trust-ranked citations |
+| **Agents** | CLI research loop · browser agent wallet | Session wallet, paste recovery at create, MetaMask sign restore, Gateway pay |
 
 Extended reference: [docs/platform-overview.md](docs/platform-overview.md)
 
@@ -107,6 +107,59 @@ sequenceDiagram
 
 ---
 
+## Session agent wallet
+
+Browser buyers use a **session agent wallet** — encrypted in Supabase, bound to an `agent_session` cookie (90-day max, 30-day rotation). Paste a recovery MetaMask address at **create** (no popup). On another device, **connect MetaMask and sign** to restore the same wallet and Gateway balance.
+
+```mermaid
+flowchart LR
+  subgraph Create["Create · this device"]
+    C1["Paste recovery address optional"]
+    C2["POST /api/agent-wallet"]
+    C1 --> C2
+  end
+
+  subgraph Use["Pay · same session"]
+    U1["Fund Arc wallet · deposit Gateway"]
+    U2["Unlock without MetaMask popups"]
+    U1 --> U2
+  end
+
+  subgraph Restore["Restore · other device"]
+    R1["Connect MetaMask + sign"]
+    R2["POST /api/agent-wallet/recover"]
+    R1 --> R2
+  end
+
+  C2 --> Use
+  Use -.->|new browser / cleared data| R2
+  R2 --> Use
+```
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant User
+  participant UI as Pay with · Agent wallet
+  participant API as Agent wallet API
+  participant DB as Supabase
+
+  alt Create new
+    User->>UI: Paste recovery address · Create
+    UI->>API: POST /api/agent-wallet
+    API->>DB: encrypted key + linked_wallet
+  else Restore
+    User->>UI: Recover · Connect MetaMask
+    UI->>API: POST /api/agent-wallet/recover · signed
+    API->>DB: rebind row by linked_wallet
+  end
+  API-->>User: same agent address · balances intact
+```
+
+Setup UI: landing → choose Recover or Create → step 2. Re-tap **Agent wallet** to go back. Full reference: [docs/platform-overview.md](docs/platform-overview.md#session-agent-wallets).
+
+---
+
 ## Research backing and reputation
 
 Backing is framed as commerce copy on catalog cards (`Back this research` / `Back this researcher`). Stakes are public on-chain claims grouped by canonical target (`author:…`, `citation:…`). Reputation is optional per card — free badge when configured, paid verify when the user opts in.
@@ -157,7 +210,7 @@ copy .env.example .env.local
 npm run generate-wallets
 ```
 
-Fund the buyer address from the faucet. Configure attestation and Supabase variables (see `.env.example` and `.env.local.example`). Apply migrations in `supabase/migrations/` — including `20260625100000_paid_trust_cache.sql` for paid trust verify caching.
+Fund the buyer address from the faucet. Configure attestation and Supabase variables (see `.env.example` and `.env.local.example`). Apply migrations in `supabase/migrations/` — including `20260629100000_user_agent_wallet_linked_wallet.sql` and `20260629110000_user_agent_wallet_link_verified.sql` for agent wallet recovery.
 
 ```cmd
 npm run dev
@@ -210,7 +263,10 @@ npm run smoke:marketplace:full
 | --- | --- | --- |
 | `POST /api/gateway/deposit` | Session agent | Deposit USDC into Gateway |
 | `POST /api/gateway/pay` | Session agent | Pay allowlisted x402 paths |
-| `GET /api/agent-wallet` | Session | Status; `POST` provisions per-browser wallet |
+| `GET /api/agent-wallet` | Session | Status, balances, linked recovery address |
+| `POST /api/agent-wallet` | Session | Provision wallet; optional `{ recoveryWallet }` at create |
+| `POST /api/agent-wallet/link` | Session | Paste or signed link to set/verify recovery address |
+| `POST /api/agent-wallet/recover` | MetaMask sign | Restore wallet on new device by linked address |
 
 ### Trust and backing
 
@@ -237,7 +293,7 @@ Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.exampl
 | `ATTESTATION_DEPLOY_BLOCK` | Event indexer start block |
 | `NEXT_PUBLIC_OPERATOR_ADDRESS` | Platform fee recipient; markdown seed trust identity |
 | `ARC_TESTNET_RPC` / `GATEWAY_API` | Chain and Circle Gateway |
-| `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-session agent keys (32+ chars) |
+| `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-session agent keys (32+ chars); keep stable across deploys |
 | `NEXT_PUBLIC_SITE_URL` / `BASE_URL` | Official origin (`https://agentcitation.xyz` in production) |
 | Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, royalties, agent wallets, paid trust cache |
 

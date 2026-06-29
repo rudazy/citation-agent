@@ -53,6 +53,8 @@ export function MarketplaceBuyer({
   const [agentWallet, setAgentWallet] = useState<AgentWalletStatusResponse | null>(null);
   const [agentWalletLoading, setAgentWalletLoading] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
+  const [agentSetupResetKey, setAgentSetupResetKey] = useState(0);
+  const [agentSetupActive, setAgentSetupActive] = useState(false);
 
   const PAY_AMOUNT = 0.01;
   const gatewayBalance =
@@ -165,10 +167,10 @@ export function MarketplaceBuyer({
     };
   }, [refreshBalances, walletMode]);
 
-  const handleCreateAgentWallet = async () => {
+  const handleCreateAgentWallet = async (recoveryWallet?: string) => {
     setCreatingAgent(true);
     try {
-      const result = await provisionAgentWallet();
+      const result = await provisionAgentWallet({ recoveryWallet });
       setAgentWallet(result);
       toast.success("Agent wallet created", {
         description: "Copy the address and fund it on the Circle faucet.",
@@ -445,6 +447,10 @@ export function MarketplaceBuyer({
             type="button"
             disabled={busy || funding}
             onClick={() => {
+              if (walletMode === "agent" && agentSetupActive) {
+                setAgentSetupResetKey((key) => key + 1);
+                return;
+              }
               setWalletMode("agent");
               void refreshAgentWallet();
               setStatus("agent wallet");
@@ -463,7 +469,11 @@ export function MarketplaceBuyer({
               <Bot size={14} className="text-[#f5c842]" />
               <span className="text-sm font-medium">Agent wallet</span>
             </div>
-            <p className="mt-1 font-mono text-[10px] text-[#666]">Your wallet on Arc</p>
+            <p className="mt-1 font-mono text-[10px] text-[#666]">
+              {walletMode === "agent" && agentSetupActive
+                ? "Tap again to go back"
+                : "Your wallet on Arc"}
+            </p>
           </button>
           <button
             type="button"
@@ -495,10 +505,13 @@ export function MarketplaceBuyer({
           creating={creatingAgent}
           busy={busy || funding}
           onRefresh={() => void refreshAgentWallet()}
-          onCreate={() => void handleCreateAgentWallet()}
+          onCreate={(recoveryWallet) => void handleCreateAgentWallet(recoveryWallet)}
+          onRecovered={() => void refreshAgentWallet()}
           minUsdc={PAY_AMOUNT}
           showGatewayBalance
           showWithdraw
+          setupResetKey={agentSetupResetKey}
+          onSetupActiveChange={setAgentSetupActive}
         />
       )}
 

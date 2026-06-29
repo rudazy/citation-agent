@@ -30,6 +30,20 @@ export const ARC_TESTNET_ADD_CHAIN = {
 } as const;
 
 import type { EthereumProvider } from "@/lib/ethereum-provider";
+import {
+  getStoredAgentWalletAddress,
+  storeAgentWalletAddress,
+} from "@/lib/agent-wallet-local";
+import {
+  linkMessage,
+  restoreByLinkedMessage,
+} from "@/lib/agent-wallet-link-auth";
+import { recoverMessage } from "@/lib/agent-wallet-recover-auth";
+import {
+  getStoredLinkedMetaMaskAddress,
+  storeLinkedMetaMaskAddress,
+} from "@/lib/agent-wallet-local";
+import { getAddress } from "viem";
 
 export type { EthereumProvider };
 
@@ -323,6 +337,8 @@ export async function attestViaConnectedWallet(params: {
 export type AgentWalletStatusResponse = {
   configured: boolean;
   address: `0x${string}` | null;
+  linkedWallet?: `0x${string}` | null;
+  linkedWalletVerified?: boolean;
   usdcBalance: string | null;
   gatewayUsdc: string | null;
   nativeGas?: string | null;
@@ -345,16 +361,199 @@ export async function fetchAgentWalletStatus(): Promise<AgentWalletStatusRespons
   if (!res.ok) {
     throw new Error("Failed to load agent wallet status");
   }
-  return (await res.json()) as AgentWalletStatusResponse;
+  const data = (await res.json()) as AgentWalletStatusResponse;
+  if (data.configured && data.address) {
+    storeAgentWalletAddress(data.address);
+  }
+  if (data.linkedWallet) {
+    storeLinkedMetaMaskAddress(data.linkedWallet);
+  }
+  return data;
 }
 
-export async function provisionAgentWallet(): Promise<AgentWalletStatusResponse & { created?: boolean }> {
-  const res = await fetch("/api/agent-wallet", { method: "POST" });
-  const data = (await res.json()) as AgentWalletStatusResponse & { error?: string; created?: boolean };
+async function assertConnectedMatchesPasted(
+  connected: string,
+  pastedAddress?: string,
+): Promise<void> {
+  if (!pastedAddress?.trim()) return;
+  if (getAddress(connected) !== getAddress(pastedAddress.trim())) {
+    throw new Error("Connected MetaMask must match the pasted address.");
+  }
+}
+
+export async function linkAgentWalletToMetaMask(params: {
+  agentAddress: string;
+  ethereum: EthereumProvider;
+  pastedMetaMaskAddress?: string;
+}): Promise<AgentWalletStatusResponse & { linked?: boolean; message?: string }> {
+  const { agentAddress, ethereum, pastedMetaMaskAddress } = params;
+  await switchToArcTestnet(ethereum);
+  const account = await getConnectedAccount(ethereum);
+  await assertConnectedMatchesPasted(account, pastedMetaMaskAddress);
+
+  const timestamp = String(Date.now());
+  const message = linkMessage(agentAddress, timestamp);
+  const signature = (await ethereum.request({
+    method: "personal_sign",
+    params: [message, account],
+  })) as string;
+
+  const res = await fetch("/api/agent-wallet/link", {
+    method: "POST",
+    headers: {
+      "x-link-wallet": account,
+      "x-link-timestamp": timestamp,
+      "x-link-signature": signature,
+    },
+  });
+
+  const data = (await res.json()) as AgentWalletStatusResponse & {
+    error?: string;
+    linked?: boolean;
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error ?? "Failed to link MetaMask");
+  }
+  if (data.address) storeAgentWalletAddress(data.address);
+  if (data.linkedWallet) storeLinkedMetaMaskAddress(data.linkedWallet);
+  storeLinkedMetaMaskAddress(account);
+  return data;
+}
+
+/** Restore agent wallet on any device using the linked MetaMask address. */
+export async function restoreAgentWalletByMetaMask(params: {
+  ethereum: EthereumProvider;
+  pastedMetaMaskAddress?: string;
+}): Promise<AgentWalletStatusResponse & { recovered?: boolean; message?: string }> {
+  const { ethereum, pastedMetaMaskAddress } = params;
+  await switchToArcTestnet(ethereum);
+  const account = await getConnectedAccount(ethereum);
+  await assertConnectedMatchesPasted(account, pastedMetaMaskAddress);
+
+  const timestamp = String(Date.now());
+  const message = restoreByLinkedMessage(timestamp);
+  const signature = (await ethereum.request({
+    method: "personal_sign",
+    params: [message, account],
+  })) as string;
+
+  const res = await fetch("/api/agent-wallet/recover", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-recover-wallet": account,
+      "x-recover-timestamp": timestamp,
+      "x-recover-signature": signature,
+    },
+    body: JSON.stringify({ mode: "linked" }),
+  });
+
+  const data = (await res.json()) as AgentWalletStatusResponse & {
+    error?: string;
+    recovered?: boolean;
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error ?? "Failed to restore agent wallet");
+  }
+  if (data.address) storeAgentWalletAddress(data.address);
+  if (data.linkedWallet) storeLinkedMetaMaskAddress(data.linkedWallet);
+  storeLinkedMetaMaskAddress(account);
+  return data;
+}
+
+export function getRecoverableLinkedMetaMaskAddress(): string | null {
+  return getStoredLinkedMetaMaskAddress();
+}
+
+export async function provisionAgentWallet(options?: {
+  recoveryWallet?: string;
+}): Promise<AgentWalletStatusResponse & { created?: boolean; message?: string }> {
+  const res = await fetch("/api/agent-wallet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recoveryWallet: options?.recoveryWallet?.trim() || undefined,
+    }),
+  });
+  const data = (await res.json()) as AgentWalletStatusResponse & {
+    error?: string;
+    created?: boolean;
+    message?: string;
+  };
   if (!res.ok) {
     throw new Error(data.error ?? "Failed to create agent wallet");
   }
+  if (data.address) storeAgentWalletAddress(data.address);
+  if (data.linkedWallet) storeLinkedMetaMaskAddress(data.linkedWallet);
   return data;
+}
+
+/** Paste a recovery MetaMask address without connecting (user assumes typo/squat risk). */
+export async function pasteRecoveryWallet(
+  recoveryWallet: string,
+): Promise<AgentWalletStatusResponse & { linked?: boolean; pasted?: boolean; message?: string }> {
+  const res = await fetch("/api/agent-wallet/link", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recoveryWallet: recoveryWallet.trim() }),
+  });
+  const data = (await res.json()) as AgentWalletStatusResponse & {
+    error?: string;
+    linked?: boolean;
+    pasted?: boolean;
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error ?? "Failed to save recovery address");
+  }
+  if (data.linkedWallet) storeLinkedMetaMaskAddress(data.linkedWallet);
+  return data;
+}
+
+export async function recoverAgentWallet(params: {
+  agentAddress: string;
+  ethereum: EthereumProvider;
+}): Promise<AgentWalletStatusResponse & { recovered?: boolean; message?: string }> {
+  const { agentAddress, ethereum } = params;
+  await switchToArcTestnet(ethereum);
+  const account = await getConnectedAccount(ethereum);
+  const timestamp = String(Date.now());
+  const message = recoverMessage(agentAddress, timestamp);
+  const signature = (await ethereum.request({
+    method: "personal_sign",
+    params: [message, account],
+  })) as string;
+
+  const res = await fetch("/api/agent-wallet/recover", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-recover-wallet": account,
+      "x-recover-timestamp": timestamp,
+      "x-recover-signature": signature,
+    },
+    body: JSON.stringify({ agentAddress }),
+  });
+
+  const data = (await res.json()) as AgentWalletStatusResponse & {
+    error?: string;
+    recovered?: boolean;
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error ?? "Failed to recover agent wallet");
+  }
+  if (data.address) {
+    storeAgentWalletAddress(data.address);
+  }
+  return data;
+}
+
+/** Load wallet status; if missing but this browser saved an address, recovery is possible. */
+export function getRecoverableAgentWalletAddress(): string | null {
+  return getStoredAgentWalletAddress();
 }
 
 export async function attestViaAgentWallet(params: {
