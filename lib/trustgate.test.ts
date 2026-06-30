@@ -1,4 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/trustgate-paid-store", () => ({
+  getCachedPaidScore: vi.fn(async () => ({ hit: false, value: null })),
+}));
+
+vi.mock("@/lib/trustgate-wallet-rescore", () => ({
+  rescoreWallet: vi.fn(async (rawScore: number) => ({
+    score: rawScore,
+    tier: "HIGH",
+    recommendation: "INSTANT",
+    confidence: "MEDIUM",
+    limitations: [],
+  })),
+}));
+
 import { clearTrustCache, getTrustScore, getTrustScores } from "./trustgate";
 
 const URL_ENV = "TRUSTGATE_SCORE_API_URL";
@@ -32,11 +47,11 @@ describe("trustgate", () => {
       );
 
     const first = await getTrustScore("0xABC");
-    expect(first).toEqual({ score: 72, tier: "high", confidence: 0.9 });
+    expect(first).toEqual({ score: 72, tier: "HIGH", confidence: 0 });
 
     // Cache hit: no second network call, same value.
     const second = await getTrustScore("0xabc");
-    expect(second).toEqual({ score: 72, tier: "high", confidence: 0.9 });
+    expect(second).toEqual({ score: 72, tier: "HIGH", confidence: 0 });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -91,8 +106,8 @@ describe("trustgate", () => {
     const scores = await getTrustScores(["0xAAA", "0xaaa", "0xBBB"]);
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(scores.get("0xaaa")).toEqual({ score: 50, tier: "mid", confidence: 0.5 });
-    expect(scores.get("0xbbb")).toEqual({ score: 50, tier: "mid", confidence: 0.5 });
+    expect(scores.get("0xaaa")).toEqual({ score: 50, tier: "HIGH", confidence: 0 });
+    expect(scores.get("0xbbb")).toEqual({ score: 50, tier: "HIGH", confidence: 0 });
   });
 
   it("returns null without fetching when the endpoint is unset", async () => {

@@ -13,6 +13,11 @@ import {
 } from "@/lib/attestation-client";
 import { ArticleBodyEditor } from "@/components/marketplace/article-body-editor";
 import { CreatorGatewayEarnings } from "@/components/marketplace/creator-gateway-earnings";
+import { PublisherPostsDropdown } from "@/components/marketplace/publisher-posts-dropdown";
+import {
+  TrustSignalBadge,
+  type PublicTrustSignal,
+} from "@/components/marketplace/trust-signal";
 import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
 import { publishHeaders, signPublishAuth } from "@/lib/publish-client";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
@@ -33,6 +38,9 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   const [connected, setConnected] = useState<`0x${string}` | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [myPostsRefresh, setMyPostsRefresh] = useState(0);
+  const [walletTrust, setWalletTrust] = useState<PublicTrustSignal | null>(null);
+  const [walletTrustLoading, setWalletTrustLoading] = useState(false);
 
   const [title, setTitle] = useState("");
   const [subheading, setSubheading] = useState("");
@@ -46,6 +54,29 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     setWalletAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
   }, []);
 
+  useEffect(() => {
+    if (!connected) {
+      setWalletTrust(null);
+      return;
+    }
+    let cancelled = false;
+    setWalletTrustLoading(true);
+    void fetch(`/api/trustgate/wallet-score?address=${connected}`)
+      .then((res) => res.json())
+      .then((data: { trust?: PublicTrustSignal | null }) => {
+        if (!cancelled) setWalletTrust(data.trust ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setWalletTrust(null);
+      })
+      .finally(() => {
+        if (!cancelled) setWalletTrustLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected]);
+
   const connectWallet = useCallback(async () => {
     const ethereum: EthereumProvider | undefined = window.ethereum;
     if (!ethereum) {
@@ -57,6 +88,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       await switchToArcTestnet(ethereum);
       const account = await getConnectedAccount(ethereum);
       setConnected(account);
+      setExpanded(true);
       toast.success("Wallet connected", {
         description: `${account.slice(0, 6)}...${account.slice(-4)}`,
       });
@@ -140,6 +172,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       setAuthorName("");
       setTags("");
       setArticleExpanded(false);
+      setMyPostsRefresh((n) => n + 1);
       onPublished?.(postId);
     } catch (err) {
       if ((err as { code?: number }).code === 4001) {
@@ -184,7 +217,9 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           <h2 className="text-lg font-semibold tracking-wide">Publish research</h2>
           <p className="font-mono text-xs sm:text-sm text-muted-foreground leading-relaxed">
             {expanded
-              ? "Step 1: connect wallet. Step 2: fill article details and sign."
+              ? connected
+                ? `Publishing as ${shortAddress} — reputation follows your signing wallet.`
+                : "Connect wallet to publish and view your listings."
               : "Creators — expand to connect wallet and list paywalled research."}
           </p>
         </div>
@@ -206,29 +241,45 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           )}
 
           {walletAvailable && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={connecting}
-                  onClick={() => void connectWallet()}
-                  className="gap-1.5 border-[#333] font-mono text-xs"
-                >
-                  {connecting ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Wallet size={14} />
-                  )}
-                  {shortAddress ? `Connected ${shortAddress}` : "Connect wallet"}
-                </Button>
-                {shortAddress && (
-                  <span className="font-mono text-[10px] text-[#666]">
-                    Signature required on publish
-                  </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={connecting}
+                onClick={() => void connectWallet()}
+                className="gap-1.5 border-[#333] font-mono text-xs"
+              >
+                {connecting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Wallet size={14} />
                 )}
-              </div>
+                {shortAddress ? `Connected ${shortAddress}` : "Connect wallet"}
+              </Button>
+              {connected && (
+                <>
+                  {walletTrustLoading ? (
+                    <span className="font-mono text-[10px] text-[#666]">Loading score…</span>
+                  ) : (
+                    <TrustSignalBadge
+                      trust={walletTrust}
+                      className="border-[#f5c842]/25 text-[#f5c842]"
+                    />
+                  )}
+                  <PublisherPostsDropdown
+                    connected={connected}
+                    walletTrust={walletTrust}
+                    walletTrustLoading={walletTrustLoading}
+                    refreshKey={myPostsRefresh}
+                  />
+                </>
+              )}
+              {shortAddress && (
+                <span className="font-mono text-[10px] text-[#666]">
+                  Signature required on publish
+                </span>
+              )}
             </div>
           )}
 
@@ -350,7 +401,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
 
           <Button
             type="button"
-            disabled={!walletAvailable || publishing}
+            disabled={!walletAvailable || !connected || publishing}
             onClick={() => void publish()}
             className="w-full sm:w-auto border border-[#f5c842]/40 bg-[#f5c842]/10 text-[#f5c842] hover:bg-[#f5c842]/20 font-mono text-xs tracking-wide"
           >

@@ -1,3 +1,6 @@
+import { isDisplayableTrustScore } from "@/lib/creator-trust";
+import { getCachedPaidScore } from "@/lib/trustgate-paid-store";
+import { rescoreWallet } from "@/lib/trustgate-wallet-rescore";
 import { coerceTrustScore, normalizeTrustScore } from "@/lib/trustgate-score-parse";
 
 /**
@@ -84,7 +87,7 @@ function parseScore(body: unknown): TrustScore | null {
   return { score, tier, confidence };
 }
 
-async function fetchScore(url: string): Promise<TrustScore | null> {
+async function fetchArcRawScore(url: string): Promise<TrustScore | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs());
   try {
@@ -102,6 +105,26 @@ async function fetchScore(url: string): Promise<TrustScore | null> {
   }
 }
 
+/** Apply TrustGate wallet-rescore so free reads match the oracle playground. */
+async function fetchRescoredScore(
+  address: string,
+  url: string,
+): Promise<TrustScore | null> {
+  const raw = await fetchArcRawScore(url);
+  if (!raw) return null;
+  try {
+    const rescored = await rescoreWallet(raw.score, address);
+    return {
+      score: rescored.score,
+      tier: rescored.tier,
+      confidence: 0,
+    };
+  } catch (err) {
+    console.error("[trustgate] wallet-rescore failed:", err);
+    return raw;
+  }
+}
+
 /**
  * Resolve a single wallet's TrustGate score. Returns null on any failure and
  * caches the result (including null) for TRUSTGATE_CACHE_TTL_MS so a down or
@@ -116,10 +139,21 @@ export async function getTrustScore(address: string): Promise<TrustScore | null>
     return cached.value;
   }
 
+  const paid = await getCachedPaidScore(key);
+  if (paid.hit && paid.value && isDisplayableTrustScore(paid.value)) {
+    const value = {
+      score: paid.value.score,
+      tier: paid.value.tier,
+      confidence: 0,
+    };
+    cache.set(key, { at: Date.now(), value });
+    return value;
+  }
+
   const base = scoreApiUrl();
   if (!base) return null;
 
-  const value = await fetchScore(buildUrl(base, key));
+  const value = await fetchRescoredScore(key, buildUrl(base, key));
   cache.set(key, { at: Date.now(), value });
   return value;
 }

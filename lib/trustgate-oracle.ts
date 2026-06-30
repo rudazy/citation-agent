@@ -11,6 +11,7 @@ import {
   getCachedPaidScore,
   setCachedPaidScore,
 } from "@/lib/trustgate-paid-store";
+import { isDisplayableTrustScore } from "@/lib/creator-trust";
 import {
   buildOracleUrl,
   encodePaymentHeader,
@@ -72,7 +73,13 @@ function sanitizeOracleReason(reason: string): string {
  */
 export async function lookupScore(address: string): Promise<ScoreLookupResponse> {
   const cached = await getCachedPaidScore(address);
-  if (cached.hit) return { status: "cached", score: cached.value };
+  if (cached.hit) {
+    const score = cached.value;
+    if (!score || !isDisplayableTrustScore(score)) {
+      return { status: "cached", score: null };
+    }
+    return { status: "cached", score };
+  }
 
   const base = oracleBase();
   if (!base) return { status: "unconfigured" };

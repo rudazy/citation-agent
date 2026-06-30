@@ -3,6 +3,10 @@
  */
 
 import {
+  myPostsMessage,
+  MY_POSTS_MESSAGE_PREFIX,
+} from "@/lib/publisher-auth";
+import {
   publishMessage,
   PUBLISH_MESSAGE_PREFIX,
 } from "@/lib/publish-auth";
@@ -74,3 +78,33 @@ export function publishHeaders(auth: PublishAuth): Record<string, string> {
     "content-type": "application/json",
   };
 }
+
+export type MyPostsAuth = {
+  address: `0x${string}`;
+  timestamp: string;
+  signature: string;
+};
+
+/** Sign a short message so the server can list posts for this wallet. */
+export async function signMyPostsAuth(
+  ethereum: EthereumProvider,
+  account: `0x${string}`,
+): Promise<MyPostsAuth> {
+  const timestamp = Date.now().toString();
+  const message = myPostsMessage(timestamp);
+  const signature = (await ethereum.request({
+    method: "personal_sign",
+    params: [message, account],
+  })) as string;
+  return { address: account, timestamp, signature };
+}
+
+export function myPostsHeaders(auth: MyPostsAuth): Record<string, string> {
+  return {
+    "x-my-posts-address": auth.address,
+    "x-my-posts-timestamp": auth.timestamp,
+    "x-my-posts-signature": auth.signature,
+  };
+}
+
+export { MY_POSTS_MESSAGE_PREFIX };

@@ -124,6 +124,28 @@ export function rowToCreatorContent(row: CreatorPostRow): CreatorContent {
   };
 }
 
+export async function loadPublishedPostsByConnectedWallet(
+  wallet: `0x${string}`,
+): Promise<CreatorContent[]> {
+  const supabase = getAdminClient();
+  if (!supabase) return [];
+
+  const normalized = getAddress(wallet).toLowerCase();
+  const { data, error } = await supabase
+    .from("creator_posts")
+    .select("*")
+    .eq("status", "published")
+    .eq("connected_wallet", normalized)
+    .order("published_at", { ascending: false });
+
+  if (error) {
+    console.error("[creator-posts] Failed to load publisher posts:", error.message);
+    return [];
+  }
+
+  return (data as CreatorPostRow[]).map(rowToCreatorContent);
+}
+
 export async function loadPublishedPostsFromDb(): Promise<CreatorContent[]> {
   const supabase = getAdminClient();
   if (!supabase) return [];

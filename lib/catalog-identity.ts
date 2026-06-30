@@ -33,8 +33,15 @@ export function marketplaceIdentityWallet(): `0x${string}` | null {
 }
 
 /**
+ * Wallet to score for database posts — the wallet that signed publish.
+ */
+export function resolvePublisherTrustWallet(item: CreatorContent): `0x${string}` {
+  return item.connectedWallet;
+}
+
+/**
  * Wallet to use for TrustGate lookups (free catalog badge + paid verify).
- * DB posts: proven publish wallet. Markdown seeds: operator / env override.
+ * DB posts: signing wallet. Markdown seeds: operator / env override.
  */
 export function resolveTrustIdentityWallet(item: CreatorContent): `0x${string}` {
   if (item.source === "database") {

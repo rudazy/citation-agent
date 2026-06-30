@@ -228,9 +228,15 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
               ...prev,
               [item.id]: { status: "done", trust: result.trust },
             }));
-            toast.success("Reputation updated", {
-              description: `Score ${result.trust.score}${result.trust.tier ? ` · ${result.trust.tier}` : ""}`,
-            });
+            if (result.trust) {
+              toast.success("Reputation updated", {
+                description: `Score ${result.trust.score}${result.trust.tier ? ` · ${result.trust.tier}` : ""}`,
+              });
+            } else {
+              toast.message("No reputation score", {
+                description: "This payout wallet has no Arc trust score yet.",
+              });
+            }
             break;
           case "cached":
             setTrustStates((prev) => ({
