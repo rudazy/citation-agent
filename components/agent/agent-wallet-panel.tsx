@@ -26,6 +26,11 @@ import {
   type AgentWalletStatusResponse,
 } from "@/lib/attestation-client";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
+import { isWalletUiAvailable } from "@/lib/wallet-connection";
+import {
+  connectWalletInteractive,
+  getEthereumProvider,
+} from "@/lib/wallet-connection-client";
 import { cn } from "@/lib/utils";
 import "@/lib/ethereum-provider";
 
@@ -47,8 +52,13 @@ type AgentWalletPanelProps = {
 
 type SetupStep = "landing" | "choose" | "recover" | "create";
 
-function getEthereum(): EthereumProvider | undefined {
-  return typeof window !== "undefined" ? window.ethereum : undefined;
+async function resolveEthereumProvider(): Promise<EthereumProvider> {
+  let provider = await getEthereumProvider();
+  if (!provider) {
+    const connected = await connectWalletInteractive();
+    provider = connected.provider;
+  }
+  return provider;
 }
 
 const RECOVERY_WARNINGS = [
@@ -201,19 +211,16 @@ export function AgentWalletPanel({
   );
 
   const handleRestoreByMetaMask = async () => {
-    const ethereum = getEthereum();
-    if (!ethereum) {
-      toast.error("MetaMask not detected", {
-        description: "Open this site in MetaMask browser or install the extension.",
+    if (!isWalletUiAvailable()) {
+      toast.error("Wallet unavailable", {
+        description: "Use WalletConnect on mobile or install MetaMask.",
       });
       return;
     }
     setRecovering(true);
     try {
-      await restoreAgentWalletByMetaMask({
-        ethereum,
-        pastedMetaMaskAddress: recoveryInput.trim() || undefined,
-      });
+      const ethereum = await resolveEthereumProvider();
+      await restoreAgentWalletByMetaMask({ ethereum });
       toast.success("Agent wallet restored");
       setSetupStep("landing");
       onRecovered?.();
@@ -249,13 +256,13 @@ export function AgentWalletPanel({
 
   const handleVerifyWithMetaMask = async () => {
     if (!wallet?.address) return;
-    const ethereum = getEthereum();
-    if (!ethereum) {
-      toast.error("MetaMask not detected");
+    if (!isWalletUiAvailable()) {
+      toast.error("Wallet unavailable");
       return;
     }
     setVerifying(true);
     try {
+      const ethereum = await resolveEthereumProvider();
       await linkAgentWalletToMetaMask({
         agentAddress: wallet.address,
         ethereum,
@@ -274,13 +281,13 @@ export function AgentWalletPanel({
 
   const handleRecoverByAgentAddress = async () => {
     if (!recoverableAddress) return;
-    const ethereum = getEthereum();
-    if (!ethereum) {
-      toast.error("MetaMask not detected");
+    if (!isWalletUiAvailable()) {
+      toast.error("Wallet unavailable");
       return;
     }
     setRecovering(true);
     try {
+      const ethereum = await resolveEthereumProvider();
       await recoverAgentWallet({ agentAddress: recoverableAddress, ethereum });
       toast.success("Agent wallet recovered");
       setSetupStep("landing");
@@ -524,8 +531,8 @@ export function AgentWalletPanel({
         <div className="rounded border border-[#1f1f1f] bg-[#111] px-3 py-3 space-y-3">
           <StepHeader step={2} total={2} label="Recover wallet" />
           <p className="font-mono text-[10px] text-[#888] leading-relaxed">
-            Connect the same MetaMask address you pasted when you created your agent wallet. One
-            signature restores your wallet and balances — no need to paste the address again.
+            Connect MetaMask and sign once. If this address has an agent wallet linked, your wallet
+            and balances are restored automatically.
           </p>
           <Button
             type="button"
@@ -541,7 +548,7 @@ export function AgentWalletPanel({
                 Restoring…
               </>
             ) : (
-              "Connect MetaMask & restore"
+              "Connect wallet & restore"
             )}
           </Button>
           {recoverableAddress && (

@@ -24,7 +24,7 @@ Citation Agent is a production-style reference for agentic commerce over paywall
 | **Commerce** | Per-report USDC unlock | x402 v2, Gateway batch settlement, royalty ledger |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, on-chain registry |
-| **Agents** | CLI research loop · browser agent wallet | Session wallet, paste recovery at create, MetaMask sign restore, Gateway pay |
+| **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect on mobile, sign restore on connect, Gateway pay |
 
 Extended reference: [docs/platform-overview.md](docs/platform-overview.md)
 
@@ -35,7 +35,7 @@ Extended reference: [docs/platform-overview.md](docs/platform-overview.md)
 ```mermaid
 flowchart TB
   subgraph Clients["Clients"]
-    Human["Human · MetaMask"]
+    Human["Human · WalletConnect / MetaMask"]
     Agent["Research agent CLI"]
     BrowserAgent["Browser · session agent wallet"]
   end
@@ -109,7 +109,7 @@ sequenceDiagram
 
 ## Session agent wallet
 
-Browser buyers use a **session agent wallet** — encrypted in Supabase, bound to an `agent_session` cookie (90-day max, 30-day rotation). Paste a recovery MetaMask address at **create** (no popup). On another device, **connect MetaMask and sign** to restore the same wallet and Gateway balance.
+Browser buyers use a **session agent wallet** — encrypted in Supabase, bound to an `agent_session` cookie (90-day max, 30-day rotation). Paste a recovery wallet address at **create** (no popup). On another device, click **Connect wallet** (WalletConnect on phone, MetaMask on desktop) and **sign** to restore the same wallet and Gateway balance. The wallet modal never opens on page load — only after you click Connect.
 
 ```mermaid
 flowchart LR
@@ -126,7 +126,7 @@ flowchart LR
   end
 
   subgraph Restore["Restore · other device"]
-    R1["Connect MetaMask + sign"]
+    R1["Connect wallet + sign"]
     R2["POST /api/agent-wallet/recover"]
     R1 --> R2
   end
@@ -149,7 +149,7 @@ sequenceDiagram
     UI->>API: POST /api/agent-wallet
     API->>DB: encrypted key + linked_wallet
   else Restore
-    User->>UI: Recover · Connect MetaMask
+    User->>UI: Recover · Connect wallet
     UI->>API: POST /api/agent-wallet/recover · signed
     API->>DB: rebind row by linked_wallet
   end
@@ -266,7 +266,8 @@ npm run smoke:marketplace:full
 | `GET /api/agent-wallet` | Session | Status, balances, linked recovery address |
 | `POST /api/agent-wallet` | Session | Provision wallet; optional `{ recoveryWallet }` at create |
 | `POST /api/agent-wallet/link` | Session | Paste or signed link to set/verify recovery address |
-| `POST /api/agent-wallet/recover` | MetaMask sign | Restore wallet on new device by linked address |
+| `GET /api/agent-wallet/recoverable?address=` | Public | Check if address has a linked agent wallet |
+| `POST /api/agent-wallet/recover` | Wallet sign | Restore wallet on new device by linked address |
 
 ### Trust and backing
 
@@ -295,6 +296,7 @@ Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.exampl
 | `ARC_TESTNET_RPC` / `GATEWAY_API` | Chain and Circle Gateway |
 | `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-session agent keys (32+ chars); keep stable across deploys |
 | `NEXT_PUBLIC_SITE_URL` / `BASE_URL` | Official origin (`https://agentcitation.xyz` in production) |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Reown AppKit / WalletConnect (mobile connect); allowlist `https://agentcitation.xyz` in [dashboard.reown.com](https://dashboard.reown.com) |
 | Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, royalties, agent wallets, paid trust cache |
 
 **TrustGate (optional)**

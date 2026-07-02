@@ -7,10 +7,12 @@ import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { switchToArcTestnet } from "@/lib/attestation-client";
+import { isWalletUiAvailable } from "@/lib/wallet-connection";
 import {
-  getConnectedAccount,
-  switchToArcTestnet,
-} from "@/lib/attestation-client";
+  connectWalletInteractive,
+  getEthereumProvider,
+} from "@/lib/wallet-connection-client";
 import { ArticleBodyEditor } from "@/components/marketplace/article-body-editor";
 import { CreatorGatewayEarnings } from "@/components/marketplace/creator-gateway-earnings";
 import { PublisherPostsDropdown } from "@/components/marketplace/publisher-posts-dropdown";
@@ -51,7 +53,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   const [tags, setTags] = useState("");
 
   useEffect(() => {
-    setWalletAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
+    setWalletAvailable(isWalletUiAvailable());
   }, []);
 
   useEffect(() => {
@@ -78,19 +80,19 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   }, [connected]);
 
   const connectWallet = useCallback(async () => {
-    const ethereum: EthereumProvider | undefined = window.ethereum;
-    if (!ethereum) {
-      toast.error("Wallet not detected");
+    if (!isWalletUiAvailable()) {
+      toast.error("Wallet unavailable", {
+        description: "Use WalletConnect on mobile or install MetaMask.",
+      });
       return;
     }
     setConnecting(true);
     try {
-      await switchToArcTestnet(ethereum);
-      const account = await getConnectedAccount(ethereum);
-      setConnected(account);
+      const { provider, address } = await connectWalletInteractive();
+      setConnected(address);
       setExpanded(true);
       toast.success("Wallet connected", {
-        description: `${account.slice(0, 6)}...${account.slice(-4)}`,
+        description: `${address.slice(0, 6)}...${address.slice(-4)}`,
       });
     } catch (err) {
       toast.error("Could not connect wallet", {
@@ -102,17 +104,30 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   }, []);
 
   const publish = useCallback(async () => {
-    const ethereum: EthereumProvider | undefined = window.ethereum;
-    if (!ethereum) {
-      toast.error("Wallet not detected");
+    if (!isWalletUiAvailable()) {
+      toast.error("Wallet unavailable", {
+        description: "Use WalletConnect on mobile or install MetaMask.",
+      });
       return;
     }
 
     setPublishing(true);
     try {
-      await switchToArcTestnet(ethereum);
-      const account = connected ?? (await getConnectedAccount(ethereum));
-      setConnected(account);
+      let provider: EthereumProvider;
+      let account: `0x${string}`;
+
+      if (connected) {
+        const active = await getEthereumProvider();
+        if (!active) throw new Error("Connect your wallet first.");
+        provider = active;
+        account = connected;
+        await switchToArcTestnet(provider);
+      } else {
+        const linked = await connectWalletInteractive();
+        provider = linked.provider;
+        account = linked.address;
+        setConnected(account);
+      }
 
       const publishPayload = {
         title,
@@ -127,7 +142,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           .filter(Boolean),
       };
 
-      const auth = await signPublishAuth(ethereum, account, publishPayload);
+      const auth = await signPublishAuth(provider, account, publishPayload);
       const res = await fetch("/api/marketplace/citations", {
         method: "POST",
         headers: publishHeaders(auth),

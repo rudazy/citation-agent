@@ -17,9 +17,17 @@ import {
 import {
   fetchAgentWalletStatus,
   provisionAgentWallet,
+  switchToArcTestnet,
   type AgentWalletStatusResponse,
 } from "@/lib/attestation-client";
+import { isWalletUiAvailable } from "@/lib/wallet-connection";
+import {
+  connectWalletInteractive,
+  getAuthorizedAccount,
+  getEthereumProvider,
+} from "@/lib/wallet-connection-client";
 import { formatMarketplaceHelloMemo } from "@/lib/payment-memo";
+import { useAgentWalletRestoreSync } from "@/hooks/use-agent-wallet-restore-sync";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -103,38 +111,40 @@ export function MarketplaceBuyer({
     }
   }, []);
 
-  const switchToArc = useCallback(async () => {
-    const ethereum = window.ethereum;
-    if (!ethereum) throw new Error("MetaMask not detected");
-
-    const current = (await ethereum.request({ method: "eth_chainId" })) as string;
-    if (current.toLowerCase() === ARC_TESTNET_HEX) return;
-
-    try {
-      await ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: ARC_TESTNET_HEX }],
-      });
-    } catch (switchError) {
-      const err = switchError as { code?: number };
-      if (err.code === 4902) {
-        await ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [ARC_TESTNET],
-        });
-        return;
-      }
-      throw switchError;
-    }
-  }, []);
-
   useEffect(() => {
     void refreshAgentWallet();
   }, [refreshAgentWallet]);
 
+  useAgentWalletRestoreSync(
+    useCallback((status) => {
+      setAgentWallet(status);
+      if (walletMode === "agent") {
+        setStatus(status.configured ? "agent wallet ready" : "configure agent wallet");
+      }
+    }, [walletMode]),
+  );
+
   useEffect(() => {
+    if (walletMode !== "connected") return;
+
+    const syncConnected = async () => {
+      const address = await getAuthorizedAccount();
+
+      setAccount(address);
+      if (address) {
+        void refreshBalances(address);
+        setStatus("ready on Arc Testnet");
+      } else {
+        setWalletUsdc(null);
+        setGatewayUsdc(null);
+        setStatus("not connected");
+      }
+    };
+
+    void syncConnected();
+
     const ethereum = window.ethereum;
-    if (!ethereum?.on || walletMode !== "connected") return;
+    if (!ethereum?.on) return;
 
     const onChainChanged = (...args: unknown[]) => {
       const chainId = String(args[0] ?? "");
@@ -145,18 +155,8 @@ export function MarketplaceBuyer({
       }
     };
 
-    const onAccountsChanged = (...args: unknown[]) => {
-      const accounts = args[0] as string[] | undefined;
-      const next = accounts?.[0] ?? null;
-      setAccount(next);
-      if (next) {
-        void refreshBalances(next);
-        setStatus("ready on Arc Testnet");
-      } else {
-        setWalletUsdc(null);
-        setGatewayUsdc(null);
-        setStatus("not connected");
-      }
+    const onAccountsChanged = () => {
+      void syncConnected();
     };
 
     ethereum.on?.("chainChanged", onChainChanged);
@@ -186,24 +186,21 @@ export function MarketplaceBuyer({
 
   const connect = useCallback(async () => {
     try {
-      const ethereum = window.ethereum;
-      if (!ethereum) {
-        setStatus("MetaMask not detected");
+      if (!isWalletUiAvailable()) {
+        setStatus("wallet unavailable");
         return;
       }
       setStatus("connecting…");
-      const accounts = (await ethereum.request({
-        method: "eth_requestAccounts",
-      })) as string[];
-      setAccount(accounts[0]);
-      setStatus("switching to Arc Testnet…");
-      await switchToArc();
-      await refreshBalances(accounts[0]);
+      const { provider, address } = await connectWalletInteractive();
+      setAccount(address);
+      await refreshBalances(address);
       setStatus("ready on Arc Testnet");
+      const restored = await fetchAgentWalletStatus().catch(() => null);
+      if (restored?.configured) setAgentWallet(restored);
     } catch (e) {
       setStatus(String((e as Error).message ?? e));
     }
-  }, [switchToArc, refreshBalances]);
+  }, [refreshBalances]);
 
   const fundGateway = useCallback(async () => {
     setFunding(true);
@@ -220,10 +217,10 @@ export function MarketplaceBuyer({
         return;
       }
 
-      const ethereum = window.ethereum;
+      const ethereum = await getEthereumProvider();
       if (!account || !ethereum) return;
       setStatus("switching to Arc Testnet…");
-      await switchToArc();
+      await switchToArcTestnet(ethereum);
       setStatus("approve + deposit to Gateway (MetaMask)…");
       const result = await depositToGatewayViaMetaMask(
         ethereum,
@@ -242,7 +239,7 @@ export function MarketplaceBuyer({
     } finally {
       setFunding(false);
     }
-  }, [account, switchToArc, refreshBalances, refreshAgentWallet, walletMode]);
+  }, [account, refreshBalances, refreshAgentWallet, walletMode]);
 
   const payWithAgent = useCallback(async () => {
     setBusy(true);
@@ -279,12 +276,13 @@ export function MarketplaceBuyer({
   }, [onSettlement, refreshAgentWallet]);
 
   const payWithMetaMask = useCallback(async () => {
-    if (!account || !window.ethereum) return;
+    const ethereum = await getEthereumProvider();
+    if (!account || !ethereum) return;
     setBusy(true);
     setOutput("—");
     try {
       setStatus("switching to Arc Testnet…");
-      await switchToArc();
+      await switchToArcTestnet(ethereum);
       setStatus("fetching 402 challenge…");
       const r1 = await fetch("/api/marketplace/hello");
       if (r1.status !== 402) {
@@ -354,8 +352,8 @@ export function MarketplaceBuyer({
         },
       };
 
-      setStatus("waiting for MetaMask signature…");
-      const signature = (await window.ethereum.request({
+      setStatus("waiting for wallet signature…");
+      const signature = (await ethereum.request({
         method: "eth_signTypedData_v4",
         params: [account, JSON.stringify(typedData)],
       })) as string;
@@ -408,7 +406,7 @@ export function MarketplaceBuyer({
     } finally {
       setBusy(false);
     }
-  }, [account, onSettlement, switchToArc, refreshBalances]);
+  }, [account, onSettlement, refreshBalances]);
 
   const pay = walletMode === "agent" ? payWithAgent : payWithMetaMask;
 

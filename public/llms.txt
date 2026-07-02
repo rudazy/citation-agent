@@ -6,7 +6,7 @@ https://agentcitation.xyz/
 Redirects to the research marketplace.
 
 https://agentcitation.xyz/marketplace
-Primary surface: crypto research catalog, wallet-signed publish, x402 unlock, reputation scoring, claims registry, and payment trace.
+Primary surface: crypto research catalog, WalletConnect or MetaMask publish, session agent wallet with sign-to-restore, x402 unlock, reputation scoring, claims registry, and payment trace.
 
 https://agentcitation.xyz/dashboard
 Settlement dashboard: payments, researcher royalties, agent reputation, operator attestation fees, withdrawals, claims, and payment trace.

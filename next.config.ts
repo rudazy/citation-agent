@@ -20,6 +20,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  serverExternalPackages: [
+    "@reown/appkit",
+    "@reown/appkit-adapter-wagmi",
+    "@wagmi/core",
+    "wagmi",
+  ],
 };
 
 export default nextConfig;

@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { AgentWalletPanel } from "@/components/agent/agent-wallet-panel";
+import { useAgentWalletRestoreSync } from "@/hooks/use-agent-wallet-restore-sync";
 import { cn } from "@/lib/utils";
 import {
   ATTESTATION_PLATFORM_FEE_USDC,
@@ -361,6 +362,12 @@ export function AttestModal({
     void refreshAgentWallet();
     if (walletMode === "connected") void refreshConnectedWallet();
   }, [isOpen, walletMode, refreshAgentWallet, refreshConnectedWallet]);
+
+  useAgentWalletRestoreSync(
+    useCallback((status) => {
+      setAgentWallet(status);
+    }, []),
+  );
 
   const resetForm = useCallback(() => {
     setPhase("idle");

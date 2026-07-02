@@ -6,10 +6,11 @@ import { GatewayWithdrawDialog } from "@/components/gateway/gateway-withdraw-dia
 import { BanknoteArrowDown } from "lucide-react";
 import {
   fetchAgentWalletStatus,
-  getConnectedAccount,
-  switchToArcTestnet,
   type AgentWalletStatusResponse,
 } from "@/lib/attestation-client";
+import { isWalletUiAvailable } from "@/lib/wallet-connection";
+import { connectWalletInteractive } from "@/lib/wallet-connection-client";
+import { useAgentWalletRestoreSync } from "@/hooks/use-agent-wallet-restore-sync";
 import { getWalletUsdcBalance } from "@/lib/gateway-metamask";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import "@/lib/ethereum-provider";
@@ -78,10 +79,16 @@ export function TopBarGatewayControls() {
   }, [fetchMetamaskBalances]);
 
   useEffect(() => {
-    setMetamaskAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
+    setMetamaskAvailable(isWalletUiAvailable());
     void fetchBalances();
     void syncMetamaskAccount();
   }, [fetchBalances, syncMetamaskAccount]);
+
+  useAgentWalletRestoreSync(
+    useCallback((status) => {
+      setWallet(status);
+    }, []),
+  );
 
   useEffect(() => {
     const ethereum = window.ethereum;
@@ -94,19 +101,18 @@ export function TopBarGatewayControls() {
   }, [syncMetamaskAccount]);
 
   const connectMetamask = useCallback(async () => {
-    const ethereum: EthereumProvider | undefined = window.ethereum;
-    if (!ethereum) return;
+    if (!isWalletUiAvailable()) return;
     setConnecting(true);
     try {
-      await switchToArcTestnet(ethereum);
-      const account = await getConnectedAccount(ethereum);
-      setMetamaskAccount(account);
+      const { address } = await connectWalletInteractive();
+      setMetamaskAccount(address);
       setSource("metamask");
-      await fetchMetamaskBalances(account);
+      await fetchMetamaskBalances(address);
+      void fetchBalances();
     } finally {
       setConnecting(false);
     }
-  }, [fetchMetamaskBalances]);
+  }, [fetchMetamaskBalances, fetchBalances]);
 
   const hasAgentWallet = wallet?.configured === true && !!wallet.address;
   const agentAvailable = wallet?.gateway?.available ?? wallet?.gatewayUsdc ?? "0";

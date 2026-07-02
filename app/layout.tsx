@@ -20,6 +20,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { WalletProvidersLoader } from "@/components/wallet/wallet-providers-loader";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
 import { resolveSiteOrigin } from "@/lib/site-url";
@@ -94,7 +95,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.className} ${geistMono.variable} antialiased`}>
-        <TooltipProvider>{children}</TooltipProvider>
+        <WalletProvidersLoader>
+          <TooltipProvider>{children}</TooltipProvider>
+        </WalletProvidersLoader>
         <InstallPrompt />
         <ServiceWorkerRegister />
         <Toaster richColors position="bottom-center" />

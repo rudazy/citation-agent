@@ -85,10 +85,14 @@ Each browser session gets a persistent **agent wallet** tied to an `agent_sessio
 | --- | --- | --- |
 | **Create** | No | User may paste a recovery MetaMask address (public). Stored as `linked_wallet` with `linked_wallet_verified = false`. |
 | **Use on same device** | No | Session cookie + encrypted key in Supabase. Pay from Gateway without wallet popups. |
-| **Restore on another device** | Yes | Connect the same MetaMask address and sign once. Server rebinds the existing wallet row to the new session. Balances unchanged. |
+| **Restore on another device** | Yes | Click **Connect wallet** (WalletConnect on mobile, MetaMask on desktop), then sign once. Server rebinds the existing wallet row to the new session. Balances unchanged. |
 | **Link or verify later** | Optional | Paste via `POST /api/agent-wallet/link`, or connect + sign to set `linked_wallet_verified = true`. |
 
 One recovery address maps to one agent wallet (`linked_wallet` is unique when set). Pasting a wrong address at create is user risk; someone else pasting your public address cannot sign as you.
+
+**WalletConnect (mobile)** — Reown AppKit uses `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. The connect modal opens only when the user clicks **Connect wallet** (never on page load). After connect, if the linked address has an agent wallet, restore runs once and propagates across marketplace, attest, and dashboard via a client event.
+
+**Connect entry points** — publish panel, marketplace buyer (MetaMask mode), agent wallet recover step, dashboard gateway controls. All call `connectWalletInteractive()` → optional WalletConnect modal → Arc Testnet → optional signed restore.
 
 **Session cookie** (`proxy.ts` seeds on all page routes):
 
@@ -110,7 +114,7 @@ flowchart TD
   Choose -->|Create new| Create
   Choose -->|Recover wallet| Recover
   Create -->|POST /api/agent-wallet| Ready
-  Recover -->|Connect MetaMask + sign| Ready
+  Recover -->|Connect wallet + sign| Ready
   Choose -->|Back or re-tap Agent wallet card| Landing
   Create -->|Back| Choose
   Recover -->|Back| Choose
@@ -133,24 +137,42 @@ sequenceDiagram
   Note over User: Copy address · Circle faucet · deposit Gateway
 ```
 
-**Restore** — connect + sign (no paste on restore step):
+**Restore** — user-initiated connect + sign (no paste, no popup on page load):
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant User
-  participant MM as MetaMask
-  participant UI as Agent wallet panel
+  participant WC as WalletConnect / MetaMask
+  participant UI as Connect wallet · any surface
   participant API as POST /api/agent-wallet/recover
   participant DB as user_agent_wallets
 
-  User->>UI: Recover wallet
-  UI->>MM: eth_requestAccounts + personal_sign
-  Note over MM: Citation Agent restore agent wallet timestamp
-  MM-->>UI: linked address + signature
+  User->>UI: Click Connect wallet
+  UI->>WC: AppKit modal or injected wallet
+  WC-->>UI: linked address authorized
+  UI->>WC: personal_sign restore message
+  Note over WC: Citation Agent restore agent wallet timestamp
+  WC-->>UI: signature
   UI->>API: mode linked · x-recover-wallet headers
   API->>DB: lookup by linked_wallet · rebind session_id
-  API-->>UI: restored · Gateway balance unchanged
+  API-->>UI: restored · event syncs all panels
+```
+
+```mermaid
+flowchart LR
+  subgraph Connect["User clicks Connect wallet"]
+    A["WalletConnect modal or MetaMask"]
+    B["switchToArcTestnet"]
+    C["GET /api/agent-wallet/recoverable"]
+    D{"Linked agent wallet?"}
+    E["personal_sign + POST /recover"]
+    F["No-op"]
+  end
+  A --> B --> C --> D
+  D -->|yes| E
+  D -->|no| F
+  E --> G["Agent wallet visible everywhere"]
 ```
 
 **Same-browser shortcut** — if `localStorage` still holds the prior agent address, the recover step offers a one-click rebind by agent address + MetaMask sign (`mode` omitted, `agentAddress` in body).
@@ -164,7 +186,7 @@ sequenceDiagram
 The public demo page. Sections, top to bottom:
 
 1. **Hero** — product positioning
-2. **Publish** — connect MetaMask, sign `"Citation Agent publish {timestamp}"`, submit title/subheading/body/price/tags; minimum price 0.001 USDC
+2. **Publish** — connect wallet (WalletConnect or MetaMask), sign `"Citation Agent publish {timestamp}"`, submit title/subheading/body/price/tags; minimum price 0.001 USDC
 3. **Buyer demo** — pay `$0.01` hello-world via agent wallet or MetaMask; fund and deposit to Gateway
 4. **Citation catalog** — browse listings, expand to unlock (x402), refresh trust, attest about an author
 5. **Claims registry** — browse on-chain attestations by target
@@ -228,7 +250,8 @@ The root path `/` redirects to `/dashboard`.
 | GET | `/api/agent-wallet` | Session | Agent wallet status (address, balances, linked recovery) |
 | POST | `/api/agent-wallet` | Session | Provision wallet; optional `{ recoveryWallet }` paste at create |
 | POST | `/api/agent-wallet/link` | Session | Paste `{ recoveryWallet }` or signed link headers (`x-link-*`) to set or verify recovery |
-| POST | `/api/agent-wallet/recover` | MetaMask sign | Restore by linked address (`mode: "linked"` + `x-recover-*`) or by agent address + sign |
+| POST | `/api/agent-wallet/recover` | Wallet sign | Restore by linked address (`mode: "linked"` + `x-recover-*`) or by agent address + sign |
+| GET | `/api/agent-wallet/recoverable?address=` | Public | Whether an agent wallet exists for a linked MetaMask address (no sign) |
 
 ### Attestations
 

@@ -43,6 +43,7 @@ import {
   getStoredLinkedMetaMaskAddress,
   storeLinkedMetaMaskAddress,
 } from "@/lib/agent-wallet-local";
+import { dispatchAgentWalletRestored } from "@/lib/agent-wallet-events";
 import { getAddress } from "viem";
 
 export type { EthereumProvider };
@@ -224,19 +225,37 @@ async function waitForReceipt(
   throw new Error(`Transaction confirmation timed out: ${hash}`);
 }
 
-export async function switchToArcTestnet(ethereum: EthereumProvider): Promise<void> {
-  const current = (await ethereum.request({ method: "eth_chainId" })) as string;
+export async function switchToArcTestnet(
+  ethereum?: EthereumProvider,
+): Promise<void> {
+  let provider = ethereum;
+  if (!provider) {
+    if (typeof window === "undefined") {
+      throw new Error("switchToArcTestnet is only available in the browser.");
+    }
+    const wallet = await import("@/lib/wallet-connection-client");
+    provider = await wallet.getEthereumProvider();
+    await wallet.switchToArcViaWagmi();
+  }
+
+  if (!provider) {
+    throw new Error(
+      "No wallet available. Connect via WalletConnect or install MetaMask.",
+    );
+  }
+
+  const current = (await provider.request({ method: "eth_chainId" })) as string;
   if (current.toLowerCase() === ARC_TESTNET_HEX) return;
 
   try {
-    await ethereum.request({
+    await provider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: ARC_TESTNET_HEX }],
     });
   } catch (switchError) {
     const err = switchError as { code?: number };
     if (err.code === 4902) {
-      await ethereum.request({
+      await provider.request({
         method: "wallet_addEthereumChain",
         params: [ARC_TESTNET_ADD_CHAIN],
       });
@@ -247,11 +266,33 @@ export async function switchToArcTestnet(ethereum: EthereumProvider): Promise<vo
 }
 
 export async function getConnectedAccount(
-  ethereum: EthereumProvider,
+  ethereum?: EthereumProvider,
 ): Promise<`0x${string}`> {
-  const accounts = (await ethereum.request({
-    method: "eth_requestAccounts",
+  let provider = ethereum;
+  if (!provider) {
+    if (typeof window === "undefined") {
+      throw new Error("getConnectedAccount is only available in the browser.");
+    }
+    const wallet = await import("@/lib/wallet-connection-client");
+    provider = await wallet.getEthereumProvider();
+  }
+
+  if (!provider) {
+    throw new Error(
+      "No wallet available. Connect via WalletConnect or install MetaMask.",
+    );
+  }
+
+  let accounts = (await provider.request({
+    method: "eth_accounts",
   })) as string[];
+
+  if (!accounts[0]) {
+    accounts = (await provider.request({
+      method: "eth_requestAccounts",
+    })) as string[];
+  }
+
   if (!accounts[0]) throw new Error("No wallet account selected");
   return accounts[0] as `0x${string}`;
 }
@@ -421,15 +462,21 @@ export async function linkAgentWalletToMetaMask(params: {
   return data;
 }
 
-/** Restore agent wallet on any device using the linked MetaMask address. */
+/** Restore agent wallet on any device using the connected MetaMask address. */
 export async function restoreAgentWalletByMetaMask(params: {
   ethereum: EthereumProvider;
-  pastedMetaMaskAddress?: string;
+  account?: `0x${string}`;
 }): Promise<AgentWalletStatusResponse & { recovered?: boolean; message?: string }> {
-  const { ethereum, pastedMetaMaskAddress } = params;
+  const { ethereum, account: knownAccount } = params;
   await switchToArcTestnet(ethereum);
-  const account = await getConnectedAccount(ethereum);
-  await assertConnectedMatchesPasted(account, pastedMetaMaskAddress);
+  const account =
+    knownAccount ??
+    (await (async () => {
+      const wallet = await import("@/lib/wallet-connection-client");
+      const authorized = await wallet.getAuthorizedAccount(ethereum);
+      if (authorized) return authorized;
+      return getConnectedAccount(ethereum);
+    })());
 
   const timestamp = String(Date.now());
   const message = restoreByLinkedMessage(timestamp);
@@ -460,11 +507,49 @@ export async function restoreAgentWalletByMetaMask(params: {
   if (data.address) storeAgentWalletAddress(data.address);
   if (data.linkedWallet) storeLinkedMetaMaskAddress(data.linkedWallet);
   storeLinkedMetaMaskAddress(account);
+  if (data.configured) dispatchAgentWalletRestored(data);
   return data;
 }
 
 export function getRecoverableLinkedMetaMaskAddress(): string | null {
   return getStoredLinkedMetaMaskAddress();
+}
+
+export async function isAgentWalletRecoverableForAddress(
+  address: string,
+): Promise<boolean> {
+  const res = await fetch(
+    `/api/agent-wallet/recoverable?address=${encodeURIComponent(address)}`,
+  );
+  if (!res.ok) return false;
+  const data = (await res.json()) as { recoverable?: boolean };
+  return data.recoverable === true;
+}
+
+/**
+ * After connecting MetaMask, restore the session agent wallet when one is linked
+ * to the connected address. No-op if the session already has a wallet or none exists.
+ */
+export async function tryRestoreAgentWalletOnConnect(
+  ethereum: EthereumProvider,
+): Promise<(AgentWalletStatusResponse & { recovered?: boolean; message?: string }) | null> {
+  try {
+    const status = await fetchAgentWalletStatus();
+    if (status.configured) return null;
+
+    const wallet = await import("@/lib/wallet-connection-client");
+    const account = await wallet.getAuthorizedAccount(ethereum);
+    if (!account) return null;
+
+    storeLinkedMetaMaskAddress(account);
+
+    const recoverable = await isAgentWalletRecoverableForAddress(account);
+    if (!recoverable) return null;
+
+    return await restoreAgentWalletByMetaMask({ ethereum, account });
+  } catch {
+    return null;
+  }
 }
 
 export async function provisionAgentWallet(options?: {
@@ -548,6 +633,7 @@ export async function recoverAgentWallet(params: {
   if (data.address) {
     storeAgentWalletAddress(data.address);
   }
+  if (data.configured) dispatchAgentWalletRestored(data);
   return data;
 }
 
