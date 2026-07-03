@@ -8,7 +8,7 @@ export function resolveWalletConnectOrigin(
   return OFFICIAL_SITE_URL;
 }
 
-export function buildWalletConnectMetadata(origin: string) {
+export function buildWalletConnectMetadata(origin?: string | null) {
   const normalized = resolveWalletConnectOrigin(origin);
   return {
     name: "Citation Agent",
