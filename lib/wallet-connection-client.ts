@@ -1,30 +1,19 @@
 "use client";
 
+import type { AppKit } from "@reown/appkit/react";
 import { getAccount, switchChain, watchAccount } from "@wagmi/core";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import { arcNetwork, wagmiConfig } from "@/config/wagmi";
 import { isWalletConnectConfigured } from "@/lib/wallet-connect-env";
 
-type AppKitModal = {
-  open: (options?: { view?: string }) => Promise<void>;
-  subscribeState: (
-    callback: (state: {
-      initialized: boolean;
-      open: boolean;
-      loading: boolean;
-      connectingWallet?: unknown;
-    }) => void,
-  ) => () => void;
-};
-
 let openConnectModalFn: (() => Promise<void>) | null = null;
-let appKitModal: AppKitModal | null = null;
+let appKitModal: AppKit | null = null;
 
 export function registerOpenConnectModal(fn: () => Promise<void>): void {
   openConnectModalFn = fn;
 }
 
-export function registerAppKitModal(modal: AppKitModal): void {
+export function registerAppKitModal(modal: AppKit): void {
   appKitModal = modal;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { createAppKit } from "@reown/appkit/react";
+import { createAppKit, type AppKit } from "@reown/appkit/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode } from "react";
 import { cookieToInitialState, WagmiProvider, type Config } from "wagmi";
@@ -18,9 +18,7 @@ import {
 
 const queryClient = new QueryClient();
 
-type AppKitModal = ReturnType<typeof createAppKit>;
-
-let appKitModal: AppKitModal | null = null;
+let appKitModal: AppKit | null = null;
 
 if (walletConnectProjectId) {
   const metadata = buildWalletConnectMetadata(
