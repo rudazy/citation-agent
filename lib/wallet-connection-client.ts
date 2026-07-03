@@ -1,14 +1,31 @@
 "use client";
 
-import { getAccount, switchChain } from "@wagmi/core";
+import { getAccount, switchChain, watchAccount } from "@wagmi/core";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import { arcNetwork, wagmiConfig } from "@/config/wagmi";
 import { isWalletConnectConfigured } from "@/lib/wallet-connect-env";
 
+type AppKitModal = {
+  open: (options?: { view?: string }) => Promise<void>;
+  subscribeState: (
+    callback: (state: {
+      initialized: boolean;
+      open: boolean;
+      loading: boolean;
+      connectingWallet?: unknown;
+    }) => void,
+  ) => () => void;
+};
+
 let openConnectModalFn: (() => Promise<void>) | null = null;
+let appKitModal: AppKitModal | null = null;
 
 export function registerOpenConnectModal(fn: () => Promise<void>): void {
   openConnectModalFn = fn;
+}
+
+export function registerAppKitModal(modal: AppKitModal): void {
+  appKitModal = modal;
 }
 
 export async function openConnectModal(): Promise<void> {
@@ -16,6 +33,52 @@ export async function openConnectModal(): Promise<void> {
     throw new Error("WalletConnect modal is not initialized yet.");
   }
   await openConnectModalFn();
+}
+
+function hasInjectedEthereum(): boolean {
+  return typeof window !== "undefined" && Boolean(window.ethereum);
+}
+
+export function waitForWalletConnection(
+  timeoutMs = 300_000,
+): Promise<`0x${string}` | null> {
+  const existing = getAccount(wagmiConfig);
+  if (existing.isConnected && existing.address) {
+    return Promise.resolve(existing.address as `0x${string}`);
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (address: `0x${string}` | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unwatch();
+      unsubscribeModal?.();
+      resolve(address);
+    };
+
+    const timer = setTimeout(() => finish(null), timeoutMs);
+
+    const unwatch = watchAccount(wagmiConfig, {
+      onChange(account) {
+        if (account.isConnected && account.address) {
+          finish(account.address as `0x${string}`);
+        }
+      },
+    });
+
+    const unsubscribeModal = appKitModal?.subscribeState((state) => {
+      if (!state.initialized) return;
+      if (state.loading || state.connectingWallet) return;
+
+      const account = getAccount(wagmiConfig);
+      if (!state.open && !account.isConnected) {
+        finish(null);
+      }
+    });
+  });
 }
 
 export async function getEthereumProvider(): Promise<EthereumProvider | undefined> {
@@ -66,14 +129,10 @@ export async function getConnectedWalletAddress(): Promise<`0x${string}` | null>
   return getAuthorizedAccount();
 }
 
-export async function connectWalletInteractive(): Promise<{
+async function connectViaInjectedWallet(): Promise<{
   provider: EthereumProvider;
   address: `0x${string}`;
 }> {
-  if (isWalletConnectConfigured()) {
-    await openConnectModal();
-  }
-
   let provider = await getEthereumProvider();
   if (!provider) {
     throw new Error(
@@ -96,7 +155,6 @@ export async function connectWalletInteractive(): Promise<{
   }
 
   provider = (await getEthereumProvider()) ?? provider;
-
   const address = accounts[0] as `0x${string}`;
 
   const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(
@@ -105,10 +163,67 @@ export async function connectWalletInteractive(): Promise<{
   await switchToArcTestnet(provider);
   await tryRestoreAgentWalletOnConnect(provider);
 
-  return {
-    provider,
-    address,
-  };
+  return { provider, address };
+}
+
+async function connectViaWalletConnectModal(): Promise<{
+  provider: EthereumProvider;
+  address: `0x${string}`;
+}> {
+  await openConnectModal();
+
+  const address = await waitForWalletConnection();
+  if (!address) {
+    throw new Error("Wallet connection cancelled.");
+  }
+
+  const provider = await getEthereumProvider();
+  if (!provider) {
+    throw new Error(
+      "Wallet connected but provider is unavailable. Approve the connection in your wallet app, then try again.",
+    );
+  }
+
+  const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(
+    "@/lib/attestation-client"
+  );
+  await switchToArcTestnet(provider);
+  await tryRestoreAgentWalletOnConnect(provider);
+
+  return { provider, address };
+}
+
+export async function connectWalletInteractive(): Promise<{
+  provider: EthereumProvider;
+  address: `0x${string}`;
+}> {
+  const existing = getAccount(wagmiConfig);
+  if (existing.isConnected && existing.address) {
+    const provider = await getEthereumProvider();
+    if (provider) {
+      const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(
+        "@/lib/attestation-client"
+      );
+      await switchToArcTestnet(provider);
+      await tryRestoreAgentWalletOnConnect(provider);
+      return {
+        provider,
+        address: existing.address as `0x${string}`,
+      };
+    }
+  }
+
+  if (isWalletConnectConfigured()) {
+    return connectViaWalletConnectModal();
+  }
+
+  if (!hasInjectedEthereum()) {
+    throw new Error(
+      "No wallet available. Connect via WalletConnect or install MetaMask.",
+    );
+  }
+
+  return connectViaInjectedWallet();
 }
 
 export async function switchToArcViaWagmi(): Promise<void> {

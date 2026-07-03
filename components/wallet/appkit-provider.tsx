@@ -2,7 +2,7 @@
 
 import { createAppKit } from "@reown/appkit/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode } from "react";
 import { cookieToInitialState, WagmiProvider, type Config } from "wagmi";
 import {
   arcNetwork,
@@ -10,30 +10,29 @@ import {
   wagmiConfig,
   walletConnectProjectId,
 } from "@/config/wagmi";
-import { OFFICIAL_SITE_URL } from "@/lib/site-url";
-import { registerOpenConnectModal } from "@/lib/wallet-connection-client";
+import { buildWalletConnectMetadata } from "@/lib/wallet-connect-metadata";
+import {
+  registerAppKitModal,
+  registerOpenConnectModal,
+} from "@/lib/wallet-connection-client";
 
 const queryClient = new QueryClient();
 
-const siteMetadata = {
-  name: "Citation Agent",
-  description:
-    "Researchers sell crypto research. AI agents and humans buy it.",
-  url: OFFICIAL_SITE_URL,
-  icons: [`${OFFICIAL_SITE_URL}/icon.svg`],
-};
+type AppKitModal = ReturnType<typeof createAppKit>;
 
-let appKitInitialized = false;
+let appKitModal: AppKitModal | null = null;
 
-function ensureAppKit() {
-  if (appKitInitialized || !walletConnectProjectId) return;
+if (walletConnectProjectId) {
+  const metadata = buildWalletConnectMetadata(
+    typeof window !== "undefined" ? window.location.origin : undefined,
+  );
 
-  const modal = createAppKit({
+  appKitModal = createAppKit({
     adapters: [wagmiAdapter],
     projectId: walletConnectProjectId,
     networks: [arcNetwork],
     defaultNetwork: arcNetwork,
-    metadata: siteMetadata,
+    metadata,
     themeMode: "dark",
     themeVariables: {
       "--w3m-accent": "#f5c842",
@@ -49,11 +48,10 @@ function ensureAppKit() {
     },
   });
 
+  registerAppKitModal(appKitModal);
   registerOpenConnectModal(async () => {
-    modal.open();
+    await appKitModal!.open({ view: "Connect" });
   });
-
-  appKitInitialized = true;
 }
 
 type AppKitProviderProps = {
@@ -62,10 +60,6 @@ type AppKitProviderProps = {
 };
 
 export function AppKitProvider({ children, cookies }: AppKitProviderProps) {
-  useEffect(() => {
-    if (walletConnectProjectId) ensureAppKit();
-  }, []);
-
   const initialState = cookieToInitialState(wagmiConfig as Config, cookies);
 
   return (
