@@ -4,6 +4,7 @@ import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { MarkdownImage } from "@/components/marketplace/markdown-image";
 import { cn } from "@/lib/utils";
 
 const MARKDOWN_COMPONENTS: Components = {
@@ -68,17 +69,7 @@ const MARKDOWN_COMPONENTS: Components = {
       {children}
     </blockquote>
   ),
-  img: ({ src, alt }) => (
-    <span className="my-4 block w-full">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt={alt ?? ""}
-        loading="lazy"
-        className="max-h-[480px] w-full max-w-full rounded border border-[#333] bg-[#0a0a0a] object-contain"
-      />
-    </span>
-  ),
+  img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} />,
 };
 
 type Props = {

@@ -26,7 +26,9 @@ describe("creator-posts", () => {
       subheading: "Public teaser for readers",
       body: "This is the paywalled body with enough length.",
       priceUsdc: "0.001",
+      username: "alpha_reader",
       connectedWallet: CONNECTED,
+      signedAtMs: Date.now(),
     };
 
     expect(validatePublishInput(base)).toBeNull();
@@ -36,6 +38,7 @@ describe("creator-posts", () => {
     ).toContain(String(MIN_POST_PRICE_USDC));
 
     expect(validatePublishInput({ ...base, title: "ab" })).toContain("Title");
+    expect(validatePublishInput({ ...base, username: "ab" })).toContain("Username");
     expect(
       validatePublishInput({ ...base, payoutWallet: "0xbad" }),
     ).toContain("Payout");
@@ -47,7 +50,9 @@ describe("creator-posts", () => {
       subheading: "Public teaser for readers",
       body: "This is the paywalled body with enough length.",
       priceUsdc: "0.001",
+      username: "alpha_reader",
       connectedWallet: CONNECTED,
+      signedAtMs: Date.now(),
     };
 
     expect(
@@ -61,7 +66,9 @@ describe("creator-posts", () => {
       subheading: "Public teaser for readers",
       body: "This is the paywalled body with enough length.",
       priceUsdc: "0.001",
+      username: "alpha_reader",
       connectedWallet: CONNECTED,
+      signedAtMs: Date.now(),
     };
 
     expect(

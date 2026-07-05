@@ -20,6 +20,7 @@ import { formatUnits } from "viem";
 import { CANTEEN_USDC_ABI, getCanteenUsdcAddress } from "./canteen-usdc.ts";
 import { getTrustScores, type TrustScore } from "./trustgate.ts";
 import { partitionByTrust, type RankableSource } from "./trust-rank.ts";
+import { resolveSiteOrigin } from "./site-url.ts";
 
 export type ResearchOptions = {
   /** Minimum TrustGate score to cite a source. Default 0 = nothing blocked. */
@@ -36,7 +37,7 @@ function formatTrust(trust: TrustScore | null): string {
 
 const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000" as const;
 const ARC_TESTNET_RPC = "https://rpc.testnet.arc.network";
-const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
+const BASE_URL = resolveSiteOrigin();
 const DEPOSIT_AMOUNT = process.env.DEPOSIT_AMOUNT ?? "1";
 const GAS_FUND_AMOUNT = parseEther("0.01");
 

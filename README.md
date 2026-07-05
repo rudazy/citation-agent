@@ -22,6 +22,8 @@ Citation Agent is a production-style reference for agentic commerce over paywall
 | --- | --- | --- |
 | **Catalog** | Browse, unlock, cite research | Markdown seeds + Supabase posts, catalog filter |
 | **Commerce** | Per-report USDC unlock | x402 v2, Gateway batch settlement, royalty ledger |
+| **Identity** | `@username` on posts and comments | `platform_profiles` + `profile_wallets` (agent + publisher) |
+| **Discussion** | Threaded comments on unlocked posts | `post_comments`, unlock gate, agent session only |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, on-chain registry |
 | **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect on mobile, sign restore on connect, Gateway pay |
@@ -59,7 +61,7 @@ flowchart TB
   end
 
   subgraph Persistence["Persistence"]
-    Supabase[("Supabase · posts · earnings · agent wallets")]
+    Supabase[("Supabase · posts · profiles · comments · earnings · agent wallets")]
     Seeds["content/creators/*.md"]
   end
 
@@ -160,6 +162,36 @@ Setup UI: landing → choose Recover or Create → step 2. Re-tap **Agent wallet
 
 ---
 
+## Platform identity and comments
+
+Researchers and readers share one **platform username** (`@name`, 3–24 chars, lowercase). Usernames are chosen on first publish or first comment, linked to the session agent wallet and optionally the publisher wallet. A 7-day cooldown applies between username changes.
+
+Comments are available only on **unlocked** posts. Readers comment via the session agent wallet (no MetaMask popups). Replies are threaded via `parentId`. Catalog posts show `@username` as the author when published from Supabase.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Reader as Reader · agent wallet
+  participant UI as Unlocked post · Comments
+  participant Profile as Profile API
+  participant Comments as Comments API
+  participant DB as Supabase
+
+  Reader->>UI: Expand unlocked post
+  UI->>Comments: GET ?postId=
+  Comments->>DB: post_comments + platform_profiles
+  Comments-->>UI: threaded comment list
+  alt No username yet
+    Reader->>Profile: POST username
+    Profile->>DB: platform_profiles + profile_wallets
+  end
+  Reader->>Comments: POST body · optional parentId
+  Comments->>DB: verify unlock · insert comment
+  Comments-->>UI: 201 + comment
+```
+
+---
+
 ## Research backing and reputation
 
 Backing is framed as commerce copy on catalog cards (`Back this research` / `Back this researcher`). Stakes are public on-chain claims grouped by canonical target (`author:…`, `citation:…`). Reputation is optional per card — free badge when configured, paid verify when the user opts in.
@@ -210,7 +242,11 @@ copy .env.example .env.local
 npm run generate-wallets
 ```
 
-Fund the buyer address from the faucet. Configure attestation and Supabase variables (see `.env.example` and `.env.local.example`). Apply migrations in `supabase/migrations/` — including `20260629100000_user_agent_wallet_linked_wallet.sql` and `20260629110000_user_agent_wallet_link_verified.sql` for agent wallet recovery.
+Fund the buyer address from the faucet. Configure attestation and Supabase variables (see `.env.example` and `.env.local.example`). Apply all migrations in `supabase/migrations/` on your Supabase project (agent wallet recovery, publish, usernames, threaded comments). Per file:
+
+```cmd
+npx tsx scripts/apply-sql-migration.mts supabase/migrations/<migration>.sql
+```
 
 ```cmd
 npm run dev
@@ -255,7 +291,17 @@ npm run smoke:marketplace:full
 | `GET /api/marketplace/citations` | Public | Catalog metadata, backing stats, prior unlocks for session agent |
 | `GET /api/marketplace/citations?id=` | x402 | Unlock body; records earnings |
 | `GET /api/marketplace/citations?refresh=1` | Public | Bust attestation cache after new backing |
-| `POST /api/marketplace/citations` | Wallet signature | Publish a post |
+| `POST /api/marketplace/citations` | Wallet signature | Publish a post (requires `@username`) |
+| `GET /api/marketplace/comments?postId=` | Public | Threaded comments for a post |
+| `POST /api/marketplace/comments` | Session agent | Comment or reply (unlock required) |
+
+### Profile
+
+| Endpoint | Auth | Notes |
+| --- | --- | --- |
+| `GET /api/profile` | Session | Current username, change cooldown, agent status |
+| `GET /api/profile?publisher=` | Session | Resolve profile across agent + publisher wallets |
+| `POST /api/profile` | Session agent | Set or change username; optional `publisherAddress` link |
 
 ### Gateway and agent wallet
 
@@ -297,7 +343,7 @@ Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.exampl
 | `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-session agent keys (32+ chars); keep stable across deploys |
 | `NEXT_PUBLIC_SITE_URL` / `BASE_URL` | Official origin (`https://agentcitation.xyz` in production) |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Reown AppKit / WalletConnect (mobile connect); allowlist `https://agentcitation.xyz` in [dashboard.reown.com](https://dashboard.reown.com) |
-| Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, royalties, agent wallets, paid trust cache |
+| Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, profiles, comments, royalties, agent wallets, paid trust cache |
 
 **TrustGate (optional)**
 

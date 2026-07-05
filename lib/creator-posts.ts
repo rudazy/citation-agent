@@ -33,7 +33,8 @@ export type PublishPostInput = {
   body: string;
   priceUsdc: string;
   tags?: string[];
-  authorName?: string;
+  /** Unique platform username — stored as author_name on the post. */
+  username: string;
   payoutWallet?: string;
   connectedWallet: `0x${string}`;
   /** Wallet sign time (ms) — persisted as publish_signed_at for audit. */
@@ -88,6 +89,12 @@ export function validatePublishInput(input: PublishPostInput): string | null {
   if (price == null) return "Price must be a valid number";
   if (price < MIN_POST_PRICE_USDC) {
     return `Minimum price is ${MIN_POST_PRICE_USDC} USDC`;
+  }
+
+  const username = input.username.trim().toLowerCase();
+  if (!username) return "Username is required";
+  if (!/^[a-z0-9_]{3,24}$/.test(username)) {
+    return "Username must be 3–24 characters: lowercase letters, numbers, underscores";
   }
 
   if (input.payoutWallet) {
@@ -211,7 +218,7 @@ export async function insertPublishedPost(
     body: input.body.trim(),
     price_usdc: price.toFixed(6).replace(/\.?0+$/, "") || MIN_POST_PRICE_USDC.toString(),
     tags: (input.tags ?? []).map((t) => t.trim()).filter(Boolean).slice(0, 12),
-    author_name: input.authorName?.trim() || defaultAuthorName(connectedWallet),
+    author_name: input.username.trim().toLowerCase(),
     connected_wallet: connectedWallet.toLowerCase(),
     payout_wallet: payoutWallet.toLowerCase(),
     publish_signed_at: new Date(input.signedAtMs).toISOString(),

@@ -6,7 +6,6 @@ export type PublishPayloadInput = {
   body: string;
   priceUsdc: string;
   payoutWallet?: string;
-  authorName?: string;
   tags?: string[];
 };
 
@@ -18,10 +17,8 @@ export function canonicalPublishPayload(input: PublishPayloadInput): string {
     .sort((a, b) => a.localeCompare(b));
 
   const payout = input.payoutWallet?.trim() ?? "";
-  const author = input.authorName?.trim() ?? "";
 
   return JSON.stringify({
-    author_name: author,
     body: input.body,
     payout_wallet: payout ? payout.toLowerCase() : "",
     price_usdc: input.priceUsdc.trim(),
@@ -79,12 +76,6 @@ export function publishPayloadFromBody(body: Record<string, unknown>): PublishPa
         ? body.payout_wallet
         : typeof body.payoutWallet === "string"
           ? body.payoutWallet
-          : undefined,
-    authorName:
-      typeof body.author_name === "string"
-        ? body.author_name
-        : typeof body.authorName === "string"
-          ? body.authorName
           : undefined,
     tags,
   };

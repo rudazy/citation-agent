@@ -16,7 +16,14 @@ import {
   registerOpenConnectModal,
 } from "@/lib/wallet-connection-client";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      throwOnError: false,
+    },
+  },
+});
 
 let appKitModal: AppKit | null = null;
 

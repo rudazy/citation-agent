@@ -24,6 +24,8 @@ import {
   indexBackingSummaries,
   reportBackingTarget,
 } from "@/lib/research-backing";
+import { requirePublisherUsername } from "@/lib/platform-profile";
+import { getCommentCountsForPosts } from "@/lib/post-comments";
 import { resolveUserAgent } from "@/lib/resolve-user-agent";
 import { getTrustScores } from "@/lib/trustgate";
 import { withGateway, type GatewayContext } from "@/lib/x402";
@@ -113,7 +115,8 @@ export async function GET(req: NextRequest) {
     const agent = await resolveUserAgent();
     const citationIds = content.map((item) => item.id);
 
-    const [scores, backingIndex, priorUnlocks, ledgerStats] = await Promise.all([
+    const [scores, backingIndex, priorUnlocks, ledgerStats, commentCounts] =
+      await Promise.all([
       getTrustScores(content.map((item) => resolveTrustIdentityWallet(item))),
       getBackingSummariesForTargets(backingTargets, {
         forceOnChain: forceBackingRefresh,
@@ -123,6 +126,7 @@ export async function GET(req: NextRequest) {
         citationIds,
         content.map((item) => item.payoutWallet),
       ),
+      getCommentCountsForPosts(citationIds),
     ]);
 
     const paidTrustAvailable = isPaidTrustLookupAvailable();
@@ -155,6 +159,8 @@ export async function GET(req: NextRequest) {
         already_unlocked: alreadyUnlocked,
         ...(alreadyUnlocked ? { unlocked_body: item.body } : {}),
         ...(item.publishedAt ? { published_at: item.publishedAt } : {}),
+        comment_count: commentCounts.get(item.id) ?? 0,
+        author_is_username: item.source === "database",
       };
     });
 
@@ -205,13 +211,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const sessionAgent = await resolveUserAgent();
+  const profileResult = await requirePublisherUsername(
+    publishAuth.connectedWallet,
+    sessionAgent?.address,
+  );
+  if (!profileResult.ok) {
+    return NextResponse.json({ error: profileResult.error }, { status: profileResult.status });
+  }
+
   const result = await insertPublishedPost({
     title: payload.title,
     subheading: payload.subheading,
     body: payload.body,
     priceUsdc: payload.priceUsdc,
     tags: payload.tags,
-    authorName: payload.authorName,
+    username: profileResult.profile.username,
     payoutWallet: payload.payoutWallet,
     connectedWallet: publishAuth.connectedWallet,
     signedAtMs: publishAuth.signedAtMs,

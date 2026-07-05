@@ -75,6 +75,49 @@ Optional behavioral trust scores enrich citation cards, the claims registry, and
 
 Scores are cached in memory with a configurable TTL. A second lookup for the same target does not charge again while cached.
 
+### Platform usernames
+
+Researchers and readers share a single **platform username** displayed as `@name` on catalog cards and comments. Rules:
+
+| Rule | Detail |
+| --- | --- |
+| Format | 3–24 chars, lowercase letters, numbers, underscores |
+| Uniqueness | One username globally; API returns 409 on collision |
+| Linking | `profile_wallets` maps agent wallet (`agent`) and publisher wallet (`publisher`) to one profile |
+| Change cooldown | 7 days between username changes |
+| Publish | Wallet-signed publish requires a username; stored as `author_name` on `creator_posts` |
+| Comments | Session agent wallet only; username chosen on first comment if not set |
+
+### Post comments
+
+Unlocked buyers can comment on expanded posts. Comments are stored in `post_comments` with optional `parent_id` for threaded replies.
+
+| Requirement | Detail |
+| --- | --- |
+| Unlock gate | Agent wallet must have a `creator_earnings` unlock for the post |
+| Auth | Session agent wallet (auto-provisioned if missing) |
+| Rate limit | 20 comments per minute per agent address |
+| Visibility | `GET /api/marketplace/comments?postId=` is public; bodies require no auth |
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Reader as Reader · agent wallet
+  participant UI as Unlocked post
+  participant Profile as POST /api/profile
+  participant API as POST /api/marketplace/comments
+  participant DB as Supabase
+
+  Reader->>UI: Open Comments on unlocked post
+  alt No username
+    Reader->>Profile: Set username
+    Profile->>DB: platform_profiles
+  end
+  Reader->>API: body · optional parentId
+  API->>DB: verify unlock · insert post_comments
+  API-->>UI: 201 comment
+```
+
 ### Session agent wallets
 
 Each browser session gets a persistent **agent wallet** tied to an `agent_session` httpOnly cookie. Private keys are encrypted in Supabase (`user_agent_wallets`). These wallets fund Gateway deposits, in-app unlocks, server-side attestations, and paid trust refresh — separate from the CLI funder wallet (`BUYER_PRIVATE_KEY`).
@@ -186,9 +229,9 @@ flowchart LR
 The public demo page. Sections, top to bottom:
 
 1. **Hero** — product positioning
-2. **Publish** — connect wallet (WalletConnect or MetaMask), sign `"Citation Agent publish {timestamp}"`, submit title/subheading/body/price/tags; minimum price 0.001 USDC
+2. **Publish** — connect wallet (WalletConnect or MetaMask), choose a unique `@username`, sign `"Citation Agent publish {timestamp} {payloadDigest}"`, submit title/subheading/body/price/tags; minimum price 0.001 USDC
 3. **Buyer demo** — pay `$0.01` hello-world via agent wallet or MetaMask; fund and deposit to Gateway
-4. **Citation catalog** — browse listings, expand to unlock (x402), refresh trust, attest about an author
+4. **Citation catalog** — browse listings, expand to unlock (x402), threaded comments when unlocked, refresh trust, attest about an author
 5. **Claims registry** — browse on-chain attestations by target
 6. **Payment trace** — inspect a settlement UUID through facilitator queue to on-chain batch
 
@@ -208,7 +251,7 @@ Operator and analytics view. Tabs:
 
 Without Supabase, the UI still loads but payment and royalty tables stay empty; a setup banner explains what is missing.
 
-The root path `/` redirects to `/dashboard`.
+The root path `/` redirects to `/marketplace`.
 
 ---
 
@@ -220,7 +263,11 @@ The root path `/` redirects to `/dashboard`.
 | --- | --- | --- | --- |
 | GET | `/api/marketplace/citations` | Public | Catalog (no body, no wallets) |
 | GET | `/api/marketplace/citations?id=` | x402 | Unlock citation body; records royalty |
-| POST | `/api/marketplace/citations` | Wallet signature | Publish a new post |
+| POST | `/api/marketplace/citations` | Wallet signature | Publish a new post (username required) |
+| GET | `/api/marketplace/comments?postId=` | Public | Threaded comments for a post |
+| POST | `/api/marketplace/comments` | Session agent | Comment or reply (unlock required) |
+| GET | `/api/profile` | Session | Username, cooldown, agent status |
+| POST | `/api/profile` | Session agent | Set or change username |
 | GET | `/api/marketplace/hello` | x402 ($0.01) | Hello-world paid resource |
 | GET | `/api/marketplace/settlement/:id` | Public | Gateway transfer status (proxy) |
 | GET | `/api/marketplace/batch-tx/:id` | Public | Resolve settlement to batch transaction |
@@ -317,7 +364,10 @@ Supabase is optional for local UI exploration but required for publish, operator
 | `payment_events` | Append-only x402 settlement log (service-role only) |
 | `creator_earnings` | Per-unlock royalty records (full amount to creator payout wallet; service-role only) |
 | `agent_reputation` | Payer spend totals and citation counts (service-role only) |
-| `creator_posts` | Published marketplace content (service-role access only) |
+| `creator_posts` | Published marketplace content; `author_name` stores platform username (service-role access only) |
+| `platform_profiles` | Unique usernames and change timestamps |
+| `profile_wallets` | Maps agent and publisher wallets to a profile |
+| `post_comments` | Threaded comments on unlocked posts (`parent_id` for replies) |
 | `user_agent_wallets` | Encrypted agent private keys; `session_id`, optional `linked_wallet` (unique), `linked_wallet_verified` |
 | `attestation_platform_fees` | On-chain attest platform fee audit trail |
 | `withdrawals` | Gateway withdrawal records (scoped by wallet and role) |

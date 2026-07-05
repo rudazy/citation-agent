@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchWithRetry } from "@/lib/client-fetch";
 
 type MarketplaceMetrics = {
   creatorsPublishing: number;
@@ -39,7 +40,7 @@ export function MarketplaceStats() {
     let active = true;
     (async () => {
       try {
-        const res = await fetch("/api/marketplace/metrics", { cache: "no-store" });
+        const res = await fetchWithRetry("/api/marketplace/metrics", { cache: "no-store" });
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = (await res.json()) as MarketplaceMetrics;
         if (active) setMetrics(data);

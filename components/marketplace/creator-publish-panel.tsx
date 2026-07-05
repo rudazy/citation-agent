@@ -16,11 +16,13 @@ import {
 import { ArticleBodyEditor } from "@/components/marketplace/article-body-editor";
 import { CreatorGatewayEarnings } from "@/components/marketplace/creator-gateway-earnings";
 import { PublisherPostsDropdown } from "@/components/marketplace/publisher-posts-dropdown";
+import { UsernameSetupForm } from "@/components/marketplace/username-setup-form";
 import {
   TrustSignalBadge,
   type PublicTrustSignal,
 } from "@/components/marketplace/trust-signal";
 import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
+import { fetchProfile, type ProfileStatus } from "@/lib/profile-client";
 import { publishHeaders, signPublishAuth } from "@/lib/publish-client";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -49,8 +51,9 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   const [body, setBody] = useState("");
   const [priceUsdc, setPriceUsdc] = useState(String(MIN_POST_PRICE_USDC));
   const [payoutWallet, setPayoutWallet] = useState("");
-  const [authorName, setAuthorName] = useState("");
   const [tags, setTags] = useState("");
+  const [profile, setProfile] = useState<ProfileStatus | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   useEffect(() => {
     setWalletAvailable(isWalletUiAvailable());
@@ -78,6 +81,28 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       cancelled = true;
     };
   }, [connected]);
+
+  useEffect(() => {
+    if (!connected) {
+      setProfile(null);
+      return;
+    }
+    let cancelled = false;
+    setProfileLoading(true);
+    void fetchProfile(connected)
+      .then((status) => {
+        if (!cancelled) setProfile(status);
+      })
+      .catch(() => {
+        if (!cancelled) setProfile(null);
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, myPostsRefresh]);
 
   const connectWallet = useCallback(async () => {
     if (!isWalletUiAvailable()) {
@@ -111,6 +136,13 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       return;
     }
 
+    if (!profile?.username) {
+      toast.error("Username required", {
+        description: "Choose a unique username before publishing.",
+      });
+      return;
+    }
+
     setPublishing(true);
     try {
       let provider: EthereumProvider;
@@ -135,7 +167,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
         body,
         priceUsdc,
         payoutWallet: payoutWallet.trim() || undefined,
-        authorName: authorName.trim() || undefined,
         tags: tags
           .split(",")
           .map((t) => t.trim())
@@ -152,7 +183,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           body: publishPayload.body,
           price_usdc: publishPayload.priceUsdc,
           payout_wallet: publishPayload.payoutWallet,
-          author_name: publishPayload.authorName,
           tags: publishPayload.tags,
         }),
       });
@@ -184,7 +214,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       setBody("");
       setPriceUsdc(String(MIN_POST_PRICE_USDC));
       setPayoutWallet("");
-      setAuthorName("");
       setTags("");
       setArticleExpanded(false);
       setMyPostsRefresh((n) => n + 1);
@@ -201,8 +230,8 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       setPublishing(false);
     }
   }, [
-    authorName,
     body,
+    profile?.username,
     connected,
     onPublished,
     payoutWallet,
@@ -233,7 +262,9 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           <p className="font-mono text-xs sm:text-sm text-muted-foreground leading-relaxed">
             {expanded
               ? connected
-                ? `Publishing as ${shortAddress} — reputation follows your signing wallet.`
+                ? profile?.displayName
+                  ? `Publishing as ${profile.displayName} — wallet ${shortAddress}.`
+                  : `Connect wallet ${shortAddress} — choose a username to publish.`
                 : "Connect wallet to publish and view your listings."
               : "Creators — expand to connect wallet and list paywalled research."}
           </p>
@@ -370,19 +401,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="publish-author" className="font-mono text-xs text-[#888]">
-                    Display name (optional)
-                  </Label>
-                  <Input
-                    id="publish-author"
-                    value={authorName}
-                    onChange={(e) => setAuthorName(e.target.value)}
-                    placeholder="Defaults to shortened wallet"
-                    className="border-[#333] bg-[#111] font-mono text-sm"
-                  />
-                </div>
-
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="publish-payout" className="font-mono text-xs text-[#888]">
                     Payout wallet (optional)
@@ -412,11 +430,32 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             )}
           </div>
 
+          {connected && (
+            <div className="rounded border border-[#1f1f1f] bg-[#111]/60 px-3 py-3 space-y-2">
+              <p className="text-sm font-semibold tracking-wide">Username</p>
+              {profileLoading ? (
+                <p className="font-mono text-[10px] text-[#666]">Loading profile…</p>
+              ) : profile?.displayName ? (
+                <p className="font-mono text-xs text-[#f5c842]">{profile.displayName}</p>
+              ) : (
+                <p className="font-mono text-[10px] text-[#888]">
+                  Required for publishing. Shared with comments on unlocked posts.
+                </p>
+              )}
+              <UsernameSetupForm
+                publisherAddress={connected}
+                profile={profile}
+                submitLabel={profile?.hasProfile ? "Update username" : "Choose username"}
+                onSaved={(saved) => setProfile(saved)}
+              />
+            </div>
+          )}
+
           <CreatorGatewayEarnings connected={connected} payoutWalletInput={payoutWallet} />
 
           <Button
             type="button"
-            disabled={!walletAvailable || !connected || publishing}
+            disabled={!walletAvailable || !connected || publishing || !profile?.username}
             onClick={() => void publish()}
             className="w-full sm:w-auto border border-[#f5c842]/40 bg-[#f5c842]/10 text-[#f5c842] hover:bg-[#f5c842]/20 font-mono text-xs tracking-wide"
           >

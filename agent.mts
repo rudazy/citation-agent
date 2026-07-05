@@ -11,6 +11,7 @@ import { arcTestnet } from "viem/chains";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import * as readline from "node:readline/promises";
 import { runResearchQuery } from "./lib/research-agent.mts";
+import { resolveSiteOrigin } from "./lib/site-url.ts";
 
 // Flags that consume the following argument, so their values never leak into
 // the research query string.
@@ -151,7 +152,7 @@ if (!funderKey) {
 const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000" as const;
 const ARC_TESTNET_RPC = "https://rpc.testnet.arc.network";
 
-const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
+const BASE_URL = resolveSiteOrigin();
 const DEPOSIT_AMOUNT = process.env.DEPOSIT_AMOUNT ?? "1";
 // Amount of native USDC to send for gas (Arc testnet gas = USDC with 18 decimals)
 const GAS_FUND_AMOUNT = parseEther("0.01");

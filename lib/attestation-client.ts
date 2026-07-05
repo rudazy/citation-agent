@@ -397,19 +397,32 @@ export type AgentWalletStatusResponse = {
   configError?: string | null;
 };
 
+const EMPTY_AGENT_WALLET_STATUS: AgentWalletStatusResponse = {
+  configured: false,
+  address: null,
+  usdcBalance: null,
+  gatewayUsdc: null,
+  canProvision: true,
+};
+
 export async function fetchAgentWalletStatus(): Promise<AgentWalletStatusResponse> {
-  const res = await fetch("/api/agent-wallet");
-  if (!res.ok) {
-    throw new Error("Failed to load agent wallet status");
+  try {
+    const { fetchWithRetry } = await import("@/lib/client-fetch");
+    const res = await fetchWithRetry("/api/agent-wallet");
+    if (!res.ok) {
+      throw new Error("Failed to load agent wallet status");
+    }
+    const data = (await res.json()) as AgentWalletStatusResponse;
+    if (data.configured && data.address) {
+      storeAgentWalletAddress(data.address);
+    }
+    if (data.linkedWallet) {
+      storeLinkedMetaMaskAddress(data.linkedWallet);
+    }
+    return data;
+  } catch {
+    return EMPTY_AGENT_WALLET_STATUS;
   }
-  const data = (await res.json()) as AgentWalletStatusResponse;
-  if (data.configured && data.address) {
-    storeAgentWalletAddress(data.address);
-  }
-  if (data.linkedWallet) {
-    storeLinkedMetaMaskAddress(data.linkedWallet);
-  }
-  return data;
 }
 
 async function assertConnectedMatchesPasted(

@@ -26,6 +26,7 @@ import { AttestModal } from "@/components/attest";
 import { AttestTrigger } from "@/components/attest/attest-trigger";
 import { BackingHint } from "@/components/marketplace/backing-hint";
 import { CitationBodyMarkdown } from "@/components/marketplace/citation-body-markdown";
+import { PostCommentsSection } from "@/components/marketplace/post-comments-section";
 import {
   TrustSignalBadge,
   type PublicTrustSignal,
@@ -60,6 +61,8 @@ import { depositToGatewayViaMetaMask } from "@/lib/gateway-metamask";
 import { depositAgentGatewayViaApi } from "@/lib/gateway-pay";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { copyPostShareLink, getPostIdFromSearchParams } from "@/lib/post-share-url";
+import { fetchWithRetry } from "@/lib/client-fetch";
+import { formatUsernameDisplay } from "@/lib/username";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -85,6 +88,8 @@ type CitationListing = {
   already_unlocked?: boolean;
   unlocked_body?: string;
   published_at?: string;
+  comment_count?: number;
+  author_is_username?: boolean;
 };
 
 type ExpandState =
@@ -456,7 +461,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     setError(null);
     try {
       const query = options?.refresh ? "?refresh=1" : "";
-      const res = await fetch(`/api/marketplace/citations${query}`, { signal });
+      const res = await fetchWithRetry(`/api/marketplace/citations${query}`, { signal });
       if (!res.ok) throw new Error(`Failed to load research (${res.status})`);
       const data = (await res.json()) as { listings?: CitationListing[] };
       const rows = (data.listings ?? []).filter(isPublicResearchListing);
@@ -745,7 +750,11 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                       {item.title}
                     </h3>
                     <div className="space-y-0.5">
-                      <p className="font-mono text-xs text-[#666]">{item.author}</p>
+                      <p className="font-mono text-xs text-[#666]">
+                        {item.author_is_username
+                          ? formatUsernameDisplay(item.author)
+                          : item.author}
+                      </p>
                       {item.published_at && (
                         <p className="font-mono text-[10px] text-[#666]">
                           {formatPaymentDate(item.published_at)}
@@ -949,6 +958,12 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                         <CitationBodyMarkdown content={expand.body} />
                       </div>
                     )}
+
+                    <PostCommentsSection
+                      postId={item.id}
+                      initialCount={item.comment_count ?? 0}
+                      unlocked={isUnlocked}
+                    />
 
                     {item.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">

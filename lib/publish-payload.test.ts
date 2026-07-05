@@ -14,13 +14,12 @@ describe("publish-payload", () => {
       body: "Body text",
       priceUsdc: "0.01",
       tags: ["z", "a"],
-      authorName: "Analyst",
+
       payoutWallet: "0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62",
     });
 
     expect(canonical).toBe(
       JSON.stringify({
-        author_name: "Analyst",
         body: "Body text",
         payout_wallet: "0x60c05e2d820ce989e944ed4e7bb33baeb8705c62",
         price_usdc: "0.01",
