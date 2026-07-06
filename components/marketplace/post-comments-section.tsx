@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UsernameSetupForm } from "@/components/marketplace/username-setup-form";
+import { resolveCatalogAuthHeaders } from "@/lib/citation-catalog-auth";
 import { fetchWithRetry } from "@/lib/client-fetch";
 import { fetchProfile, type ProfileStatus } from "@/lib/profile-client";
+import { getConnectedWalletAddress } from "@/lib/wallet-connection-client";
 import { buildCommentTree, type CommentNode, type FlatComment } from "@/lib/comment-tree";
 import { formatUsernameDisplay } from "@/lib/username";
 import { formatPaymentDate } from "@/lib/format-datetime";
@@ -156,6 +158,7 @@ export function PostCommentsSection({ postId, initialCount = 0, unlocked }: Prop
   const [needsUsername, setNeedsUsername] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState<PendingSubmit | null>(null);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [connectedWallet, setConnectedWallet] = useState<`0x${string}` | null>(null);
 
   const commentTree = useMemo(() => buildCommentTree(comments), [comments]);
 
@@ -188,7 +191,9 @@ export function PostCommentsSection({ postId, initialCount = 0, unlocked }: Prop
   const loadProfile = useCallback(async () => {
     setProfileLoading(true);
     try {
-      const status = await fetchProfile();
+      const connected = await getConnectedWalletAddress();
+      setConnectedWallet(connected);
+      const status = await fetchProfile(connected ?? undefined);
       setProfile(status);
       return status;
     } catch {
@@ -216,14 +221,17 @@ export function PostCommentsSection({ postId, initialCount = 0, unlocked }: Prop
     setPosting(true);
     setError(null);
     try {
+      const wallet = connectedWallet ?? (await getConnectedWalletAddress());
+      const authHeaders = await resolveCatalogAuthHeaders();
       const res = await fetch("/api/marketplace/comments", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders },
         body: JSON.stringify({
           postId,
           body: text,
           ...(options.parentId ? { parentId: options.parentId } : {}),
           ...(options.username ? { username: options.username } : {}),
+          ...(wallet ? { publisherAddress: wallet } : {}),
         }),
       });
       const data = (await res.json()) as {
@@ -308,6 +316,7 @@ export function PostCommentsSection({ postId, initialCount = 0, unlocked }: Prop
               </p>
               <UsernameSetupForm
                 compact
+                publisherAddress={connectedWallet}
                 profile={profile}
                 submitLabel="Save and comment"
                 onSaved={async (saved) => {

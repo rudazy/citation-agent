@@ -1,6 +1,7 @@
 import { getAdminClient } from "@/lib/supabase/admin";
-import { getPriorUnlockIds } from "@/lib/citation-prior-unlock";
-import { getCreatorContentById } from "@/lib/citations";
+import { isCreatorOwnedPost } from "@/lib/citation-creator-access";
+import { getPriorUnlockIdsForWallets } from "@/lib/citation-prior-unlock";
+import { getCreatorContentById, type CreatorContent } from "@/lib/citations";
 import { formatUsernameDisplay } from "@/lib/username";
 import type { PlatformProfile } from "@/lib/platform-profile";
 
@@ -85,6 +86,17 @@ export type AddCommentResult =
   | { ok: true; comment: PostComment }
   | { ok: false; error: string; status: number };
 
+/** True when any viewer wallet paid to unlock or published the post. */
+export async function canCommentOnPost(
+  post: CreatorContent,
+  viewerWallets: Set<string>,
+): Promise<boolean> {
+  if (viewerWallets.size === 0) return false;
+  if (isCreatorOwnedPost(post, viewerWallets)) return true;
+  const unlocked = await getPriorUnlockIdsForWallets(viewerWallets, [post.id]);
+  return unlocked.has(post.id);
+}
+
 async function getCommentById(commentId: string): Promise<{
   id: string;
   post_id: string;
@@ -106,7 +118,7 @@ async function getCommentById(commentId: string): Promise<{
 export async function addComment(params: {
   postId: string;
   profile: PlatformProfile;
-  agentAddress: `0x${string}`;
+  viewerWallets: Set<string>;
   body: string;
   parentId?: string | null;
 }): Promise<AddCommentResult> {
@@ -133,8 +145,8 @@ export async function addComment(params: {
     return { ok: false, error: "Post not found", status: 404 };
   }
 
-  const unlocked = await getPriorUnlockIds(params.agentAddress, [postId]);
-  if (!unlocked.has(postId)) {
+  const allowed = await canCommentOnPost(post, params.viewerWallets);
+  if (!allowed) {
     return {
       ok: false,
       error: "Unlock this post before commenting",

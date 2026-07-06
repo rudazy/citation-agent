@@ -24,3 +24,16 @@ export async function getPriorUnlockIds(
       .map((row) => row.citation_id),
   );
 }
+
+/** Union of citation ids unlocked by any of the given payer wallets. */
+export async function getPriorUnlockIdsForWallets(
+  payers: Iterable<string>,
+  citationIds: string[],
+): Promise<Set<string>> {
+  const unlocked = new Set<string>();
+  for (const payer of payers) {
+    const ids = await getPriorUnlockIds(payer, citationIds);
+    for (const id of ids) unlocked.add(id);
+  }
+  return unlocked;
+}
