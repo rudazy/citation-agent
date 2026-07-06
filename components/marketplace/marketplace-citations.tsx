@@ -63,9 +63,7 @@ import { formatPaymentDate } from "@/lib/format-datetime";
 import { copyPostShareLink, getPostIdFromSearchParams } from "@/lib/post-share-url";
 import { resolveCatalogAuthHeaders } from "@/lib/citation-catalog-auth";
 import { fetchWithRetry } from "@/lib/client-fetch";
-import { getConnectedWalletAddress } from "@/lib/wallet-connection-client";
-import { watchAccount } from "@wagmi/core";
-import { wagmiConfig } from "@/config/wagmi";
+
 import { formatUsernameDisplay } from "@/lib/username";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -471,10 +469,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     setError(null);
     try {
       const query = options?.refresh ? "?refresh=1" : "";
-      const connected = await getConnectedWalletAddress();
-      const authHeaders = await resolveCatalogAuthHeaders({
-        signIfMissing: Boolean(options?.refresh && connected),
-      });
+      const authHeaders = await resolveCatalogAuthHeaders();
       const res = await fetchWithRetry(`/api/marketplace/citations${query}`, {
         signal,
         headers: authHeaders,
@@ -524,15 +519,6 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
       setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    const unwatch = watchAccount(wagmiConfig, {
-      onChange() {
-        void loadListings(undefined, { refresh: true });
-      },
-    });
-    return unwatch;
-  }, [loadListings]);
 
   useEffect(() => {
     const controller = new AbortController();

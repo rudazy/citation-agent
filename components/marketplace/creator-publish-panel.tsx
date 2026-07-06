@@ -23,13 +23,8 @@ import {
 } from "@/components/marketplace/trust-signal";
 import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
 import { fetchProfile, type ProfileStatus } from "@/lib/profile-client";
-import {
-  publishHeaders,
-  signMyPostsAuth,
-  signPublishAuth,
-} from "@/lib/publish-client";
+import { publishHeaders, signPublishAuth } from "@/lib/publish-client";
 import { storeLinkedMetaMaskAddress } from "@/lib/agent-wallet-local";
-import { cacheMyPostsAuth } from "@/lib/my-posts-auth-cache";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import { cn } from "@/lib/utils";
@@ -122,16 +117,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       const { provider, address } = await connectWalletInteractive();
       setConnected(address);
       storeLinkedMetaMaskAddress(address);
-      void (async () => {
-        try {
-          const ethereum = await getEthereumProvider();
-          if (!ethereum) return;
-          const auth = await signMyPostsAuth(ethereum, address);
-          cacheMyPostsAuth(auth);
-        } catch {
-          // User cancelled — catalog can prompt again on unlock.
-        }
-      })();
       setExpanded(true);
       toast.success("Wallet connected", {
         description: `${address.slice(0, 6)}...${address.slice(-4)}`,
