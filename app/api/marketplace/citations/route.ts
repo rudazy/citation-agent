@@ -18,7 +18,12 @@ import {
   getCitationLedgerStats,
   getCreatorEarningsUsdc,
 } from "@/lib/catalog-earnings-stats";
+import {
+  getCreatorOwnedPostIds,
+  isCreatorOwnedPost,
+} from "@/lib/citation-creator-access";
 import { getPriorUnlockIds } from "@/lib/citation-prior-unlock";
+import { resolveCitationViewerWallets } from "@/lib/citation-viewer-wallets";
 import {
   authorBackingTarget,
   indexBackingSummaries,
@@ -26,9 +31,82 @@ import {
 } from "@/lib/research-backing";
 import { requirePublisherUsername } from "@/lib/platform-profile";
 import { getCommentCountsForPosts } from "@/lib/post-comments";
+import { ensureAgentSession } from "@/lib/agent-session";
 import { resolveUserAgent } from "@/lib/resolve-user-agent";
 import { getTrustScores } from "@/lib/trustgate";
+import {
+  getUserAgentWallet,
+  linkUserAgentWalletToMetaMask,
+} from "@/lib/user-agent-wallet";
 import { withGateway, type GatewayContext } from "@/lib/x402";
+import type { CreatorContent } from "@/lib/citations";
+
+function buildCitationUnlockResponse(content: CreatorContent, settledToCreator: boolean) {
+  const canteenAddress = process.env.CANTEEN_USDC_ADDRESS ?? null;
+  const paymentMemo = formatCitationPaymentMemo(content.id, content.author);
+
+  return NextResponse.json({
+    marketplace: {
+      listing_id: content.id,
+      token: canteenAddress ? "cUSDC" : "USDC",
+      canteen_usdc_address: canteenAddress,
+    },
+    citation: {
+      id: content.id,
+      title: content.title,
+      author: content.author,
+      price_usdc: content.priceUsdc,
+      tags: content.tags,
+      subheading: content.subheading,
+      body: content.body,
+      royalty_split: settledToCreator
+        ? { creator_share: "100%", platform_share: "0%" }
+        : { creator_share: "0%", platform_share: "100%" },
+    },
+    attribution: settledToCreator
+      ? "Paid marketplace citation — full amount settled on-chain to the creator payout wallet."
+      : "Paid marketplace citation — settled to the platform operator wallet (legacy seed without a payout wallet).",
+    payment_memo: paymentMemo,
+    arc_memo_contract: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function creatorAccessAttribution(): string {
+  return "Publisher access — you created this post; no unlock payment required.";
+}
+
+function buildCreatorCitationAccessResponse(content: CreatorContent) {
+  const payTo = resolveUnlockPayee(content);
+  const settledToCreator =
+    payTo !== null && payTo.toLowerCase() === content.payoutWallet.toLowerCase();
+  const canteenAddress = process.env.CANTEEN_USDC_ADDRESS ?? null;
+  const paymentMemo = formatCitationPaymentMemo(content.id, content.author);
+
+  return NextResponse.json({
+    marketplace: {
+      listing_id: content.id,
+      token: canteenAddress ? "cUSDC" : "USDC",
+      canteen_usdc_address: canteenAddress,
+    },
+    citation: {
+      id: content.id,
+      title: content.title,
+      author: content.author,
+      price_usdc: content.priceUsdc,
+      tags: content.tags,
+      subheading: content.subheading,
+      body: content.body,
+      royalty_split: settledToCreator
+        ? { creator_share: "100%", platform_share: "0%" }
+        : { creator_share: "0%", platform_share: "100%" },
+    },
+    attribution: creatorAccessAttribution(),
+    payment_memo: paymentMemo,
+    arc_memo_contract: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
+    timestamp: new Date().toISOString(),
+  });
+}
 
 const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
   const id = req.nextUrl.searchParams.get("id");
@@ -70,33 +148,7 @@ const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
     await incrementPostPaidCount(content.id);
   }
 
-  const canteenAddress = process.env.CANTEEN_USDC_ADDRESS ?? null;
-
-  return NextResponse.json({
-    marketplace: {
-      listing_id: content.id,
-      token: canteenAddress ? "cUSDC" : "USDC",
-      canteen_usdc_address: canteenAddress,
-    },
-    citation: {
-      id: content.id,
-      title: content.title,
-      author: content.author,
-      price_usdc: content.priceUsdc,
-      tags: content.tags,
-      subheading: content.subheading,
-      body: content.body,
-      royalty_split: settledToCreator
-        ? { creator_share: "100%", platform_share: "0%" }
-        : { creator_share: "0%", platform_share: "100%" },
-    },
-    attribution: settledToCreator
-      ? "Paid marketplace citation — full amount settled on-chain to the creator payout wallet."
-      : "Paid marketplace citation — settled to the platform operator wallet (legacy seed without a payout wallet).",
-    payment_memo: paymentMemo,
-    arc_memo_contract: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
-    timestamp: new Date().toISOString(),
-  });
+  return buildCitationUnlockResponse(content, settledToCreator);
 };
 
 export async function GET(req: NextRequest) {
@@ -115,6 +167,17 @@ export async function GET(req: NextRequest) {
     const agent = await resolveUserAgent();
     const citationIds = content.map((item) => item.id);
 
+    let creatorOwned = new Set<string>();
+    try {
+      const viewerWallets = await resolveCitationViewerWallets(req);
+      creatorOwned = getCreatorOwnedPostIds(viewerWallets, content);
+    } catch (err) {
+      console.warn(
+        "[citations] Creator access lookup failed; continuing without publisher auto-unlock:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     const [scores, backingIndex, priorUnlocks, ledgerStats, commentCounts] =
       await Promise.all([
       getTrustScores(content.map((item) => resolveTrustIdentityWallet(item))),
@@ -132,7 +195,7 @@ export async function GET(req: NextRequest) {
     const paidTrustAvailable = isPaidTrustLookupAvailable();
 
     const items = content.map((item) => {
-      const alreadyUnlocked = priorUnlocks.has(item.id);
+      const alreadyUnlocked = priorUnlocks.has(item.id) || creatorOwned.has(item.id);
       const ledger = getCitationLedgerStats(ledgerStats, item.id);
       const paidCount = Math.max(item.paidCount, ledger.allTimeReaders);
       return {
@@ -157,6 +220,7 @@ export async function GET(req: NextRequest) {
         author_backing: backingIndex.get(authorBackingTarget(item.author)) ?? null,
         report_backing: backingIndex.get(reportBackingTarget(item.id)) ?? null,
         already_unlocked: alreadyUnlocked,
+        is_own_post: creatorOwned.has(item.id),
         ...(alreadyUnlocked ? { unlocked_body: item.body } : {}),
         ...(item.publishedAt ? { published_at: item.publishedAt } : {}),
         comment_count: commentCounts.get(item.id) ?? 0,
@@ -174,6 +238,13 @@ export async function GET(req: NextRequest) {
   }
 
   const content = await getCreatorContentById(id);
+  if (content) {
+    const viewerWallets = await resolveCitationViewerWallets(req);
+    if (isCreatorOwnedPost(content, viewerWallets)) {
+      return buildCreatorCitationAccessResponse(content);
+    }
+  }
+
   const price = content ? `$${content.priceUsdc}` : "$0.001";
   const payTo = content ? resolveUnlockPayee(content) : null;
 
@@ -234,6 +305,19 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  try {
+    const sessionId = await ensureAgentSession();
+    const existingAgent = await getUserAgentWallet(sessionId);
+    if (existingAgent) {
+      await linkUserAgentWalletToMetaMask(sessionId, publishAuth.connectedWallet);
+    }
+  } catch (err) {
+    console.warn(
+      "[citations] Could not link publisher wallet after publish:",
+      err instanceof Error ? err.message : err,
+    );
   }
 
   return NextResponse.json(

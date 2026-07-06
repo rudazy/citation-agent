@@ -61,7 +61,11 @@ import { depositToGatewayViaMetaMask } from "@/lib/gateway-metamask";
 import { depositAgentGatewayViaApi } from "@/lib/gateway-pay";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { copyPostShareLink, getPostIdFromSearchParams } from "@/lib/post-share-url";
+import { resolveCatalogAuthHeaders } from "@/lib/citation-catalog-auth";
 import { fetchWithRetry } from "@/lib/client-fetch";
+import { getConnectedWalletAddress } from "@/lib/wallet-connection-client";
+import { watchAccount } from "@wagmi/core";
+import { wagmiConfig } from "@/config/wagmi";
 import { formatUsernameDisplay } from "@/lib/username";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -86,6 +90,7 @@ type CitationListing = {
   author_backing?: ResearchBackingStats | null;
   report_backing?: ResearchBackingStats | null;
   already_unlocked?: boolean;
+  is_own_post?: boolean;
   unlocked_body?: string;
   published_at?: string;
   comment_count?: number;
@@ -311,6 +316,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
       setExpand(item.id, { status: "loading" });
 
       try {
+        const catalogAuthHeaders = await resolveCatalogAuthHeaders({ signIfMissing: true });
         let result;
         if (payer === "metamask") {
           const ethereum: EthereumProvider | undefined = window.ethereum;
@@ -326,11 +332,13 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             author: item.author,
             account,
             ethereum,
+            catalogAuthHeaders,
           });
         } else {
           result = await unlockCitationViaAgent({
             listingId: item.id,
             author: item.author,
+            catalogAuthHeaders,
           });
         }
 
@@ -339,7 +347,9 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
             setExpand(item.id, { status: "unlocked", body: result.body });
             storeUnlock(item.id, result.body);
             bumpPaidCount(item.id);
-            toast.success("Research unlocked");
+            toast.success(
+              item.is_own_post ? "Your post — no payment needed" : "Research unlocked",
+            );
             break;
           case "cancelled":
             setExpand(item.id, { status: "locked" });
@@ -461,8 +471,21 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     setError(null);
     try {
       const query = options?.refresh ? "?refresh=1" : "";
-      const res = await fetchWithRetry(`/api/marketplace/citations${query}`, { signal });
-      if (!res.ok) throw new Error(`Failed to load research (${res.status})`);
+      const connected = await getConnectedWalletAddress();
+      const authHeaders = await resolveCatalogAuthHeaders({
+        signIfMissing: Boolean(options?.refresh && connected),
+      });
+      const res = await fetchWithRetry(`/api/marketplace/citations${query}`, {
+        signal,
+        headers: authHeaders,
+      });
+      if (!res.ok) {
+        const devHint =
+          res.status === 404 && process.env.NODE_ENV === "development"
+            ? " — stop dev server, run: rmdir /s /q .next && npm run dev"
+            : "";
+        throw new Error(`Failed to load research (${res.status})${devHint}`);
+      }
       const data = (await res.json()) as { listings?: CitationListing[] };
       const rows = (data.listings ?? []).filter(isPublicResearchListing);
       setListings(rows);
@@ -501,6 +524,15 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const unwatch = watchAccount(wagmiConfig, {
+      onChange() {
+        void loadListings(undefined, { refresh: true });
+      },
+    });
+    return unwatch;
+  }, [loadListings]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -694,13 +726,15 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                 {isUnlockLoading || isDepositing ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    {isDepositing ? "Depositing…" : "Unlocking…"}
+                    {isDepositing ? "Depositing…" : item.is_own_post ? "Opening…" : "Unlocking…"}
                   </>
                 ) : isUnlocked ? (
                   <>
                     <LockOpen size={14} />
-                    Unlocked
+                    {item.is_own_post ? "Your post" : "Unlocked"}
                   </>
+                ) : item.is_own_post ? (
+                  <>View your post</>
                 ) : (
                   <>Unlock · ${item.price_usdc}</>
                 )}

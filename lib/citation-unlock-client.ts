@@ -34,6 +34,28 @@ function extractBody(data: unknown): { body?: string; subheading?: string } {
   };
 }
 
+/** Free publisher access — server skips payment when the signing wallet owns the post. */
+export async function tryPublisherCitationAccess(
+  listingId: string,
+  authHeaders: Record<string, string> = {},
+): Promise<CitationUnlockResult | null> {
+  if (Object.keys(authHeaders).length === 0) return null;
+
+  const path = `/api/marketplace/citations?id=${encodeURIComponent(listingId)}`;
+  try {
+    const res = await fetch(path, { headers: authHeaders, credentials: "same-origin" });
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as CitationUnlockPayload;
+    const { body, subheading } = extractBody(data);
+    if (!body) return null;
+
+    return { status: "ok", body, subheading };
+  } catch {
+    return null;
+  }
+}
+
 function failureReason(data: unknown, status: number): string {
   if (data && typeof data === "object") {
     const obj = data as CitationUnlockPayload;
@@ -48,11 +70,18 @@ export async function unlockCitationViaMetaMask(params: {
   author: string;
   account: `0x${string}`;
   ethereum: EthereumProvider;
+  catalogAuthHeaders?: Record<string, string>;
 }): Promise<CitationUnlockResult> {
   const path = `/api/marketplace/citations?id=${encodeURIComponent(params.listingId)}`;
   const memo = formatCitationPaymentMemo(params.listingId, params.author);
 
   try {
+    const publisherAccess = await tryPublisherCitationAccess(
+      params.listingId,
+      params.catalogAuthHeaders ?? {},
+    );
+    if (publisherAccess) return publisherAccess;
+
     const result = await payGatewayWithMetaMask({
       path,
       account: params.account,
@@ -84,11 +113,18 @@ export async function unlockCitationViaMetaMask(params: {
 export async function unlockCitationViaAgent(params: {
   listingId: string;
   author: string;
+  catalogAuthHeaders?: Record<string, string>;
 }): Promise<CitationUnlockResult> {
   const path = `/api/marketplace/citations?id=${encodeURIComponent(params.listingId)}`;
   const memo = formatCitationPaymentMemo(params.listingId, params.author);
 
   try {
+    const publisherAccess = await tryPublisherCitationAccess(
+      params.listingId,
+      params.catalogAuthHeaders ?? {},
+    );
+    if (publisherAccess) return publisherAccess;
+
     const result = await payViaAgentWallet({ path, method: "GET", memo });
     const { body, subheading } = extractBody(result.data);
 

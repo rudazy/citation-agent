@@ -19,6 +19,7 @@ import {
 import { getConnectedAccount, switchToArcTestnet } from "@/lib/attestation-client";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
+import { cacheMyPostsAuth } from "@/lib/my-posts-auth-cache";
 import { myPostsHeaders, signMyPostsAuth } from "@/lib/publish-client";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import { cn } from "@/lib/utils";
@@ -68,6 +69,7 @@ export function PublisherPostsDropdown({
       await switchToArcTestnet(ethereum);
       const account = connected ?? (await getConnectedAccount(ethereum));
       const auth = await signMyPostsAuth(ethereum, account);
+      cacheMyPostsAuth(auth);
       const res = await fetch("/api/marketplace/my-posts", {
         headers: myPostsHeaders(auth),
       });

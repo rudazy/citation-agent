@@ -15,10 +15,14 @@ export function myPostsMessage(timestamp: string): string {
   return `${MY_POSTS_MESSAGE_PREFIX} ${timestamp}`;
 }
 
-/**
- * Verify my-posts auth headers. Returns the proven wallet or null.
- */
-export async function verifyMyPostsRequest(request: Request): Promise<`0x${string}` | null> {
+type MyPostsVerifyOptions = {
+  consumeSignature: boolean;
+};
+
+async function verifyMyPostsHeaders(
+  request: Request,
+  options: MyPostsVerifyOptions,
+): Promise<`0x${string}` | null> {
   const address = request.headers.get("x-my-posts-address");
   const timestamp = request.headers.get("x-my-posts-timestamp");
   const signature = request.headers.get("x-my-posts-signature");
@@ -44,16 +48,32 @@ export async function verifyMyPostsRequest(request: Request): Promise<`0x${strin
     });
     if (!valid) return null;
 
-    const consumed = await consumeAuthSignature(
-      "my-posts",
-      connectedWallet,
-      signature,
-      PUBLISH_AUTH_MAX_AGE_MS,
-    );
-    if (!consumed) return null;
+    if (options.consumeSignature) {
+      const consumed = await consumeAuthSignature(
+        "my-posts",
+        connectedWallet,
+        signature,
+        PUBLISH_AUTH_MAX_AGE_MS,
+      );
+      if (!consumed) return null;
+    }
 
     return connectedWallet;
   } catch {
     return null;
   }
+}
+
+/**
+ * Verify my-posts auth headers. Returns the proven wallet or null.
+ */
+export async function verifyMyPostsRequest(request: Request): Promise<`0x${string}` | null> {
+  return verifyMyPostsHeaders(request, { consumeSignature: true });
+}
+
+/** Read-only my-posts verification for catalog access (signature may be reused). */
+export async function verifyMyPostsRequestReadOnly(
+  request: Request,
+): Promise<`0x${string}` | null> {
+  return verifyMyPostsHeaders(request, { consumeSignature: false });
 }
