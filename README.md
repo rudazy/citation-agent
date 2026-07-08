@@ -349,8 +349,10 @@ Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.exampl
 
 | Variable | Purpose |
 | --- | --- |
-| `TRUSTGATE_SCORE_API_URL` | Free reader — use `trustgated.xyz/api/arc-score/{address}` |
-| `TRUSTGATE_ORACLE_URL` | Paid verify — use `trustgated.xyz/api/oracle/{address}` (not direct oracle host) |
+| `TRUSTGATE_SCORE_API_URL` | Free reader — use `https://www.trustgated.xyz/api/arc-score/{address}` |
+| `TRUSTGATE_ORACLE_URL` | Paid verify — use `https://www.trustgated.xyz/api/oracle/{address}` (not direct oracle host) |
+| `SCORING_WALLET_*` (full set) | Wallet-rescore caps — **required for accurate badges**; copy from local `.env.local` |
+| `TRUSTGATE_TIMEOUT_MS` | Upstream arc-score timeout (default `12000` ms) |
 | `TRUSTGATE_PAID_CACHE_TTL_MS` | Paid score cache TTL (Supabase + memory) |
 
 ---

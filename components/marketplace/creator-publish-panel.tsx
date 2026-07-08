@@ -23,7 +23,12 @@ import {
 } from "@/components/marketplace/trust-signal";
 import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
 import { fetchProfile, type ProfileStatus } from "@/lib/profile-client";
-import { publishHeaders, signPublishAuth } from "@/lib/publish-client";
+import {
+  publishHeaders,
+  signMyPostsAuth,
+  signPublishAuth,
+} from "@/lib/publish-client";
+import { cacheMyPostsAuth } from "@/lib/my-posts-auth-cache";
 import { storeLinkedMetaMaskAddress } from "@/lib/agent-wallet-local";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
@@ -177,6 +182,13 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       };
 
       const auth = await signPublishAuth(provider, account, publishPayload);
+      try {
+        const myPostsAuth = await signMyPostsAuth(provider, account);
+        cacheMyPostsAuth(myPostsAuth);
+      } catch {
+        // Publish still succeeds; catalog can prompt for my-posts auth later.
+      }
+
       const res = await fetch("/api/marketplace/citations", {
         method: "POST",
         headers: publishHeaders(auth),

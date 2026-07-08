@@ -4,15 +4,19 @@ vi.mock("@/lib/trustgate-paid-store", () => ({
   getCachedPaidScore: vi.fn(async () => ({ hit: false, value: null })),
 }));
 
-vi.mock("@/lib/trustgate-wallet-rescore", () => ({
-  rescoreWallet: vi.fn(async (rawScore: number) => ({
-    score: rawScore,
-    tier: "HIGH",
-    recommendation: "INSTANT",
-    confidence: "MEDIUM",
-    limitations: [],
-  })),
-}));
+vi.mock("@/lib/trustgate-wallet-rescore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./trustgate-wallet-rescore")>();
+  return {
+    ...actual,
+    rescoreWallet: vi.fn(async (rawScore: number) => ({
+      score: rawScore,
+      tier: "HIGH",
+      recommendation: "INSTANT",
+      confidence: "MEDIUM",
+      limitations: [],
+    })),
+  };
+});
 
 import { clearTrustCache, getTrustScore, getTrustScores } from "./trustgate";
 
@@ -29,7 +33,9 @@ describe("trustgate", () => {
   beforeEach(() => {
     clearTrustCache();
     process.env[URL_ENV] = "https://scores.example.test/score/{address}";
+    process.env.SCORING_WALLET_NON_ELITE_CAP = "79";
     delete process.env.TRUSTGATE_CACHE_TTL_MS;
+    delete process.env.TRUSTGATE_NULL_CACHE_TTL_MS;
     delete process.env.TRUSTGATE_TIMEOUT_MS;
   });
 
@@ -37,6 +43,7 @@ describe("trustgate", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     delete process.env[URL_ENV];
+    delete process.env.SCORING_WALLET_NON_ELITE_CAP;
   });
 
   it("returns a parsed score and serves the cache on a second call", async () => {
@@ -115,5 +122,30 @@ describe("trustgate", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     expect(await getTrustScore("0x9")).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns raw arc-score without rescore when SCORING_WALLET_* is unset", async () => {
+    delete process.env.SCORING_WALLET_NON_ELITE_CAP;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockJsonResponse({ score: 88, tier: "HIGH", confidence: 0.5 }),
+    );
+
+    const score = await getTrustScore("0xabc");
+    expect(score).toEqual({ score: 88, tier: "HIGH", confidence: 0.5 });
+  });
+
+  it("re-fetches null cache entries sooner than successful scores", async () => {
+    process.env.TRUSTGATE_CACHE_TTL_MS = "60000";
+    process.env.TRUSTGATE_NULL_CACHE_TTL_MS = "500";
+    vi.useFakeTimers();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(mockJsonResponse({ error: "nope" }, false));
+
+    await getTrustScore("0xnull");
+    vi.advanceTimersByTime(600);
+    await getTrustScore("0xnull");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

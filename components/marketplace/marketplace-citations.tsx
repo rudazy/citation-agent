@@ -314,7 +314,10 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
       setExpand(item.id, { status: "loading" });
 
       try {
-        const catalogAuthHeaders = await resolveCatalogAuthHeaders({ signIfMissing: true });
+        const catalogAuthHeaders = await resolveCatalogAuthHeaders({
+          signIfMissing: true,
+          forceSign: true,
+        });
         let result;
         if (payer === "metamask") {
           const ethereum: EthereumProvider | undefined = window.ethereum;
@@ -469,7 +472,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     setError(null);
     try {
       const query = options?.refresh ? "?refresh=1" : "";
-      const authHeaders = await resolveCatalogAuthHeaders();
+      const authHeaders = await resolveCatalogAuthHeaders({ signIfMissing: true });
       const res = await fetchWithRetry(`/api/marketplace/citations${query}`, {
         signal,
         headers: authHeaders,

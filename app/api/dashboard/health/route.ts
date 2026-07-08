@@ -3,6 +3,7 @@ import { getAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isPaidTrustLookupAvailable } from "@/lib/creator-trust";
 import { getSellerAddress, sellerConfigError } from "@/lib/payment-wallets";
+import { isWalletRescoreConfigured } from "@/lib/trustgate-wallet-rescore";
 
 export async function GET() {
   const clientConfigured = isSupabaseConfigured();
@@ -25,6 +26,8 @@ export async function GET() {
           !process.env.TRUSTGATE_SCORE_API_URL.includes("your-"),
       ),
       trust_paid_oracle: isPaidTrustLookupAvailable(),
+      trust_rescore_configured: isWalletRescoreConfigured(),
+      trust_timeout_ms: Number(process.env.TRUSTGATE_TIMEOUT_MS?.trim() || 12_000),
     },
   });
 }

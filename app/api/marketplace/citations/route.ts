@@ -31,13 +31,9 @@ import {
 } from "@/lib/research-backing";
 import { requirePublisherUsername } from "@/lib/platform-profile";
 import { getCommentCountsForPosts } from "@/lib/post-comments";
-import { ensureAgentSession } from "@/lib/agent-session";
 import { resolveUserAgent } from "@/lib/resolve-user-agent";
+import { ensurePublisherLinkedToSession } from "@/lib/publisher-session-link";
 import { getTrustScores } from "@/lib/trustgate";
-import {
-  getUserAgentWallet,
-  linkUserAgentWalletToMetaMask,
-} from "@/lib/user-agent-wallet";
 import { withGateway, type GatewayContext } from "@/lib/x402";
 import type { CreatorContent } from "@/lib/citations";
 
@@ -308,11 +304,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const sessionId = await ensureAgentSession();
-    const existingAgent = await getUserAgentWallet(sessionId);
-    if (existingAgent) {
-      await linkUserAgentWalletToMetaMask(sessionId, publishAuth.connectedWallet);
-    }
+    await ensurePublisherLinkedToSession(publishAuth.connectedWallet);
   } catch (err) {
     console.warn(
       "[citations] Could not link publisher wallet after publish:",

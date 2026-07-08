@@ -1,3 +1,9 @@
+/** True when server-only SCORING_WALLET_* caps are set (accurate rescored scores). */
+export function isWalletRescoreConfigured(): boolean {
+  const cap = process.env.SCORING_WALLET_NON_ELITE_CAP?.trim();
+  return Boolean(cap && cap.length > 0);
+}
+
 // Post-processing layer for the wallet oracle proxy.
 // Imported via lib/trustgate.ts (API routes + CLI agent). Do not import from client components. Mirrors the caps,
 // bot detectors, and tier bands defined in oracle/token-scoring.ts so the

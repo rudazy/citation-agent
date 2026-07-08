@@ -1,6 +1,9 @@
 import { isDisplayableTrustScore } from "@/lib/creator-trust";
 import { getCachedPaidScore } from "@/lib/trustgate-paid-store";
-import { rescoreWallet } from "@/lib/trustgate-wallet-rescore";
+import {
+  isWalletRescoreConfigured,
+  rescoreWallet,
+} from "@/lib/trustgate-wallet-rescore";
 import { coerceTrustScore, normalizeTrustScore } from "@/lib/trustgate-score-parse";
 
 /**
@@ -23,7 +26,10 @@ export type TrustScore = {
 type CacheEntry = { at: number; value: TrustScore | null };
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_TIMEOUT_MS = 4000;
+const DEFAULT_NULL_TTL_MS = 60 * 1000;
+/** arc-score on trustgated.xyz often exceeds 4s from serverless regions. */
+const DEFAULT_TIMEOUT_MS = 12_000;
+const DEFAULT_FETCH_CONCURRENCY = 4;
 
 const cache = new Map<string, CacheEntry>();
 let missingUrlWarned = false;
@@ -41,8 +47,20 @@ function cacheTtlMs(): number {
   return readPositiveIntEnv("TRUSTGATE_CACHE_TTL_MS", DEFAULT_TTL_MS);
 }
 
+function nullCacheTtlMs(): number {
+  return readPositiveIntEnv("TRUSTGATE_NULL_CACHE_TTL_MS", DEFAULT_NULL_TTL_MS);
+}
+
+function cacheEntryTtlMs(entry: CacheEntry): number {
+  return entry.value === null ? nullCacheTtlMs() : cacheTtlMs();
+}
+
 function timeoutMs(): number {
   return readPositiveIntEnv("TRUSTGATE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
+}
+
+function fetchConcurrency(): number {
+  return readPositiveIntEnv("TRUSTGATE_FETCH_CONCURRENCY", DEFAULT_FETCH_CONCURRENCY);
 }
 
 /** Resolve the configured endpoint, or null (warning logged once) when unset. */
@@ -94,6 +112,7 @@ async function fetchArcRawScore(url: string): Promise<TrustScore | null> {
     const res = await fetch(url, {
       signal: controller.signal,
       headers: { accept: "application/json" },
+      cache: "no-store",
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
@@ -112,6 +131,11 @@ async function fetchRescoredScore(
 ): Promise<TrustScore | null> {
   const raw = await fetchArcRawScore(url);
   if (!raw) return null;
+
+  if (!isWalletRescoreConfigured()) {
+    return raw;
+  }
+
   try {
     const rescored = await rescoreWallet(raw.score, address);
     return {
@@ -125,17 +149,20 @@ async function fetchRescoredScore(
   }
 }
 
+function rememberScore(key: string, value: TrustScore | null): void {
+  cache.set(key, { at: Date.now(), value });
+}
+
 /**
  * Resolve a single wallet's TrustGate score. Returns null on any failure and
- * caches the result (including null) for TRUSTGATE_CACHE_TTL_MS so a down or
- * unconfigured API is not hammered.
+ * caches misses briefly so a slow API is retried without hammering upstream.
  */
 export async function getTrustScore(address: string): Promise<TrustScore | null> {
   const key = normalizeAddress(address);
   if (!key) return null;
 
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.at < cacheTtlMs()) {
+  if (cached && Date.now() - cached.at < cacheEntryTtlMs(cached)) {
     return cached.value;
   }
 
@@ -146,7 +173,7 @@ export async function getTrustScore(address: string): Promise<TrustScore | null>
       tier: paid.value.tier,
       confidence: 0,
     };
-    cache.set(key, { at: Date.now(), value });
+    rememberScore(key, value);
     return value;
   }
 
@@ -154,8 +181,29 @@ export async function getTrustScore(address: string): Promise<TrustScore | null>
   if (!base) return null;
 
   const value = await fetchRescoredScore(key, buildUrl(base, key));
-  cache.set(key, { at: Date.now(), value });
+  rememberScore(key, value);
   return value;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index]);
+    }
+  }
+
+  const workers = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
 }
 
 /**
@@ -171,11 +219,13 @@ export async function getTrustScores(
     ...new Set(addresses.map(normalizeAddress).filter(Boolean)),
   ];
 
-  await Promise.all(
-    unique.map(async (address) => {
-      result.set(address, await getTrustScore(address));
-    }),
+  const scores = await mapWithConcurrency(unique, fetchConcurrency(), (address) =>
+    getTrustScore(address),
   );
+
+  unique.forEach((address, index) => {
+    result.set(address, scores[index]);
+  });
 
   return result;
 }
