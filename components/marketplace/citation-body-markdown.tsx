@@ -1,11 +1,29 @@
 "use client";
 
 import type { Components } from "react-markdown";
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { MarkdownImage } from "@/components/marketplace/markdown-image";
+import { MarkdownMermaid } from "@/components/marketplace/markdown-mermaid";
+import { isMermaidLanguageClass } from "@/lib/article-mermaid";
 import { cn } from "@/lib/utils";
+
+function extractCodeText(children: ReactNode): string {
+  if (children == null || typeof children === "boolean") return "";
+  if (typeof children === "string" || typeof children === "number") {
+    return String(children);
+  }
+  if (Array.isArray(children)) {
+    return children.map(extractCodeText).join("");
+  }
+  if (typeof children === "object" && children !== null && "props" in children) {
+    const el = children as { props?: { children?: ReactNode } };
+    return extractCodeText(el.props?.children);
+  }
+  return "";
+}
 
 const MARKDOWN_COMPONENTS: Components = {
   h1: ({ children }) => (
@@ -34,13 +52,20 @@ const MARKDOWN_COMPONENTS: Components = {
     <ol className="list-decimal space-y-1.5 pl-5 font-mono text-xs text-[#d4d4d4]">{children}</ol>
   ),
   li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  // Unwrap pre so mermaid (and other fences) control their own chrome.
+  pre: ({ children }) => <>{children}</>,
   code: ({ className, children }) => {
     const isFence = Boolean(className?.includes("language-"));
+    if (isMermaidLanguageClass(className)) {
+      return <MarkdownMermaid chart={extractCodeText(children)} />;
+    }
     if (isFence) {
       return (
-        <code className="block font-mono text-[11px] leading-relaxed text-[#d4d4d4]">
-          {children}
-        </code>
+        <pre className="my-2 overflow-x-auto rounded border border-[#333] bg-[#0a0a0a] p-3">
+          <code className="block font-mono text-[11px] leading-relaxed text-[#d4d4d4]">
+            {children}
+          </code>
+        </pre>
       );
     }
     return (
@@ -49,11 +74,6 @@ const MARKDOWN_COMPONENTS: Components = {
       </code>
     );
   },
-  pre: ({ children }) => (
-    <pre className="my-2 overflow-x-auto rounded border border-[#333] bg-[#0a0a0a] p-3">
-      {children}
-    </pre>
-  ),
   a: ({ href, children }) => (
     <a
       href={href}
@@ -70,6 +90,31 @@ const MARKDOWN_COMPONENTS: Components = {
     </blockquote>
   ),
   img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} />,
+  // GFM tables — structured like a proper report table (headers, borders, scroll).
+  table: ({ children }) => (
+    <div className="my-4 w-full overflow-x-auto rounded border border-[#333] bg-[#0a0a0a]">
+      <table className="w-full min-w-[36rem] border-collapse text-left font-mono text-[11px] leading-relaxed">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead className="border-b border-[#333] bg-[#141414]">{children}</thead>
+  ),
+  tbody: ({ children }) => <tbody className="divide-y divide-[#1f1f1f]">{children}</tbody>,
+  tr: ({ children }) => (
+    <tr className="align-top transition-colors hover:bg-[#111]">{children}</tr>
+  ),
+  th: ({ children }) => (
+    <th className="whitespace-nowrap px-3 py-2.5 font-semibold tracking-wide text-[#f5f5f5]">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="max-w-[14rem] px-3 py-2.5 text-[#d4d4d4] [overflow-wrap:anywhere]">
+      {children}
+    </td>
+  ),
 };
 
 type Props = {
@@ -77,7 +122,7 @@ type Props = {
   className?: string;
 };
 
-/** Renders paywalled article bodies: plain text, light Markdown, and inline images. */
+/** Renders paywalled article bodies: Markdown, inline images, and mermaid diagrams. */
 export function CitationBodyMarkdown({ content, className }: Props) {
   return (
     <div className={cn("citation-body-markdown space-y-3", className)}>
