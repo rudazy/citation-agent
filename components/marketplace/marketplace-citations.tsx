@@ -472,7 +472,9 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
     setError(null);
     try {
       const query = options?.refresh ? "?refresh=1" : "";
-      const authHeaders = await resolveCatalogAuthHeaders({ signIfMissing: true });
+      // Never prompt wallet on page load — only reuse a cached my-posts signature.
+      // Explicit unlock still signs when needed (runUnlock forceSign).
+      const authHeaders = await resolveCatalogAuthHeaders();
       const res = await fetchWithRetry(`/api/marketplace/citations${query}`, {
         signal,
         headers: authHeaders,

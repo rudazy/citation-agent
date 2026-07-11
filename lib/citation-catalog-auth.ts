@@ -11,7 +11,10 @@ import {
 } from "@/lib/wallet-connection-client";
 
 type ResolveOptions = {
-  /** Prompt wallet sign when no cached my-posts auth (needed for publisher auto-access). */
+  /**
+   * Prompt wallet sign when no cached my-posts auth.
+   * Must only be set from user-initiated actions (unlock, expand) — never catalog load.
+   */
   signIfMissing?: boolean;
   /** Sign even without a publish-flow wallet hint (e.g. explicit unlock). */
   forceSign?: boolean;
