@@ -8,6 +8,7 @@ import { CitationBodyMarkdown } from "@/components/marketplace/citation-body-mar
 import { imageMarkdownAtCursor, insertTextAtCursor } from "@/lib/article-image";
 import { imageFileFromClipboard, uploadArticleImage } from "@/lib/article-image-upload";
 import { mermaidMarkdownAtCursor } from "@/lib/article-mermaid";
+import { isSvgDocument, svgMarkdownAtCursor } from "@/lib/article-svg";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import { signArticleImageUploadAuth } from "@/lib/publish-client";
 import { cn } from "@/lib/utils";
@@ -116,12 +117,21 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
   const onPaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const file = imageFileFromClipboard(event.clipboardData);
-      if (!file) return;
+      if (file) {
+        event.preventDefault();
+        void uploadAndInsert(file);
+        return;
+      }
 
-      event.preventDefault();
-      void uploadAndInsert(file);
+      // Raw SVG paste → fence so live preview / unlock view render the figure.
+      const text = event.clipboardData.getData("text/plain");
+      if (text && isSvgDocument(text)) {
+        event.preventDefault();
+        insertMarkdown(svgMarkdownAtCursor(text));
+        toast.success("SVG figure inserted — expand Live preview to check it");
+      }
     },
-    [uploadAndInsert],
+    [insertMarkdown, uploadAndInsert],
   );
 
   const onPickFile = useCallback(
@@ -186,9 +196,9 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
       </div>
 
       <p className="font-mono text-[10px] leading-relaxed text-[#666]">
-        Write or paste below. Expand{" "}
-        <span className="text-[#888]">Live preview</span> only when you want to check
-        diagrams, images, or markdown before posting.
+        Write or paste below. Paste SVG source or images for figures; mermaid fences for
+        flowcharts. Expand <span className="text-[#888]">Live preview</span> only when you
+        want to check how it looks before posting.
       </p>
 
       <textarea
@@ -199,7 +209,7 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
         onPaste={onPaste}
         rows={10}
         disabled={disabled || uploading}
-        placeholder="Start your report here. Paste mermaid fences or images at the cursor."
+        placeholder="Start your report here. Paste mermaid, SVG, or images at the cursor."
         className={cn(
           "w-full rounded border border-[#333] bg-[#111] px-3 py-2 font-mono text-sm text-[#f5f5f5]",
           "placeholder:text-[#555] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#f5c842]/40",

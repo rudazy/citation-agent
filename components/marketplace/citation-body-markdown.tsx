@@ -7,7 +7,9 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { MarkdownImage } from "@/components/marketplace/markdown-image";
 import { MarkdownMermaid } from "@/components/marketplace/markdown-mermaid";
+import { MarkdownSvg } from "@/components/marketplace/markdown-svg";
 import { isMermaidLanguageClass } from "@/lib/article-mermaid";
+import { fenceBareSvgsInMarkdown, isSvgLanguageClass } from "@/lib/article-svg";
 import { cn } from "@/lib/utils";
 
 function extractCodeText(children: ReactNode): string {
@@ -52,12 +54,15 @@ const MARKDOWN_COMPONENTS: Components = {
     <ol className="list-decimal space-y-1.5 pl-5 font-mono text-xs text-[#d4d4d4]">{children}</ol>
   ),
   li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-  // Unwrap pre so mermaid (and other fences) control their own chrome.
+  // Unwrap pre so mermaid/svg (and other fences) control their own chrome.
   pre: ({ children }) => <>{children}</>,
   code: ({ className, children }) => {
     const isFence = Boolean(className?.includes("language-"));
     if (isMermaidLanguageClass(className)) {
       return <MarkdownMermaid chart={extractCodeText(children)} />;
+    }
+    if (isSvgLanguageClass(className)) {
+      return <MarkdownSvg source={extractCodeText(children)} />;
     }
     if (isFence) {
       return (
@@ -122,15 +127,18 @@ type Props = {
   className?: string;
 };
 
-/** Renders paywalled article bodies: Markdown, inline images, and mermaid diagrams. */
+/** Renders paywalled article bodies: Markdown, images, mermaid, and SVG figures. */
 export function CitationBodyMarkdown({ content, className }: Props) {
+  // Bare pasted <svg>…</svg> becomes a fence so it renders as a figure, not text.
+  const normalized = fenceBareSvgsInMarkdown(content);
+
   return (
     <div className={cn("citation-body-markdown space-y-3", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         components={MARKDOWN_COMPONENTS}
       >
-        {content}
+        {normalized}
       </ReactMarkdown>
     </div>
   );
