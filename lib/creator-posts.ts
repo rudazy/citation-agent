@@ -2,9 +2,12 @@ import { randomBytes } from "node:crypto";
 import { getAddress } from "viem";
 import { getAdminClient } from "@/lib/supabase/admin";
 import type { CreatorContent } from "@/lib/citations";
-import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
+import {
+  MAX_POST_BODY_CHARS,
+  MIN_POST_PRICE_USDC,
+} from "@/lib/creator-post-constants";
 
-export { MIN_POST_PRICE_USDC };
+export { MAX_POST_BODY_CHARS, MIN_POST_PRICE_USDC };
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -84,6 +87,9 @@ export function validatePublishInput(input: PublishPostInput): string | null {
   if (title.length < 3) return "Title must be at least 3 characters";
   if (subheading.length < 10) return "Subheading must be at least 10 characters";
   if (body.length < 20) return "Body must be at least 20 characters";
+  if (body.length > MAX_POST_BODY_CHARS) {
+    return `Body must be ${MAX_POST_BODY_CHARS.toLocaleString()} characters or fewer (currently ${body.length.toLocaleString()})`;
+  }
 
   const price = parsePriceUsdc(input.priceUsdc);
   if (price == null) return "Price must be a valid number";

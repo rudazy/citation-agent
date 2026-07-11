@@ -48,6 +48,8 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   const [connected, setConnected] = useState<`0x${string}` | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  /** Short status while the multi-step publish flow runs (wallet + network). */
+  const [publishPhase, setPublishPhase] = useState<string | null>(null);
   const [myPostsRefresh, setMyPostsRefresh] = useState(0);
   const [walletTrust, setWalletTrust] = useState<PublicTrustSignal | null>(null);
   const [walletTrustLoading, setWalletTrustLoading] = useState(false);
@@ -151,6 +153,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     }
 
     setPublishing(true);
+    setPublishPhase("Preparing…");
     try {
       let provider: EthereumProvider;
       let account: `0x${string}`;
@@ -160,8 +163,10 @@ export function CreatorPublishPanel({ onPublished }: Props) {
         if (!active) throw new Error("Connect your wallet first.");
         provider = active;
         account = connected;
+        setPublishPhase("Switching network…");
         await switchToArcTestnet(provider);
       } else {
+        setPublishPhase("Connecting wallet…");
         const linked = await connectWalletInteractive();
         provider = linked.provider;
         account = linked.address;
@@ -181,33 +186,62 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           .filter(Boolean),
       };
 
+      // One wallet signature is enough to publish. Do not block on my-posts auth.
+      setPublishPhase("Approve signature in wallet…");
       const auth = await signPublishAuth(provider, account, publishPayload);
+
+      setPublishPhase("Uploading post…");
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 90_000);
+      let res: Response;
       try {
-        const myPostsAuth = await signMyPostsAuth(provider, account);
-        cacheMyPostsAuth(myPostsAuth);
-      } catch {
-        // Publish still succeeds; catalog can prompt for my-posts auth later.
+        res = await fetch("/api/marketplace/citations", {
+          method: "POST",
+          headers: publishHeaders(auth),
+          signal: controller.signal,
+          body: JSON.stringify({
+            title: publishPayload.title,
+            subheading: publishPayload.subheading,
+            body: publishPayload.body,
+            price_usdc: publishPayload.priceUsdc,
+            payout_wallet: publishPayload.payoutWallet,
+            tags: publishPayload.tags,
+          }),
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new Error("Publish timed out after 90s — check network and try again");
+        }
+        throw err;
+      } finally {
+        window.clearTimeout(timeoutId);
       }
 
-      const res = await fetch("/api/marketplace/citations", {
-        method: "POST",
-        headers: publishHeaders(auth),
-        body: JSON.stringify({
-          title: publishPayload.title,
-          subheading: publishPayload.subheading,
-          body: publishPayload.body,
-          price_usdc: publishPayload.priceUsdc,
-          payout_wallet: publishPayload.payoutWallet,
-          tags: publishPayload.tags,
-        }),
-      });
-
-      const data = (await res.json()) as { error?: string; post?: { id: string } };
+      let data: { error?: string; post?: { id: string } } = {};
+      try {
+        data = (await res.json()) as { error?: string; post?: { id: string } };
+      } catch {
+        throw new Error(
+          res.ok
+            ? "Publish succeeded but response was unreadable"
+            : `Publish failed (${res.status}) — empty or invalid server response`,
+        );
+      }
       if (!res.ok) {
         throw new Error(data.error ?? `Publish failed (${res.status})`);
       }
 
       const postId = data.post?.id;
+
+      // Optional second signature for "my posts" list — never blocks publish success.
+      setPublishPhase("Caching publisher session…");
+      try {
+        const myPostsAuth = await signMyPostsAuth(provider, account);
+        cacheMyPostsAuth(myPostsAuth);
+      } catch {
+        // Catalog can prompt for my-posts auth later.
+      }
+
       if (postId) {
         try {
           const shareUrl = await copyPostShareLink(postId);
@@ -243,6 +277,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       });
     } finally {
       setPublishing(false);
+      setPublishPhase(null);
     }
   }, [
     body,
@@ -477,7 +512,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             {publishing ? (
               <>
                 <Loader2 size={14} className="animate-spin mr-2" />
-                Signing and publishing…
+                {publishPhase ?? "Publishing…"}
               </>
             ) : (
               "Sign and publish"

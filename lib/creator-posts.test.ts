@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIN_POST_PRICE_USDC } from "./creator-post-constants";
+import { MAX_POST_BODY_CHARS, MIN_POST_PRICE_USDC } from "./creator-post-constants";
 import { defaultAuthorName, makePostId, parsePriceUsdc, validatePublishInput } from "./creator-posts";
 
 const CONNECTED = "0x60C05e2d820CE989E944ED4e7bb33bAEB8705c62" as const;
@@ -77,5 +77,18 @@ describe("creator-posts", () => {
         payoutWallet: "0x0000000000000000000000000000000000000000",
       }),
     ).toContain("zero address");
+  });
+
+  it("rejects bodies larger than the soft cap", () => {
+    const base = {
+      title: "Test title",
+      subheading: "Public teaser for readers",
+      body: "x".repeat(MAX_POST_BODY_CHARS + 1),
+      priceUsdc: "0.001",
+      username: "alpha_reader",
+      connectedWallet: CONNECTED,
+      signedAtMs: Date.now(),
+    };
+    expect(validatePublishInput(base)).toContain("characters or fewer");
   });
 });
