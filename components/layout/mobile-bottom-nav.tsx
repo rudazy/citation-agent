@@ -25,7 +25,12 @@ function isActive(
   if (id === "trace") return pathname === "/dashboard" && tab === "trace";
   if (id === "attestations") return pathname === "/dashboard" && tab === "attestations";
   if (id === "marketplace") {
-    return pathname.startsWith("/marketplace") || layoutActive === "marketplace";
+    return (
+      pathname.startsWith("/marketplace") ||
+      pathname.startsWith("/u/") ||
+      pathname.startsWith("/r/") ||
+      layoutActive === "marketplace"
+    );
   }
   return pathname === "/dashboard" && tab !== "trace" && tab !== "attestations";
 }

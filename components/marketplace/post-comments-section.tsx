@@ -9,6 +9,9 @@ import { fetchWithRetry } from "@/lib/client-fetch";
 import { fetchProfile, type ProfileStatus } from "@/lib/profile-client";
 import { getConnectedWalletAddress } from "@/lib/wallet-connection-client";
 import { buildCommentTree, type CommentNode, type FlatComment } from "@/lib/comment-tree";
+import Link from "next/link";
+import { MentionText } from "@/components/marketplace/mention-text";
+import { buildProfilePath } from "@/lib/profile-url";
 import { formatUsernameDisplay } from "@/lib/username";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { cn } from "@/lib/utils";
@@ -101,7 +104,12 @@ function CommentThreadItem({
     <li className={cn("space-y-2", depth > 0 && "ml-3 border-l border-[#1f1f1f] pl-3")}>
       <div className="space-y-0.5">
         <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-[#666]">
-          <span className="text-[#f5c842]">{formatUsernameDisplay(comment.username)}</span>
+          <Link
+            href={buildProfilePath(comment.username)}
+            className="text-[#f5c842] hover:underline"
+          >
+            {formatUsernameDisplay(comment.username)}
+          </Link>
           <span>{formatPaymentDate(comment.createdAt)}</span>
           <button
             type="button"
@@ -111,8 +119,8 @@ function CommentThreadItem({
             {isReplying ? "Cancel" : "Reply"}
           </button>
         </div>
-        <p className="font-mono text-xs leading-relaxed text-[#c8c8c8] whitespace-pre-wrap">
-          {comment.body}
+        <p className="font-mono text-xs leading-relaxed text-[#c8c8c8]">
+          <MentionText text={comment.body} />
         </p>
       </div>
 
@@ -341,7 +349,7 @@ export function PostCommentsSection({ postId, initialCount = 0, unlocked }: Prop
                 </p>
               )}
               <CommentComposer
-                placeholder="Add a comment…"
+                placeholder="Add a comment… use @username to mention"
                 submitLabel="Post comment"
                 posting={posting}
                 disabled={profileLoading}

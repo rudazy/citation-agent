@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Loader2, PenLine, Wallet } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
@@ -22,15 +23,27 @@ import {
   type PublicTrustSignal,
 } from "@/components/marketplace/trust-signal";
 import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
+import { buildProfilePath } from "@/lib/profile-url";
 import { fetchProfile, type ProfileStatus } from "@/lib/profile-client";
 import {
+  myPostsHeaders,
   publishHeaders,
   signMyPostsAuth,
   signPublishAuth,
 } from "@/lib/publish-client";
-import { cacheMyPostsAuth } from "@/lib/my-posts-auth-cache";
+import {
+  cacheMyPostsAuth,
+  getCachedMyPostsCatalogHeaders,
+} from "@/lib/my-posts-auth-cache";
+import {
+  clearLocalDraft,
+  loadLocalDraft,
+  localDraftHasContent,
+  saveLocalDraft,
+} from "@/lib/draft-local";
 import { storeLinkedMetaMaskAddress } from "@/lib/agent-wallet-local";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
+import { parseImportPaste } from "@/lib/import-paste";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -48,11 +61,16 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   const [connected, setConnected] = useState<`0x${string}` | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   /** Short status while the multi-step publish flow runs (wallet + network). */
   const [publishPhase, setPublishPhase] = useState<string | null>(null);
   const [myPostsRefresh, setMyPostsRefresh] = useState(0);
   const [walletTrust, setWalletTrust] = useState<PublicTrustSignal | null>(null);
   const [walletTrustLoading, setWalletTrustLoading] = useState(false);
+  const [serverDraftId, setServerDraftId] = useState<string | null>(null);
+  const [localSavedAt, setLocalSavedAt] = useState<string | null>(null);
+  const [importPaste, setImportPaste] = useState("");
+  const localHydratedRef = useRef<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [subheading, setSubheading] = useState("");
@@ -66,6 +84,46 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   useEffect(() => {
     setWalletAvailable(isWalletUiAvailable());
   }, []);
+
+  // Restore browser draft when wallet connects (once per wallet).
+  useEffect(() => {
+    if (!connected) return;
+    if (localHydratedRef.current === connected.toLowerCase()) return;
+    localHydratedRef.current = connected.toLowerCase();
+    const local = loadLocalDraft(connected);
+    if (!localDraftHasContent(local) || !local) return;
+    setTitle(local.title);
+    setSubheading(local.subheading);
+    setBody(local.body);
+    if (local.priceUsdc) setPriceUsdc(local.priceUsdc);
+    setPayoutWallet(local.payoutWallet);
+    setTags(local.tags);
+    setServerDraftId(local.serverDraftId ?? null);
+    setLocalSavedAt(local.updatedAt);
+    setArticleExpanded(true);
+    setExpanded(true);
+    toast.message("Draft restored", {
+      description: "Local autosave loaded for this wallet.",
+    });
+  }, [connected]);
+
+  // Local autosave (no wallet signature).
+  useEffect(() => {
+    if (!connected) return;
+    const timer = window.setTimeout(() => {
+      const saved = saveLocalDraft(connected, {
+        title,
+        subheading,
+        body,
+        priceUsdc,
+        payoutWallet,
+        tags,
+        serverDraftId,
+      });
+      setLocalSavedAt(saved.updatedAt);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [connected, title, subheading, body, priceUsdc, payoutWallet, tags, serverDraftId]);
 
   useEffect(() => {
     if (!connected) {
@@ -137,6 +195,117 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     }
   }, []);
 
+  const ensureMyPostsAuth = useCallback(
+    async (
+      provider: EthereumProvider,
+      account: `0x${string}`,
+    ): Promise<Record<string, string>> => {
+      const cached = getCachedMyPostsCatalogHeaders(account);
+      if (Object.keys(cached).length > 0) return cached;
+      const auth = await signMyPostsAuth(provider, account);
+      cacheMyPostsAuth(auth);
+      return myPostsHeaders(auth);
+    },
+    [],
+  );
+
+  const saveDraft = useCallback(async () => {
+    if (!isWalletUiAvailable()) {
+      toast.error("Wallet unavailable", {
+        description: "Use WalletConnect on mobile or install MetaMask.",
+      });
+      return;
+    }
+    if (!profile?.username) {
+      toast.error("Username required", {
+        description: "Choose a unique username before saving a server draft.",
+      });
+      return;
+    }
+
+    setSavingDraft(true);
+    try {
+      let provider: EthereumProvider;
+      let account: `0x${string}`;
+      if (connected) {
+        const active = await getEthereumProvider();
+        if (!active) throw new Error("Connect your wallet first.");
+        provider = active;
+        account = connected;
+        await switchToArcTestnet(provider);
+      } else {
+        const linked = await connectWalletInteractive();
+        provider = linked.provider;
+        account = linked.address;
+        setConnected(account);
+        storeLinkedMetaMaskAddress(account);
+      }
+
+      const authHeaders = await ensureMyPostsAuth(provider, account);
+      const res = await fetch("/api/marketplace/drafts", {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          id: serverDraftId ?? undefined,
+          title,
+          subheading,
+          body,
+          price_usdc: priceUsdc,
+          payout_wallet: payoutWallet.trim() || undefined,
+          tags: tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        draft?: { id: string; updated_at: string };
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? `Save draft failed (${res.status})`);
+      }
+      const draftId = data.draft?.id ?? null;
+      setServerDraftId(draftId);
+      saveLocalDraft(account, {
+        title,
+        subheading,
+        body,
+        priceUsdc,
+        payoutWallet,
+        tags,
+        serverDraftId: draftId,
+      });
+      toast.success("Draft saved", {
+        description: "Stored on the server. Sign and publish when ready.",
+      });
+    } catch (err) {
+      if ((err as { code?: number }).code === 4001) {
+        toast.message("Signature cancelled");
+        return;
+      }
+      toast.error("Could not save draft", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setSavingDraft(false);
+    }
+  }, [
+    body,
+    connected,
+    ensureMyPostsAuth,
+    payoutWallet,
+    priceUsdc,
+    profile?.username,
+    serverDraftId,
+    subheading,
+    tags,
+    title,
+  ]);
+
   const publish = useCallback(async () => {
     if (!isWalletUiAvailable()) {
       toast.error("Wallet unavailable", {
@@ -195,6 +364,8 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       const timeoutId = window.setTimeout(() => controller.abort(), 90_000);
       let res: Response;
       try {
+        // If we have a server draft, publish by converting it when body matches via normal insert
+        // (fresh published post). Draft row is cleaned up after successful publish.
         res = await fetch("/api/marketplace/citations", {
           method: "POST",
           headers: publishHeaders(auth),
@@ -238,6 +409,16 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       try {
         const myPostsAuth = await signMyPostsAuth(provider, account);
         cacheMyPostsAuth(myPostsAuth);
+        // Best-effort: drop server draft after successful publish.
+        if (serverDraftId) {
+          void fetch(
+            `/api/marketplace/drafts?id=${encodeURIComponent(serverDraftId)}`,
+            {
+              method: "DELETE",
+              headers: myPostsHeaders(myPostsAuth),
+            },
+          );
+        }
       } catch {
         // Catalog can prompt for my-posts auth later.
       }
@@ -258,6 +439,9 @@ export function CreatorPublishPanel({ onPublished }: Props) {
         });
       }
 
+      clearLocalDraft(account);
+      setServerDraftId(null);
+      setLocalSavedAt(null);
       setTitle("");
       setSubheading("");
       setBody("");
@@ -287,6 +471,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     payoutWallet,
     router,
     priceUsdc,
+    serverDraftId,
     subheading,
     tags,
     title,
@@ -297,7 +482,11 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     : null;
 
   return (
-    <Panel glow className="space-y-4 p-4 sm:p-5 border-[#f5c842]/20">
+    <Panel
+      id="publish-research"
+      glow
+      className="space-y-4 p-4 sm:p-5 border-[#f5c842]/20 scroll-mt-24"
+    >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -313,10 +502,10 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             {expanded
               ? connected
                 ? profile?.displayName
-                  ? `Publishing as ${profile.displayName} — wallet ${shortAddress}.`
-                  : `Connect wallet ${shortAddress} — choose a username to publish.`
-                : "Connect wallet to publish and view your listings."
-              : "Creators — expand to connect wallet and list paywalled research."}
+                  ? `Publishing as ${profile.displayName} — draft anytime, sign when ready.`
+                  : `Wallet ${shortAddress} — choose a username to draft or publish.`
+                : "Connect wallet to draft, publish, and view your listings."
+              : "Creators — draft offline, save to server, sign once to go live."}
           </p>
         </div>
         <ChevronDown
@@ -398,6 +587,42 @@ export function CreatorPublishPanel({ onPublished }: Props) {
 
             {articleExpanded && (
               <div className="grid gap-4 border-t border-[#1f1f1f] px-3 py-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2 rounded border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-3">
+                  <Label htmlFor="import-paste" className="font-mono text-xs text-[#888]">
+                    Import paste (optional)
+                  </Label>
+                  <textarea
+                    id="import-paste"
+                    value={importPaste}
+                    onChange={(e) => setImportPaste(e.target.value)}
+                    rows={3}
+                    placeholder="Paste markdown from your notes / Substack draft. First heading → title, first paragraph → teaser."
+                    className={cn(
+                      "w-full rounded border border-[#333] bg-[#111] px-3 py-2 font-mono text-xs text-[#f5f5f5]",
+                      "placeholder:text-[#555] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#f5c842]/40",
+                    )}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!importPaste.trim()}
+                    onClick={() => {
+                      const parsed = parseImportPaste(importPaste);
+                      if (parsed.title) setTitle(parsed.title);
+                      if (parsed.subheading) setSubheading(parsed.subheading);
+                      if (parsed.body) setBody(parsed.body);
+                      setImportPaste("");
+                      toast.success("Import applied", {
+                        description: "Review fields, save draft, then sign to publish.",
+                      });
+                    }}
+                    className="border-[#333] font-mono text-[10px]"
+                  >
+                    Apply import
+                  </Button>
+                </div>
+
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="publish-title" className="font-mono text-xs text-[#888]">
                     Title
@@ -485,11 +710,19 @@ export function CreatorPublishPanel({ onPublished }: Props) {
               <p className="text-sm font-semibold tracking-wide">Username</p>
               {profileLoading ? (
                 <p className="font-mono text-[10px] text-[#666]">Loading profile…</p>
-              ) : profile?.displayName ? (
-                <p className="font-mono text-xs text-[#f5c842]">{profile.displayName}</p>
+              ) : profile?.displayName && profile.username ? (
+                <p className="font-mono text-xs text-[#f5c842]">
+                  <Link
+                    href={buildProfilePath(profile.username)}
+                    className="hover:underline"
+                  >
+                    {profile.displayName}
+                  </Link>
+                  {" — public profile"}
+                </p>
               ) : (
                 <p className="font-mono text-[10px] text-[#888]">
-                  Required for publishing. Shared with comments on unlocked posts.
+                  Required for drafts and publishing. Shared with comments and follows.
                 </p>
               )}
               <UsernameSetupForm
@@ -503,21 +736,66 @@ export function CreatorPublishPanel({ onPublished }: Props) {
 
           <CreatorGatewayEarnings connected={connected} payoutWalletInput={payoutWallet} />
 
-          <Button
-            type="button"
-            disabled={!walletAvailable || !connected || publishing || !profile?.username}
-            onClick={() => void publish()}
-            className="w-full sm:w-auto border border-[#f5c842]/40 bg-[#f5c842]/10 text-[#f5c842] hover:bg-[#f5c842]/20 font-mono text-xs tracking-wide"
-          >
-            {publishing ? (
-              <>
-                <Loader2 size={14} className="animate-spin mr-2" />
-                {publishPhase ?? "Publishing…"}
-              </>
-            ) : (
-              "Sign and publish"
-            )}
-          </Button>
+          {(localSavedAt || serverDraftId) && (
+            <p className="font-mono text-[10px] text-[#666]">
+              {serverDraftId
+                ? `Server draft ${serverDraftId.slice(0, 24)}…`
+                : "Local autosave only"}
+              {localSavedAt
+                ? ` · last local save ${new Date(localSavedAt).toLocaleTimeString()}`
+                : ""}
+            </p>
+          )}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={
+                !walletAvailable ||
+                !connected ||
+                publishing ||
+                savingDraft ||
+                !profile?.username
+              }
+              onClick={() => void saveDraft()}
+              className="w-full sm:w-auto border-[#333] font-mono text-xs tracking-wide"
+            >
+              {savingDraft ? (
+                <>
+                  <Loader2 size={14} className="animate-spin mr-2" />
+                  Saving draft…
+                </>
+              ) : (
+                "Save draft"
+              )}
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                !walletAvailable ||
+                !connected ||
+                publishing ||
+                savingDraft ||
+                !profile?.username
+              }
+              onClick={() => void publish()}
+              className="w-full sm:w-auto border border-[#f5c842]/40 bg-[#f5c842]/10 text-[#f5c842] hover:bg-[#f5c842]/20 font-mono text-xs tracking-wide"
+            >
+              {publishing ? (
+                <>
+                  <Loader2 size={14} className="animate-spin mr-2" />
+                  {publishPhase ?? "Publishing…"}
+                </>
+              ) : (
+                "Sign and publish"
+              )}
+            </Button>
+          </div>
+          <p className="font-mono text-[10px] text-[#555] leading-relaxed">
+            Local autosave runs while you type. Save draft stores a server copy (one
+            wallet signature, reusable briefly). Publish still requires a payload signature.
+          </p>
         </div>
       )}
     </Panel>

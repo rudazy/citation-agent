@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { CreatorPublishPanel } from "@/components/marketplace/creator-publish-panel";
+import { FollowingFeedPanel } from "@/components/marketplace/following-feed-panel";
 import { MarketplaceCitations } from "@/components/marketplace/marketplace-citations";
 import { MarketplaceHero } from "@/components/marketplace/marketplace-hero";
 import { MarketplaceStats } from "@/components/marketplace/marketplace-stats";
@@ -23,6 +24,9 @@ export default function MarketplacePage() {
       <Suspense fallback={null}>
         <MarketplaceCitations refreshKey={catalogRefresh} />
       </Suspense>
+
+      {/* Feed only — discovery is hero Follow (not mid-page) */}
+      <FollowingFeedPanel />
 
       <MarketplaceInfrastructureLayers traceId={traceId} onTraceId={setTraceId} />
     </div>

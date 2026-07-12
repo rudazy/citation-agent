@@ -15,7 +15,7 @@ export type CreatorPostRow = {
   id: string;
   created_at: string;
   updated_at: string;
-  published_at: string;
+  published_at: string | null;
   /** ISO timestamp from the wallet publish signature (x-publish-timestamp). */
   publish_signed_at: string | null;
   status: string;
@@ -133,7 +133,7 @@ export function rowToCreatorContent(row: CreatorPostRow): CreatorContent {
     body: row.body,
     paidCount: row.paid_count ?? 0,
     source: "database",
-    publishedAt: row.published_at,
+    publishedAt: row.published_at ?? undefined,
   };
 }
 

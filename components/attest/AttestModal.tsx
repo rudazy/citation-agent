@@ -215,7 +215,10 @@ export function AttestModal({
   );
   const targetMeta = TARGET_META[targetKind];
   const TargetIcon = targetMeta.icon;
-  const activePresetMeta = TARGET_PRESETS.find((p) => p.id === targetPreset) ?? TARGET_PRESETS[4];
+  const activePresetMeta =
+    TARGET_PRESETS.find((p) => p.id === targetPreset) ??
+    TARGET_PRESETS.find((p) => p.id === "custom") ??
+    TARGET_PRESETS[0];
 
   const busy = phase === "approving" || phase === "attesting";
   const stakeValid = !Number.isNaN(stake) && stake >= MIN_STAKE_USDC;

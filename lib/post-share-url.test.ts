@@ -7,33 +7,31 @@ import {
 } from "@/lib/post-share-url";
 
 describe("post-share-url", () => {
-  it("builds marketplace path with encoded post id", () => {
+  it("builds canonical report path for share links", () => {
     expect(buildPostSharePath("solana-agent-payments-a1b2c3d4")).toBe(
-      `/marketplace?${POST_SHARE_QUERY_PARAM}=solana-agent-payments-a1b2c3d4`,
+      "/r/solana-agent-payments-a1b2c3d4",
     );
   });
 
   it("encodes special characters in post ids", () => {
     expect(buildPostSharePath("report with spaces")).toBe(
-      `/marketplace?${POST_SHARE_QUERY_PARAM}=report%20with%20spaces`,
+      "/r/report%20with%20spaces",
     );
   });
 
   it("builds absolute share url from origin", () => {
     expect(
       buildPostShareUrl("btc-miner-treasury-deadbeef", "https://citation.example"),
-    ).toBe(
-      `https://citation.example/marketplace?${POST_SHARE_QUERY_PARAM}=btc-miner-treasury-deadbeef`,
-    );
+    ).toBe("https://citation.example/r/btc-miner-treasury-deadbeef");
   });
 
   it("strips trailing slash from origin", () => {
     expect(buildPostShareUrl("post-1", "https://citation.example/")).toBe(
-      `https://citation.example/marketplace?${POST_SHARE_QUERY_PARAM}=post-1`,
+      "https://citation.example/r/post-1",
     );
   });
 
-  it("reads post id from search params", () => {
+  it("reads post id from marketplace search params", () => {
     const params = new URLSearchParams("post=hyperliquid-liquidity-abc123");
     expect(getPostIdFromSearchParams(params)).toBe("hyperliquid-liquidity-abc123");
   });
@@ -42,5 +40,9 @@ describe("post-share-url", () => {
     expect(getPostIdFromSearchParams(new URLSearchParams())).toBeNull();
     expect(getPostIdFromSearchParams(new URLSearchParams("post="))).toBeNull();
     expect(getPostIdFromSearchParams(new URLSearchParams("post=%20%20"))).toBeNull();
+  });
+
+  it("exports marketplace deep-link query param name", () => {
+    expect(POST_SHARE_QUERY_PARAM).toBe("post");
   });
 });

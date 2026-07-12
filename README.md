@@ -20,13 +20,16 @@ Citation Agent is a production-style reference for agentic commerce over paywall
 
 | Layer | What users see | What runs underneath |
 | --- | --- | --- |
-| **Catalog** | Browse, unlock, cite research | Markdown seeds + Supabase posts, catalog filter |
-| **Commerce** | Per-report USDC unlock | x402 v2, Gateway batch settlement, royalty ledger |
-| **Identity** | `@username` on posts and comments | `platform_profiles` + `profile_wallets` (agent + publisher) |
+| **Catalog** | Browse, sort, topic filter, unlock, cite | Markdown seeds + Supabase posts |
+| **Publish** | Draft anytime · sign once to go live | Local autosave + server drafts + wallet publish sig |
+| **Profiles** | `/u/@name` · View → catalog · tip · back · follow | `platform_profiles`, `creator_follows`, tip x402 |
+| **Reports** | `/r/{id}` shareable teaser + unlock CTA | Canonical share URL (also catalog deep-link) |
+| **Commerce** | Per-report USDC unlock · optional tips | x402 v2, Gateway batch settlement, royalty ledger |
+| **Identity** | `@username` on posts, comments, `@mentions` | `platform_profiles` + `profile_wallets` |
 | **Discussion** | Threaded comments on unlocked posts | `post_comments`, unlock gate, agent session only |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, on-chain registry |
-| **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect on mobile, sign restore on connect, Gateway pay |
+| **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect, Gateway pay |
 
 Extended reference: [docs/platform-overview.md](docs/platform-overview.md)
 
@@ -43,9 +46,11 @@ flowchart TB
   end
 
   subgraph Application["Application · Next.js"]
-    Marketplace["/marketplace · catalog first"]
+    Marketplace["/marketplace · catalog · publish · follow"]
+    Profiles["/u/username · tip · back · View"]
+    Reports["/r/postId · share landing"]
     Dashboard["/dashboard · settlement machinery"]
-    APIs["API routes · x402 · attest · trust"]
+    APIs["API routes · x402 · drafts · follow · tip · attest"]
   end
 
   subgraph Settlement["Settlement · Circle"]
@@ -61,14 +66,19 @@ flowchart TB
   end
 
   subgraph Persistence["Persistence"]
-    Supabase[("Supabase · posts · profiles · comments · earnings · agent wallets")]
+    Supabase[("Supabase · posts · drafts · profiles · follows · comments · earnings")]
     Seeds["content/creators/*.md"]
   end
 
   Human --> Marketplace
+  Human --> Profiles
+  Human --> Reports
   BrowserAgent --> Marketplace
+  Profiles -->|"View · unlock"| Marketplace
+  Reports -->|"Unlock CTA"| Marketplace
   Agent --> APIs
   Marketplace --> APIs
+  Profiles --> APIs
   Dashboard --> APIs
   APIs --> Facilitator
   Facilitator --> GatewayAPI --> Relayer --> GatewayWallet
@@ -166,7 +176,7 @@ Setup UI: landing → choose Recover or Create → step 2. Re-tap **Agent wallet
 
 Researchers and readers share one **platform username** (`@name`, 3–24 chars, lowercase). Usernames are chosen on first publish or first comment, linked to the session agent wallet and optionally the publisher wallet. A 7-day cooldown applies between username changes.
 
-Comments are available only on **unlocked** posts. Readers comment via the session agent wallet (no MetaMask popups). Replies are threaded via `parentId`. Catalog posts show `@username` as the author when published from Supabase.
+Comments are available only on **unlocked** posts. Readers comment via the session agent wallet (no MetaMask popups). Replies are threaded via `parentId`. Type `@username` in comments or teasers to link to that creator’s public profile.
 
 ```mermaid
 sequenceDiagram
@@ -185,9 +195,89 @@ sequenceDiagram
     Reader->>Profile: POST username
     Profile->>DB: platform_profiles + profile_wallets
   end
-  Reader->>Comments: POST body · optional parentId
+  Reader->>Comments: POST body · optional parentId · @mentions
   Comments->>DB: verify unlock · insert comment
   Comments-->>UI: 201 + comment
+```
+
+---
+
+## Publish and drafts
+
+Creators expand **Publish research** on the marketplace: connect wallet, choose `@username`, write (or **import paste** markdown), **Save draft** anytime, then **Sign and publish** once.
+
+| Layer | Behavior |
+| --- | --- |
+| Local autosave | `localStorage` per connected wallet while typing (no signature) |
+| Server draft | `POST /api/marketplace/drafts` · my-posts signature · `status = draft` |
+| Live post | Publish payload signature · `status = published` · share link `/r/{id}` |
+
+```mermaid
+flowchart LR
+  Write["Write / import paste"] --> Local["Local autosave"]
+  Local --> Draft["Save draft · server"]
+  Draft --> Sign["Sign and publish"]
+  Sign --> Live["Catalog + /r/id"]
+  Live --> Share["Share /u and /r links"]
+```
+
+---
+
+## Public profiles, follow, and tips
+
+| Surface | Purpose |
+| --- | --- |
+| `/u/{username}` | Creator desk: stats, all published reports, follow, tip, back |
+| Report cards on profile | Teaser only · **View** opens catalog deep-link for unlock/read |
+| Hero **Follow** | Discover publishers who have at least one live report |
+| Following panel | Feed of posts from desks you follow (marketplace, below catalog) |
+| Tip | USDC via Gateway to the creator’s payout wallet |
+| Back researcher | Same on-chain stake flow as catalog (`author:@name`) |
+
+```mermaid
+flowchart TB
+  subgraph Discover["Discover"]
+    Hero["Hero · Follow"]
+    Recs["Recommendations · published only"]
+    Hero --> Recs
+  end
+
+  subgraph Profile["/u/username"]
+    Stats["Reports · readers · followers"]
+    Tip["Tip USDC"]
+    Back["Back researcher"]
+    Cards["Report teasers"]
+    Stats --> Tip
+    Stats --> Back
+    Stats --> Cards
+  end
+
+  subgraph Read["Read · marketplace"]
+    View["View → /marketplace?post=id"]
+    Unlock["Unlock body · comments"]
+    View --> Unlock
+  end
+
+  Recs -->|"Follow + open profile"| Profile
+  Cards --> View
+```
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant User
+  participant Profile as /u/username
+  participant Tip as GET /api/marketplace/tip
+  participant Fac as Circle facilitator
+  participant Creator as Creator payout wallet
+
+  User->>Profile: Tip amount · agent Gateway
+  Profile->>Tip: x402 pay username + amount
+  Tip-->>User: 402 requirements · payTo = creator
+  User->>Tip: payment-signature
+  Tip->>Fac: verify and settle
+  Fac-->>Creator: USDC tip
+  Tip-->>User: 200 tip receipt
 ```
 
 ---
@@ -206,7 +296,7 @@ sequenceDiagram
   participant Index as Claims indexer
 
   User->>Card: Back this researcher
-  Card->>Modal: target author:Name
+  Card->>Modal: target author:Name or author:@username
   alt Session agent wallet
     Modal->>Chain: attest via /api/attestation
   else MetaMask
@@ -214,7 +304,7 @@ sequenceDiagram
   end
   Chain-->>Index: Attested event + getAttestations
   Index-->>Card: backer count · USDC total
-  Note over Card: On-chain read fills index lag after refresh
+  Note over Card: Same flow on /u profile · On-chain read fills index lag after refresh
 ```
 
 ---
@@ -242,11 +332,13 @@ copy .env.example .env.local
 npm run generate-wallets
 ```
 
-Fund the buyer address from the faucet. Configure attestation and Supabase variables (see `.env.example` and `.env.local.example`). Apply all migrations in `supabase/migrations/` on your Supabase project (agent wallet recovery, publish, usernames, threaded comments). Per file:
+Fund the buyer address from the faucet. Configure attestation and Supabase variables (see `.env.example` and `.env.local.example`). Apply all migrations in `supabase/migrations/` on your Supabase project (agent wallets, publish, usernames, comments, drafts, follows). Per file:
 
 ```cmd
 npx tsx scripts/apply-sql-migration.mts supabase/migrations/<migration>.sql
 ```
+
+Includes growth migrations such as `20260712000000_growth_profiles_drafts_follows.sql` (nullable `published_at` for drafts, `creator_follows`) and author_name case normalization.
 
 ```cmd
 npm run dev
@@ -255,7 +347,9 @@ npm run dev
 | Route | Purpose |
 | --- | --- |
 | `/` | Redirects to `/marketplace` |
-| `/marketplace` | Research catalog, unlock, backing, reputation, infrastructure layers |
+| `/marketplace` | Catalog, publish/drafts, follow discovery, following feed, unlock |
+| `/u/{username}` | Public creator profile · View → catalog · tip · back · follow |
+| `/r/{postId}` | Shareable report teaser · unlock CTA into catalog |
 | `/dashboard` | Payments, royalties, withdrawals, operator fees, settlement trace |
 
 **Research agent**
@@ -292,8 +386,18 @@ npm run smoke:marketplace:full
 | `GET /api/marketplace/citations?id=` | x402 | Unlock body; records earnings |
 | `GET /api/marketplace/citations?refresh=1` | Public | Bust attestation cache after new backing |
 | `POST /api/marketplace/citations` | Wallet signature | Publish a post (requires `@username`) |
+| `GET /api/marketplace/drafts` | my-posts signature | List server drafts for connected wallet |
+| `POST /api/marketplace/drafts` | my-posts signature | Create/update draft (`status = draft`) |
+| `DELETE /api/marketplace/drafts?id=` | my-posts signature | Delete a draft |
 | `GET /api/marketplace/comments?postId=` | Public | Threaded comments for a post |
-| `POST /api/marketplace/comments` | Session agent | Comment or reply (unlock required) |
+| `POST /api/marketplace/comments` | Session agent | Comment or reply (unlock required); `@mentions` supported in body |
+| `GET /api/marketplace/tip?username=&amount=` | x402 | Tip USDC to creator payout wallet |
+| `GET /api/marketplace/follow` | Session + username | List followed creators |
+| `POST /api/marketplace/follow` | Session + username | Follow a publisher `@username` |
+| `DELETE /api/marketplace/follow?username=` | Session + username | Unfollow |
+| `GET /api/marketplace/follow/recommendations` | Session | Publishers with ≥1 published report |
+| `GET /api/marketplace/following/feed` | Session | Recent posts from followed creators |
+| `GET /api/marketplace/profiles/{username}` | Public | Public profile metadata + report teasers |
 
 ### Profile
 
@@ -343,7 +447,7 @@ Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.exampl
 | `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-session agent keys (32+ chars); keep stable across deploys |
 | `NEXT_PUBLIC_SITE_URL` / `BASE_URL` | Official origin (`https://agentcitation.xyz` in production) |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Reown AppKit / WalletConnect (mobile connect); allowlist `https://agentcitation.xyz` in [dashboard.reown.com](https://dashboard.reown.com) |
-| Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, profiles, comments, royalties, agent wallets, paid trust cache |
+| Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, drafts, profiles, follows, comments, tips ledger, agent wallets |
 
 **TrustGate (optional)**
 

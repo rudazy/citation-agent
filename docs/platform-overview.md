@@ -87,6 +87,60 @@ Researchers and readers share a single **platform username** displayed as `@name
 | Change cooldown | 7 days between username changes |
 | Publish | Wallet-signed publish requires a username; stored as `author_name` on `creator_posts` |
 | Comments | Session agent wallet only; username chosen on first comment if not set |
+| Public profile | `/u/{username}` — stats, report teasers, follow, tip, back + backer count/USDC |
+| Profile read path | **View** opens `/marketplace?post=` for unlock/read (no full body on profile) |
+| Researcher backing | Profile loads `author:{username}` stake summary (backers · USDC) |
+| Shareable report | `/r/{postId}` — teaser landing + unlock CTA (canonical share URL) |
+| Mentions | `@username` in comments/teasers links to `/u/{username}` |
+| Import paste | Publish panel: paste markdown → title / teaser / body |
+
+### Drafts
+
+Creators can stage research before signing:
+
+| Layer | Behavior |
+| --- | --- |
+| Local autosave | Browser `localStorage` per connected wallet while typing |
+| Server draft | `POST /api/marketplace/drafts` with my-posts signature; `creator_posts.status = draft` |
+| Publish | Still requires publish payload signature; live posts use `status = published` |
+| Author name | Stored lowercase; profile loads posts case-insensitively + by linked wallets |
+
+### Follow + following feed
+
+| Rule | Detail |
+| --- | --- |
+| Identity | Follower must have a platform username (agent session) |
+| Storage | `creator_follows` (follower profile → creator profile) |
+| Discovery | Hero **Follow** → recommendations only for accounts with ≥1 published post |
+| Feed | `GET /api/marketplace/following/feed` — recent posts from followed creators |
+| UI | Follow on profile/report; discover on hero; Following panel below catalog |
+
+### Tips
+
+| Rule | Detail |
+| --- | --- |
+| Endpoint | `GET /api/marketplace/tip?username=&amount=` (x402) |
+| Payee | Latest post `payout_wallet`, else publisher wallet on the profile |
+| Client | Agent Gateway via `POST /api/gateway/pay` |
+| Range | 0.001–1000 USDC |
+| Profile UI | Tip presets + custom amount; hidden on own profile |
+
+```mermaid
+flowchart LR
+  subgraph ProfilePage["/u/username"]
+    Teaser["Report teaser"]
+    ViewBtn["View"]
+    TipBtn["Tip USDC"]
+    BackBtn["Back researcher"]
+  end
+  subgraph Catalog["/marketplace"]
+    Deep["?post=id expanded"]
+    Unlock["Unlock body"]
+  end
+  Teaser --> ViewBtn --> Deep --> Unlock
+  TipBtn --> TipAPI["/api/marketplace/tip"]
+  BackBtn --> Attest["Attestation.sol"]
+```
 
 ### Post comments
 
@@ -228,12 +282,19 @@ flowchart LR
 
 The public demo page. Sections, top to bottom:
 
-1. **Hero** — product positioning
-2. **Publish** — connect wallet (WalletConnect or MetaMask), choose a unique `@username`, sign `"Citation Agent publish {timestamp} {payloadDigest}"`, submit title/subheading/body/price/tags; minimum price 0.001 USDC
-3. **Buyer demo** — pay `$0.01` hello-world via agent wallet or MetaMask; fund and deposit to Gateway
-4. **Citation catalog** — browse listings, expand to unlock (x402), threaded comments when unlocked, refresh trust, attest about an author
-5. **Claims registry** — browse on-chain attestations by target
-6. **Payment trace** — inspect a settlement UUID through facilitator queue to on-chain batch
+1. **Hero** — product positioning; CTAs: Browse catalog, Publish research, **Follow** (publisher recommendations)
+2. **Publish** — connect wallet, `@username`, import paste optional, local autosave, save draft, sign to publish
+3. **Citation catalog** — sort, topic filter, unlock (x402), comments, trust, back report/researcher
+4. **Following feed** — posts from followed desks (read-only; discovery is hero Follow)
+5. **Infrastructure layers** — buyer demo, claims registry, payment trace
+
+### Public profile (`/u/{username}`)
+
+Creator desk: stats, follow, tip USDC, back researcher. Report cards are teasers with **View** → catalog deep-link for unlock/read.
+
+### Report share page (`/r/{postId}`)
+
+Canonical share URL: public teaser + unlock CTA into the marketplace.
 
 ### Dashboard (`/dashboard`)
 
@@ -264,8 +325,14 @@ The root path `/` redirects to `/marketplace`.
 | GET | `/api/marketplace/citations` | Public | Catalog (no body, no wallets) |
 | GET | `/api/marketplace/citations?id=` | x402 | Unlock citation body; records royalty |
 | POST | `/api/marketplace/citations` | Wallet signature | Publish a new post (username required) |
+| GET/POST/DELETE | `/api/marketplace/drafts` | my-posts signature | List, save, or delete drafts |
 | GET | `/api/marketplace/comments?postId=` | Public | Threaded comments for a post |
 | POST | `/api/marketplace/comments` | Session agent | Comment or reply (unlock required) |
+| GET | `/api/marketplace/profiles/{username}` | Public | Public profile + report teasers |
+| GET | `/api/marketplace/tip?username=&amount=` | x402 | Tip creator payout wallet |
+| GET/POST/DELETE | `/api/marketplace/follow` | Session + username | List / follow / unfollow |
+| GET | `/api/marketplace/follow/recommendations` | Session | Publishers with published posts |
+| GET | `/api/marketplace/following/feed` | Session | Feed from followed creators |
 | GET | `/api/profile` | Session | Username, cooldown, agent status |
 | POST | `/api/profile` | Session agent | Set or change username |
 | GET | `/api/marketplace/hello` | x402 ($0.01) | Hello-world paid resource |
@@ -364,9 +431,10 @@ Supabase is optional for local UI exploration but required for publish, operator
 | `payment_events` | Append-only x402 settlement log (service-role only) |
 | `creator_earnings` | Per-unlock royalty records (full amount to creator payout wallet; service-role only) |
 | `agent_reputation` | Payer spend totals and citation counts (service-role only) |
-| `creator_posts` | Published marketplace content; `author_name` stores platform username (service-role access only) |
+| `creator_posts` | Draft and published content; `author_name` is platform username (service-role only) |
 | `platform_profiles` | Unique usernames and change timestamps |
 | `profile_wallets` | Maps agent and publisher wallets to a profile |
+| `creator_follows` | Follower profile → creator profile |
 | `post_comments` | Threaded comments on unlocked posts (`parent_id` for replies) |
 | `user_agent_wallets` | Encrypted agent private keys; `session_id`, optional `linked_wallet` (unique), `linked_wallet_verified` |
 | `attestation_platform_fees` | On-chain attest platform fee audit trail |

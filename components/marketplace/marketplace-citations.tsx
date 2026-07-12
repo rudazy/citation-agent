@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ChevronDown,
@@ -61,9 +62,11 @@ import { depositToGatewayViaMetaMask } from "@/lib/gateway-metamask";
 import { depositAgentGatewayViaApi } from "@/lib/gateway-pay";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { copyPostShareLink, getPostIdFromSearchParams } from "@/lib/post-share-url";
+import { buildProfilePath } from "@/lib/profile-url";
 import { resolveCatalogAuthHeaders } from "@/lib/citation-catalog-auth";
 import { fetchWithRetry } from "@/lib/client-fetch";
 
+import { MentionText } from "@/components/marketplace/mention-text";
 import { formatUsernameDisplay } from "@/lib/username";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -143,11 +146,26 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const [gatewayFunding, setGatewayFunding] = useState(false);
   const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<CatalogSortMode>("latest");
+  const [tagFilter, setTagFilter] = useState<string>("all");
 
-  const displayListings = useMemo(
-    () => sortCatalogListings(listings, sortMode),
-    [listings, sortMode],
-  );
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    for (const item of listings) {
+      for (const tag of item.tags ?? []) {
+        const t = tag.trim().toLowerCase();
+        if (t) tags.add(t);
+      }
+    }
+    return Array.from(tags).sort((a, b) => a.localeCompare(b));
+  }, [listings]);
+
+  const displayListings = useMemo(() => {
+    const sorted = sortCatalogListings(listings, sortMode);
+    if (tagFilter === "all") return sorted;
+    return sorted.filter((item) =>
+      (item.tags ?? []).some((t) => t.trim().toLowerCase() === tagFilter),
+    );
+  }, [listings, sortMode, tagFilter]);
 
   useEffect(() => {
     setMetamaskAvailable(typeof window !== "undefined" && Boolean(window.ethereum));
@@ -565,7 +583,11 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
 
   return (
     <>
-      <Panel glow className="space-y-4 p-4 sm:p-5 border-[#f5c842]/20">
+      <Panel
+        id="research-catalog"
+        glow
+        className="space-y-4 p-4 sm:p-5 border-[#f5c842]/20 scroll-mt-24"
+      >
         <button
           type="button"
           onClick={() => setCatalogExpanded((v) => !v)}
@@ -615,6 +637,24 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                     <option value="earning">Top earning</option>
                   </select>
                 </label>
+                {availableTags.length > 0 && (
+                  <label className="flex items-center gap-1.5 font-mono text-[10px] text-[#666]">
+                    Topic
+                    <select
+                      value={tagFilter}
+                      onChange={(e) => setTagFilter(e.target.value)}
+                      className="max-w-[9rem] rounded border border-[#333] bg-[#0a0a0a] px-2 py-1 text-[10px] text-[#a3a3a3] outline-none focus:border-[#f5c842]/40"
+                      aria-label="Filter research by topic"
+                    >
+                      <option value="all">All topics</option>
+                      {availableTags.map((tag) => (
+                        <option key={tag} value={tag}>
+                          {tag}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -743,50 +783,57 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                 )}
               >
                 <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
-                  <button
-                    type="button"
-                    onClick={() => toggleListingExpanded(item.id)}
-                    aria-expanded={listingExpanded}
-                    className="min-w-0 flex-1 space-y-2 text-left"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline" className="border-[#333] font-mono text-[10px]">
-                        ${item.price_usdc} {item.token}
-                      </Badge>
-                      <TrustSignalBadge trust={displayTrust} />
-                      <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#666]">
-                        <Users size={10} />
-                        {paidCountLabel(item.paid_count)}
-                      </span>
-                      {isUnlocked && (
-                        <Badge className="bg-[#f5c842]/10 text-[#f5c842] border border-[#f5c842]/30 text-[10px]">
-                          Unlocked
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleListingExpanded(item.id)}
+                      aria-expanded={listingExpanded}
+                      className="w-full space-y-2 text-left"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="border-[#333] font-mono text-[10px]">
+                          ${item.price_usdc} {item.token}
                         </Badge>
-                      )}
-                      <ChevronDown
-                        size={14}
-                        className={cn(
-                          "ml-auto text-[#666] transition-transform sm:ml-0",
-                          listingExpanded && "rotate-180",
+                        <TrustSignalBadge trust={displayTrust} />
+                        <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#666]">
+                          <Users size={10} />
+                          {paidCountLabel(item.paid_count)}
+                        </span>
+                        {isUnlocked && (
+                          <Badge className="bg-[#f5c842]/10 text-[#f5c842] border border-[#f5c842]/30 text-[10px]">
+                            Unlocked
+                          </Badge>
                         )}
-                      />
-                    </div>
-                    <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
-                      {item.title}
-                    </h3>
-                    <div className="space-y-0.5">
-                      <p className="font-mono text-xs text-[#666]">
-                        {item.author_is_username
-                          ? formatUsernameDisplay(item.author)
-                          : item.author}
-                      </p>
+                        <ChevronDown
+                          size={14}
+                          className={cn(
+                            "ml-auto text-[#666] transition-transform sm:ml-0",
+                            listingExpanded && "rotate-180",
+                          )}
+                        />
+                      </div>
+                      <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
+                        {item.title}
+                      </h3>
+                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {item.author_is_username ? (
+                        <Link
+                          href={buildProfilePath(item.author)}
+                          className="font-mono text-xs text-[#f5c842] hover:underline"
+                        >
+                          {formatUsernameDisplay(item.author)}
+                        </Link>
+                      ) : (
+                        <span className="font-mono text-xs text-[#666]">{item.author}</span>
+                      )}
                       {item.published_at && (
-                        <p className="font-mono text-[10px] text-[#666]">
+                        <span className="font-mono text-[10px] text-[#666]">
                           {formatPaymentDate(item.published_at)}
-                        </p>
+                        </span>
                       )}
                     </div>
-                  </button>
+                  </div>
 
                   <div className="flex shrink-0 flex-col gap-2 sm:items-end sm:min-w-[148px]">
                     {!isUnlocked ? (
@@ -975,7 +1022,7 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                       reportBacking={item.report_backing}
                     />
                     <p className="font-mono text-xs leading-relaxed text-[#888]">
-                      {item.subheading}
+                      <MentionText text={item.subheading} />
                     </p>
 
                     {isUnlocked && (

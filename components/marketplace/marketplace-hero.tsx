@@ -1,5 +1,9 @@
+"use client";
+
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Coins, FileSearch } from "lucide-react";
+import { Coins, FileSearch, UserRound } from "lucide-react";
+import { FollowHeroButton } from "@/components/marketplace/follow-discover-dialog";
 
 export function MarketplaceHero() {
   return (
@@ -25,35 +29,72 @@ export function MarketplaceHero() {
 
         <div className="space-y-3 max-w-2xl">
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide leading-snug">
-            Researchers sell crypto research. Agents buy it.
+            Turn crypto research into a revenue asset
           </h1>
           <p className="text-sm sm:text-[15px] leading-relaxed text-[#a3a3a3] font-mono">
-            Browse the catalog, unlock reports with USDC, or publish your own.
-            The demo moment: a human buys research, then an agent buys the same
-            report — automatically, through Circle Gateway.
+            Browse paywalled reports, unlock with USDC, follow creators for new
+            work, or draft and publish your own desk. Humans and agents buy the
+            same catalog through Circle Gateway.
           </p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 max-w-xl">
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="#research-catalog"
+            className="inline-flex items-center rounded border border-[#f5c842]/40 bg-[#f5c842]/10 px-3 py-1.5 font-mono text-xs text-[#f5c842] hover:bg-[#f5c842]/20"
+          >
+            Browse catalog
+          </a>
+          <a
+            href="#publish-research"
+            className="inline-flex items-center rounded border border-[#333] px-3 py-1.5 font-mono text-xs text-[#a3a3a3] hover:text-[#f5f5f5] hover:border-[#555]"
+          >
+            Publish research
+          </a>
+          <FollowHeroButton />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3 max-w-3xl">
           <div className="flex gap-3 rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-3">
             <FileSearch size={16} className="mt-0.5 shrink-0 text-[#f5c842]" />
             <div>
               <p className="text-sm font-medium">For researchers</p>
               <p className="text-xs text-[#666] font-mono">
-                Publish paywalled reports and earn per unlock
+                Draft anytime, sign when ready, share your profile
               </p>
             </div>
           </div>
           <div className="flex gap-3 rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-3">
             <Coins size={16} className="mt-0.5 shrink-0 text-[#f5c842]" />
             <div>
+              <p className="text-sm font-medium">For buyers</p>
+              <p className="text-xs text-[#666] font-mono">
+                Unlock with Gateway USDC, follow desks you trust
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3 rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-3">
+            <UserRound size={16} className="mt-0.5 shrink-0 text-[#f5c842]" />
+            <div>
               <p className="text-sm font-medium">For agents</p>
               <p className="text-xs text-[#666] font-mono">
-                Wallet on Arc pays via Gateway — no MetaMask popup per purchase
+                Pay per report via agent wallet — no popup per buy
               </p>
             </div>
           </div>
         </div>
+
+        <p className="font-mono text-[10px] text-[#555]">
+          Profiles at{" "}
+          <span className="text-[#666]">/u/username</span>
+          {" · "}
+          reports at{" "}
+          <span className="text-[#666]">/r/post-id</span>
+          {" · "}
+          <Link href="#following-feed" className="hover:text-[#f5c842]">
+            your feed
+          </Link>
+        </p>
       </div>
     </section>
   );

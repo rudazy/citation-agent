@@ -1,13 +1,20 @@
+import { buildReportPath, buildReportUrl } from "@/lib/profile-url";
+
 export const POST_SHARE_QUERY_PARAM = "post";
 
+/** Canonical share path for a research asset (`/r/{id}`). */
 export function buildPostSharePath(postId: string): string {
+  return buildReportPath(postId);
+}
+
+/** Marketplace deep-link that expands a post in the catalog. */
+export function buildMarketplacePostPath(postId: string): string {
   const encoded = encodeURIComponent(postId.trim());
   return `/marketplace?${POST_SHARE_QUERY_PARAM}=${encoded}`;
 }
 
 export function buildPostShareUrl(postId: string, origin: string): string {
-  const base = origin.replace(/\/$/, "");
-  return `${base}${buildPostSharePath(postId)}`;
+  return buildReportUrl(postId, origin);
 }
 
 export function getPostIdFromSearchParams(

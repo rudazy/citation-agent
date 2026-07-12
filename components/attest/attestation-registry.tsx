@@ -100,7 +100,8 @@ function TargetRow({
   active: boolean;
   onSelect: () => void;
 }) {
-  const meta = KIND_META[row.kind];
+  // Unknown kinds (e.g. author:/citation: targets) fall back to "other"
+  const meta = KIND_META[row.kind] ?? KIND_META.other;
   const Icon = meta.icon;
 
   return (
