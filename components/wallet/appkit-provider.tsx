@@ -38,6 +38,11 @@ if (walletConnectProjectId) {
     networks: [arcNetwork],
     defaultNetwork: arcNetwork,
     metadata,
+    // Keep WalletConnect + injected extensions available in the sheet.
+    enableWalletConnect: true,
+    enableInjected: true,
+    enableCoinbase: true,
+    allowUnsupportedChain: true,
     themeMode: "dark",
     themeVariables: {
       "--w3m-accent": "#f5c842",
@@ -50,11 +55,16 @@ if (walletConnectProjectId) {
       analytics: false,
       email: false,
       socials: false,
+      // Prefer wallet list first (MetaMask / WC deep links), not email/social.
+      connectMethodsOrder: ["wallet"],
     },
+    allWallets: "SHOW",
   });
 
   registerAppKitModal(appKitModal);
   registerOpenConnectModal(async () => {
+    // Open connect sheet; do not await connection here — handoff continues
+    // after the sheet closes when the mobile wallet app opens.
     await appKitModal!.open({ view: "Connect" });
   });
 }

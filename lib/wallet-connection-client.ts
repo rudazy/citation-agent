@@ -38,6 +38,14 @@ export function waitForWalletConnection(
 
   return new Promise((resolve) => {
     let settled = false;
+    /** True once AppKit reports the connect sheet is visible. */
+    let sawModalOpen = false;
+    /**
+     * True once a wallet handoff starts (QR scanned / deep link / extension
+     * prompt). After this, the modal often closes while the user is still in
+     * their wallet app — that must NOT count as cancel.
+     */
+    let sawConnecting = false;
 
     const finish = (address: `0x${string}` | null) => {
       if (settled) return;
@@ -60,10 +68,24 @@ export function waitForWalletConnection(
 
     const unsubscribeModal = appKitModal?.subscribeState((state) => {
       if (!state.initialized) return;
-      if (state.loading || state.connectingWallet) return;
+
+      if (state.open) {
+        sawModalOpen = true;
+      }
+      if (state.loading || state.connectingWallet) {
+        sawConnecting = true;
+        return;
+      }
 
       const account = getAccount(wagmiConfig);
-      if (!state.open && !account.isConnected) {
+      if (account.isConnected && account.address) {
+        finish(account.address as `0x${string}`);
+        return;
+      }
+
+      // User closed the modal before choosing a wallet.
+      // Do not cancel if a wallet handoff is in flight (mobile deep link).
+      if (sawModalOpen && !state.open && !sawConnecting) {
         finish(null);
       }
     });
@@ -202,17 +224,31 @@ export async function connectWalletInteractive(): Promise<{
     }
   }
 
+  // Desktop extension: open MetaMask (or other injected) directly.
+  // More reliable than routing every click through the WalletConnect sheet.
+  if (hasInjectedEthereum()) {
+    try {
+      return await connectViaInjectedWallet();
+    } catch (err) {
+      // User rejected the extension prompt — surface that, don't force WC.
+      const message = err instanceof Error ? err.message : String(err);
+      if (/reject|denied|user cancel/i.test(message)) {
+        throw err;
+      }
+      // No usable injected session (locked extension, etc.) — fall through to WC.
+      if (!isWalletConnectConfigured()) {
+        throw err;
+      }
+    }
+  }
+
   if (isWalletConnectConfigured()) {
     return connectViaWalletConnectModal();
   }
 
-  if (!hasInjectedEthereum()) {
-    throw new Error(
-      "No wallet available. Connect via WalletConnect or install MetaMask.",
-    );
-  }
-
-  return connectViaInjectedWallet();
+  throw new Error(
+    "No wallet available. Connect via WalletConnect or install MetaMask.",
+  );
 }
 
 export async function switchToArcViaWagmi(): Promise<void> {
