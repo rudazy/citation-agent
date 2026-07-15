@@ -17,6 +17,7 @@ import {
   fetchCitationLedgerStats,
   getCitationLedgerStats,
   getCreatorEarningsUsdc,
+  type CitationLedgerIndex,
 } from "@/lib/catalog-earnings-stats";
 import {
   getCreatorOwnedPostIds,
@@ -28,14 +29,18 @@ import {
   authorBackingTarget,
   indexBackingSummaries,
   reportBackingTarget,
+  type ResearchBackingStats,
 } from "@/lib/research-backing";
 import { requirePublisherUsername } from "@/lib/platform-profile";
 import { getCommentCountsForPosts } from "@/lib/post-comments";
 import { resolveUserAgent } from "@/lib/resolve-user-agent";
 import { ensurePublisherLinkedToSession } from "@/lib/publisher-session-link";
-import { getTrustScores } from "@/lib/trustgate";
+import { getTrustScores, type TrustScore } from "@/lib/trustgate";
 import { withGateway, type GatewayContext } from "@/lib/x402";
 import type { CreatorContent } from "@/lib/citations";
+
+/** Allow slower enrichment on Pro; still race-capped in the handler. */
+export const maxDuration = 60;
 
 function buildCitationUnlockResponse(content: CreatorContent, settledToCreator: boolean) {
   const canteenAddress = process.env.CANTEEN_USDC_ADDRESS ?? null;
@@ -147,90 +152,190 @@ const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
   return buildCitationUnlockResponse(content, settledToCreator);
 };
 
+/** Soft-fail catalog enrichment so one bad dependency never 500s the feed. */
+async function catalogSoft<T>(
+  label: string,
+  work: Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await work;
+  } catch (err) {
+    console.error(
+      `[citations] ${label} failed; serving catalog without it:`,
+      err instanceof Error ? err.message : err,
+    );
+    return fallback;
+  }
+}
+
+/**
+ * Cap enrichment work so TrustGate / Arc RPC slowness cannot exceed the
+ * serverless budget (default hobby maxDuration is tight).
+ */
+function catalogRace<T>(work: Promise<T>, fallback: T, ms: number): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<T>((resolve) => {
+      setTimeout(() => resolve(fallback), ms);
+    }),
+  ]);
+}
+
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
 
   if (!id) {
-    const forceBackingRefresh = req.nextUrl.searchParams.get("refresh") === "1";
-    if (forceBackingRefresh) invalidateAttestationCache();
-
-    const content = filterPublicResearchCatalog(await loadAllCreatorContent());
-    const backingTargets = content.flatMap((item) => [
-      authorBackingTarget(item.author),
-      reportBackingTarget(item.id),
-    ]);
-
-    const agent = await resolveUserAgent();
-    const citationIds = content.map((item) => item.id);
-
-    let creatorOwned = new Set<string>();
     try {
-      const viewerWallets = await resolveCitationViewerWallets(req);
-      creatorOwned = getCreatorOwnedPostIds(viewerWallets, content);
+      const forceBackingRefresh = req.nextUrl.searchParams.get("refresh") === "1";
+      if (forceBackingRefresh) invalidateAttestationCache();
+
+      const content = filterPublicResearchCatalog(await loadAllCreatorContent());
+      const backingTargets = content.flatMap((item) => [
+        authorBackingTarget(item.author),
+        reportBackingTarget(item.id),
+      ]);
+
+      const agent = await catalogSoft(
+        "resolveUserAgent",
+        resolveUserAgent(),
+        null,
+      );
+      const citationIds = content.map((item) => item.id);
+
+      let creatorOwned = new Set<string>();
+      try {
+        const viewerWallets = await resolveCitationViewerWallets(req);
+        creatorOwned = getCreatorOwnedPostIds(viewerWallets, content);
+      } catch (err) {
+        console.warn(
+          "[citations] Creator access lookup failed; continuing without publisher auto-unlock:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+
+      const emptyScores = new Map<string, TrustScore | null>();
+      const emptyBacking = new Map<string, ResearchBackingStats>();
+      const emptyLedger: CitationLedgerIndex = {
+        byCitation: new Map(),
+        creatorTotalsUsdc: new Map(),
+      };
+      const emptyComments = new Map<string, number>();
+      const emptyPrior = new Set<string>();
+
+      // Default load: skip per-target on-chain attestation fills (slow + flaky).
+      // Explicit ?refresh=1 still does the full path for operators.
+      const enrichmentBudgetMs = forceBackingRefresh ? 25_000 : 8_000;
+
+      const [scores, backingIndex, priorUnlocks, ledgerStats, commentCounts] =
+        await Promise.all([
+          catalogSoft(
+            "trust scores",
+            catalogRace(
+              getTrustScores(
+                content.map((item) => resolveTrustIdentityWallet(item)),
+              ),
+              emptyScores,
+              enrichmentBudgetMs,
+            ),
+            emptyScores,
+          ),
+          catalogSoft(
+            "backing summaries",
+            catalogRace(
+              getBackingSummariesForTargets(backingTargets, {
+                forceOnChain: forceBackingRefresh,
+                skipOnChain: !forceBackingRefresh,
+              }).then(indexBackingSummaries),
+              emptyBacking,
+              enrichmentBudgetMs,
+            ),
+            emptyBacking,
+          ),
+          catalogSoft(
+            "prior unlocks",
+            agent
+              ? getPriorUnlockIds(agent.address, citationIds)
+              : Promise.resolve(emptyPrior),
+            emptyPrior,
+          ),
+          catalogSoft(
+            "ledger stats",
+            fetchCitationLedgerStats(
+              citationIds,
+              content.map((item) => item.payoutWallet),
+            ),
+            emptyLedger,
+          ),
+          catalogSoft(
+            "comment counts",
+            getCommentCountsForPosts(citationIds),
+            emptyComments,
+          ),
+        ]);
+
+      const paidTrustAvailable = isPaidTrustLookupAvailable();
+
+      const items = content.map((item) => {
+        const alreadyUnlocked =
+          priorUnlocks.has(item.id) || creatorOwned.has(item.id);
+        const ledger = getCitationLedgerStats(ledgerStats, item.id);
+        const paidCount = Math.max(item.paidCount, ledger.allTimeReaders);
+        return {
+          id: item.id,
+          title: item.title,
+          author: item.author,
+          price_usdc: item.priceUsdc,
+          tags: item.tags,
+          subheading: item.subheading,
+          paid_count: paidCount,
+          recent_readers_7d: ledger.recentReaders7d,
+          post_earnings_usdc: ledger.postEarningsUsdc,
+          creator_earnings_usdc: getCreatorEarningsUsdc(
+            ledgerStats,
+            item.payoutWallet,
+          ),
+          endpoint: `/api/marketplace/citations?id=${item.id}`,
+          token: process.env.CANTEEN_USDC_ADDRESS ? "cUSDC" : "USDC",
+          trust: trustScoreToSignal(
+            scores.get(resolveTrustIdentityWallet(item).toLowerCase()) ?? null,
+            "free",
+            item.id,
+          ),
+          trust_paid_lookup: paidTrustAvailable,
+          author_backing:
+            backingIndex.get(authorBackingTarget(item.author)) ?? null,
+          report_backing:
+            backingIndex.get(reportBackingTarget(item.id)) ?? null,
+          already_unlocked: alreadyUnlocked,
+          is_own_post: creatorOwned.has(item.id),
+          ...(alreadyUnlocked ? { unlocked_body: item.body } : {}),
+          ...(item.publishedAt ? { published_at: item.publishedAt } : {}),
+          comment_count: commentCounts.get(item.id) ?? 0,
+          author_is_username: item.source === "database",
+        };
+      });
+
+      return NextResponse.json({
+        marketplace: "citation-agent",
+        count: items.length,
+        listings: items,
+        purchase_endpoint: "/api/marketplace/citations?id=<listing-id>",
+        trust_lookup_endpoint: "/api/trustgate/score?postId=<listing-id>",
+      });
     } catch (err) {
-      console.warn(
-        "[citations] Creator access lookup failed; continuing without publisher auto-unlock:",
+      console.error(
+        "[citations] Catalog list failed:",
         err instanceof Error ? err.message : err,
       );
+      return NextResponse.json(
+        {
+          error: "Failed to load research catalog",
+          detail: err instanceof Error ? err.message : "Unknown error",
+        },
+        { status: 500 },
+      );
     }
-
-    const [scores, backingIndex, priorUnlocks, ledgerStats, commentCounts] =
-      await Promise.all([
-      getTrustScores(content.map((item) => resolveTrustIdentityWallet(item))),
-      getBackingSummariesForTargets(backingTargets, {
-        forceOnChain: forceBackingRefresh,
-      }).then(indexBackingSummaries),
-      agent ? getPriorUnlockIds(agent.address, citationIds) : Promise.resolve(new Set<string>()),
-      fetchCitationLedgerStats(
-        citationIds,
-        content.map((item) => item.payoutWallet),
-      ),
-      getCommentCountsForPosts(citationIds),
-    ]);
-
-    const paidTrustAvailable = isPaidTrustLookupAvailable();
-
-    const items = content.map((item) => {
-      const alreadyUnlocked = priorUnlocks.has(item.id) || creatorOwned.has(item.id);
-      const ledger = getCitationLedgerStats(ledgerStats, item.id);
-      const paidCount = Math.max(item.paidCount, ledger.allTimeReaders);
-      return {
-        id: item.id,
-        title: item.title,
-        author: item.author,
-        price_usdc: item.priceUsdc,
-        tags: item.tags,
-        subheading: item.subheading,
-        paid_count: paidCount,
-        recent_readers_7d: ledger.recentReaders7d,
-        post_earnings_usdc: ledger.postEarningsUsdc,
-        creator_earnings_usdc: getCreatorEarningsUsdc(ledgerStats, item.payoutWallet),
-        endpoint: `/api/marketplace/citations?id=${item.id}`,
-        token: process.env.CANTEEN_USDC_ADDRESS ? "cUSDC" : "USDC",
-        trust: trustScoreToSignal(
-          scores.get(resolveTrustIdentityWallet(item).toLowerCase()) ?? null,
-          "free",
-          item.id,
-        ),
-        trust_paid_lookup: paidTrustAvailable,
-        author_backing: backingIndex.get(authorBackingTarget(item.author)) ?? null,
-        report_backing: backingIndex.get(reportBackingTarget(item.id)) ?? null,
-        already_unlocked: alreadyUnlocked,
-        is_own_post: creatorOwned.has(item.id),
-        ...(alreadyUnlocked ? { unlocked_body: item.body } : {}),
-        ...(item.publishedAt ? { published_at: item.publishedAt } : {}),
-        comment_count: commentCounts.get(item.id) ?? 0,
-        author_is_username: item.source === "database",
-      };
-    });
-
-    return NextResponse.json({
-      marketplace: "citation-agent",
-      count: items.length,
-      listings: items,
-      purchase_endpoint: "/api/marketplace/citations?id=<listing-id>",
-      trust_lookup_endpoint: "/api/trustgate/score?postId=<listing-id>",
-    });
   }
 
   const content = await getCreatorContentById(id);

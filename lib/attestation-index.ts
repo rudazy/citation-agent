@@ -363,10 +363,14 @@ function buildTargetSummary(
 
 /**
  * Backing stats for catalog targets. Log index can lag; on-chain reads fill gaps.
+ *
+ * Catalog list loads should pass `skipOnChain: true` so one slow Arc RPC
+ * never blocks the research feed. Pass `forceOnChain: true` (refresh) for
+ * the full index + chain fill path.
  */
 export async function getBackingSummariesForTargets(
   targets: string[],
-  options?: { forceOnChain?: boolean },
+  options?: { forceOnChain?: boolean; skipOnChain?: boolean },
 ): Promise<TargetSummary[]> {
   const unique = [
     ...new Set(targets.map((t) => canonicalizeAttestationTarget(t)).filter(Boolean)),
@@ -375,6 +379,13 @@ export async function getBackingSummariesForTargets(
 
   const indexed = await getTargetSummaries();
   const byTarget = new Map(indexed.map((row) => [row.target, row]));
+
+  // Fast path for catalog: indexed summaries only (no per-target eth_call).
+  if (options?.skipOnChain && !options.forceOnChain) {
+    return unique
+      .map((target) => byTarget.get(target))
+      .filter((row): row is TargetSummary => row != null);
+  }
 
   const contractAddress = getAttestationAddress();
   if (!contractAddress) return [...byTarget.values()];
@@ -388,15 +399,24 @@ export async function getBackingSummariesForTargets(
   const client = rpcClient();
   const onChainRows = await Promise.all(
     needsOnChain.map(async (target) => {
-      const count = await client.readContract({
-        address: contractAddress,
-        abi: ATTESTATION_ABI,
-        functionName: "attestationCount",
-        args: [target],
-      });
-      if (count === BigInt(0)) return { target, rows: [] as IndexedAttestation[] };
-      const rows = await readOnChainClaims(target);
-      return { target, rows };
+      try {
+        const count = await client.readContract({
+          address: contractAddress,
+          abi: ATTESTATION_ABI,
+          functionName: "attestationCount",
+          args: [target],
+        });
+        if (count === BigInt(0)) return { target, rows: [] as IndexedAttestation[] };
+        const rows = await readOnChainClaims(target);
+        return { target, rows };
+      } catch (err) {
+        console.warn(
+          "[attestation-index] on-chain backing read failed for",
+          target,
+          err instanceof Error ? err.message : err,
+        );
+        return { target, rows: [] as IndexedAttestation[] };
+      }
     }),
   );
 
