@@ -9,6 +9,8 @@ export type ChunkedGetLogsResult = {
   logs: Log[];
   /** False when a chunk failed after retries or the scan stopped early. */
   complete: boolean;
+  /** True when the budget (max chunks / deadline) stopped the scan before toBlock. */
+  budgetExhausted?: boolean;
   /** Last block that was fully scanned without error (inclusive). */
   lastScannedBlock: bigint | null;
   errorMessage?: string;
@@ -38,6 +40,20 @@ export function claimsLogsChunkDelayMs(): number {
   const raw = process.env.CLAIMS_LOGS_CHUNK_DELAY_MS?.trim();
   if (raw && /^\d+$/.test(raw)) return Math.min(5_000, Math.max(0, Number(raw)));
   return DEFAULT_CHUNK_DELAY_MS;
+}
+
+/** Max eth_getLogs chunks per request (keeps serverless under timeout). Default 20. */
+export function claimsLogsMaxChunksPerRequest(): number {
+  const raw = process.env.CLAIMS_LOGS_MAX_CHUNKS?.trim();
+  if (raw && /^\d+$/.test(raw)) return Math.min(200, Math.max(1, Number(raw)));
+  return 20;
+}
+
+/** Soft deadline for getLogs work in one request (ms). Default 12s. */
+export function claimsLogsScanBudgetMs(): number {
+  const raw = process.env.CLAIMS_LOGS_SCAN_BUDGET_MS?.trim();
+  if (raw && /^\d+$/.test(raw)) return Math.min(55_000, Math.max(1_000, Number(raw)));
+  return 12_000;
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -114,6 +130,10 @@ export async function chunkedGetLogs(
     toBlock: bigint;
     chunkSize?: bigint;
     chunkDelayMs?: number;
+    /** Stop after this many successful/attempted chunks (serverless safety). */
+    maxChunks?: number;
+    /** Wall-clock budget in ms for this call (serverless safety). */
+    deadlineMs?: number;
   },
 ): Promise<ChunkedGetLogsResult> {
   const { address, event, fromBlock, toBlock } = params;
@@ -124,12 +144,26 @@ export async function chunkedGetLogs(
   let chunkSize = params.chunkSize ?? claimsLogsChunkSize();
   if (chunkSize < BigInt(1)) chunkSize = BigInt(1);
   const delayMs = params.chunkDelayMs ?? claimsLogsChunkDelayMs();
+  const maxChunks = params.maxChunks ?? claimsLogsMaxChunksPerRequest();
+  const deadlineMs = params.deadlineMs ?? claimsLogsScanBudgetMs();
+  const startedAt = Date.now();
 
   const logs: Log[] = [];
   let lastScannedBlock: bigint | null = fromBlock > BigInt(0) ? fromBlock - BigInt(1) : null;
   let from = fromBlock;
+  let chunksRun = 0;
 
   while (from <= toBlock) {
+    if (chunksRun >= maxChunks || Date.now() - startedAt >= deadlineMs) {
+      return {
+        logs,
+        complete: false,
+        budgetExhausted: true,
+        lastScannedBlock,
+        errorMessage: "Scan budget exhausted; continue on next request",
+      };
+    }
+
     let to = from + chunkSize - BigInt(1);
     if (to > toBlock) to = toBlock;
 
@@ -138,6 +172,7 @@ export async function chunkedGetLogs(
     let attemptChunk = chunkSize;
     let chunkOk = false;
     let lastErr: string | undefined;
+    chunksRun += 1;
 
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {

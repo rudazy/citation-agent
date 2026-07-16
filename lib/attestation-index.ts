@@ -17,6 +17,8 @@ import {
 import {
   chunkedGetLogs,
   claimsLogsChunkDelayMs,
+  claimsLogsMaxChunksPerRequest,
+  claimsLogsScanBudgetMs,
   sleep,
   withRpcRetry,
 } from "@/lib/chunked-get-logs";
@@ -191,26 +193,8 @@ function storedToIndexed(row: StoredAttestationEvent): IndexedAttestation {
 }
 
 /**
- * Fetch Attested logs for one event ABI over [fromBlock, toBlock] with
- * rate-limited chunking. Does not throw on RPC failure.
- */
-async function fetchLogsForEventRange(
-  client: PublicClient,
-  contractAddress: `0x${string}`,
-  event: AbiEvent,
-  fromBlock: bigint,
-  toBlock: bigint,
-) {
-  return chunkedGetLogs(client, {
-    address: contractAddress,
-    event,
-    fromBlock,
-    toBlock,
-  });
-}
-
-/**
  * Current then legacy Attested event scans — sequential, never Promise.all.
+ * Budget is split across both ABI sweeps so one request cannot hang for minutes.
  * Merges and dedupes by txHash:logIndex.
  */
 async function fetchAttestedLogsIncremental(
@@ -221,31 +205,53 @@ async function fetchAttestedLogsIncremental(
 ): Promise<{
   logs: Log[];
   complete: boolean;
+  budgetExhausted: boolean;
   lastScannedBlock: bigint | null;
   errorMessage?: string;
 }> {
-  const current = await fetchLogsForEventRange(
-    client,
-    contractAddress,
-    ATTESTED_EVENT_ABI,
+  const maxChunks = claimsLogsMaxChunksPerRequest();
+  const totalBudget = claimsLogsScanBudgetMs();
+  // Prefer finishing the current event ABI first; give legacy a smaller share.
+  const currentBudget = Math.floor(totalBudget * 0.65);
+  const legacyBudget = Math.max(2_000, totalBudget - currentBudget);
+  const currentChunks = Math.max(4, Math.floor(maxChunks * 0.65));
+  const legacyChunks = Math.max(2, maxChunks - currentChunks);
+
+  const current = await chunkedGetLogs(client, {
+    address: contractAddress,
+    event: ATTESTED_EVENT_ABI,
     fromBlock,
     toBlock,
-  );
+    maxChunks: currentChunks,
+    deadlineMs: currentBudget,
+  });
 
-  // Small pause between the two ABI sweeps so we do not double-hit the RPC peak.
   await sleep(claimsLogsChunkDelayMs());
 
-  const legacy = await fetchLogsForEventRange(
-    client,
-    contractAddress,
-    ATTESTED_LEGACY_EVENT_ABI,
-    fromBlock,
-    // If current stopped early, only scan legacy through the same high-water mark
-    // so cursor advancement stays consistent.
-    current.complete
-      ? toBlock
-      : (current.lastScannedBlock ?? fromBlock - BigInt(1)),
-  );
+  // Only re-scan legacy through the high-water mark we actually covered.
+  const legacyTo =
+    current.lastScannedBlock != null && current.lastScannedBlock >= fromBlock
+      ? current.lastScannedBlock
+      : fromBlock > BigInt(0)
+        ? fromBlock - BigInt(1)
+        : BigInt(0);
+
+  const legacy =
+    legacyTo >= fromBlock
+      ? await chunkedGetLogs(client, {
+          address: contractAddress,
+          event: ATTESTED_LEGACY_EVENT_ABI,
+          fromBlock,
+          toBlock: legacyTo,
+          maxChunks: legacyChunks,
+          deadlineMs: legacyBudget,
+        })
+      : {
+          logs: [] as Log[],
+          complete: true,
+          budgetExhausted: false,
+          lastScannedBlock: legacyTo,
+        };
 
   const seen = new Set<string>();
   const merged: Log[] = [];
@@ -256,17 +262,24 @@ async function fetchAttestedLogsIncremental(
     merged.push(log);
   }
 
-  const complete = current.complete && legacy.complete;
+  // Cursor can only advance to a block both ABI sweeps fully covered.
   const lastScannedBlock =
     current.lastScannedBlock != null && legacy.lastScannedBlock != null
       ? current.lastScannedBlock < legacy.lastScannedBlock
         ? current.lastScannedBlock
         : legacy.lastScannedBlock
-      : (current.lastScannedBlock ?? legacy.lastScannedBlock);
+      : (current.lastScannedBlock ?? legacy.lastScannedBlock ?? null);
+
+  const reachedHead =
+    lastScannedBlock != null && lastScannedBlock >= toBlock && current.complete;
+  const budgetExhausted = Boolean(
+    current.budgetExhausted || legacy.budgetExhausted,
+  );
 
   return {
     logs: merged,
-    complete,
+    complete: reachedHead && legacy.complete && !budgetExhausted,
+    budgetExhausted,
     lastScannedBlock,
     errorMessage: current.errorMessage ?? legacy.errorMessage,
   };
@@ -475,23 +488,50 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
       latest,
     );
     scanComplete = logScan.complete;
-    scanError = logScan.errorMessage;
+    scanError = logScan.budgetExhausted
+      ? "Partial results, still syncing"
+      : logScan.errorMessage;
+
+    let enrichComplete = true;
+    let lastEnrichedBlock: bigint | null = null;
 
     if (logScan.logs.length > 0) {
       const enriched = await enrichLogs(client, contractAddress, logScan.logs);
+      enrichComplete = enriched.complete;
       if (!enriched.complete) {
         scanComplete = false;
         scanError = scanError ?? enriched.errorMessage;
       }
       for (const row of enriched.rows) {
         byKey.set(`${row.txHash}:${row.logIndex}`, row);
+        if (
+          lastEnrichedBlock == null ||
+          row.blockNumber > lastEnrichedBlock
+        ) {
+          lastEnrichedBlock = row.blockNumber;
+        }
       }
     }
 
-    // Persist scan progress so the next request continues past successful chunks.
-    // Only advance when lastScannedBlock is known (partial or full).
-    if (logScan.lastScannedBlock != null && logScan.lastScannedBlock >= fromBlock) {
-      await setLogCursor(contractAddress, logScan.lastScannedBlock);
+    // Advance cursor only through blocks we actually covered.
+    // If enrichment failed, do not jump past the last successfully enriched block
+    // (otherwise events are permanently skipped).
+    let cursorTo: bigint | null = null;
+    if (logScan.logs.length === 0 && logScan.lastScannedBlock != null) {
+      // Empty range scanned successfully — safe to advance.
+      cursorTo = logScan.lastScannedBlock;
+    } else if (enrichComplete && logScan.lastScannedBlock != null) {
+      cursorTo = logScan.lastScannedBlock;
+    } else if (lastEnrichedBlock != null) {
+      cursorTo = lastEnrichedBlock;
+    }
+
+    if (cursorTo != null && cursorTo >= fromBlock) {
+      await setLogCursor(contractAddress, cursorTo);
+    }
+
+    if (logScan.budgetExhausted || !logScan.complete) {
+      scanComplete = false;
     }
   }
 

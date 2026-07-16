@@ -497,8 +497,11 @@ export function AttestationRegistry({ className }: { className?: string }) {
         setTargets([]);
       }
 
-      if (data.partial) {
-        setListNotice(data.notice ?? "Partial results, still syncing");
+      if (data.partial || (data.complete === false && nextTargets.length > 0)) {
+        setListNotice(
+          data.notice ??
+            "Partial results, still syncing. Press Refresh to index more targets.",
+        );
       } else if (data.liveUnavailable || (data.complete === false && nextTargets.length === 0)) {
         setListNotice(data.notice ?? LIVE_UNAVAILABLE_NOTICE);
       } else if (!res.ok) {

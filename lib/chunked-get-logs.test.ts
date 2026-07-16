@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   claimsLogsChunkSize,
+  claimsLogsMaxChunksPerRequest,
+  claimsLogsScanBudgetMs,
   isRateLimitError,
   publicRpcErrorMessage,
 } from "./chunked-get-logs";
@@ -33,5 +35,18 @@ describe("claimsLogsChunkSize", () => {
     expect(claimsLogsChunkSize()).toBe(BigInt(100));
     if (prev === undefined) delete process.env.CLAIMS_LOGS_CHUNK_SIZE;
     else process.env.CLAIMS_LOGS_CHUNK_SIZE = prev;
+  });
+});
+
+describe("claims scan budget helpers", () => {
+  it("defaults max chunks and budget", () => {
+    const prevChunks = process.env.CLAIMS_LOGS_MAX_CHUNKS;
+    const prevBudget = process.env.CLAIMS_LOGS_SCAN_BUDGET_MS;
+    delete process.env.CLAIMS_LOGS_MAX_CHUNKS;
+    delete process.env.CLAIMS_LOGS_SCAN_BUDGET_MS;
+    expect(claimsLogsMaxChunksPerRequest()).toBe(20);
+    expect(claimsLogsScanBudgetMs()).toBe(12_000);
+    if (prevChunks !== undefined) process.env.CLAIMS_LOGS_MAX_CHUNKS = prevChunks;
+    if (prevBudget !== undefined) process.env.CLAIMS_LOGS_SCAN_BUDGET_MS = prevBudget;
   });
 });

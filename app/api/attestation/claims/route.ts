@@ -5,6 +5,9 @@ import {
   invalidateAttestationCache,
 } from "@/lib/attestation-index";
 
+/** Keep under Vercel limits while allowing multi-chunk progressive scans. */
+export const maxDuration = 60;
+
 /** User-facing message only — never forward raw viem/RPC bodies. */
 const LIVE_UNAVAILABLE =
   "Live chain data is temporarily unavailable. Showing last known claims.";
@@ -74,11 +77,11 @@ export async function GET(request: Request) {
         complete: result.complete,
         partial: result.partial,
         liveUnavailable: false,
-        notice: result.partial
-          ? "Partial results, still syncing"
-          : !result.complete
-            ? LIVE_UNAVAILABLE
-            : undefined,
+        notice: result.partial || !result.complete
+          ? result.targets.length > 0
+            ? "Partial results, still syncing. Press Refresh to index more targets."
+            : LIVE_UNAVAILABLE
+          : undefined,
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } },
     );
