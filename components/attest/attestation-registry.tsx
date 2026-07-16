@@ -61,7 +61,14 @@ type TargetDetail = {
   trustWeightedUsdc?: string;
   unscoredStakers?: number;
   claims: TargetClaim[];
+  complete?: boolean;
+  partial?: boolean;
+  notice?: string;
+  liveUnavailable?: boolean;
 };
+
+const LIVE_UNAVAILABLE_NOTICE =
+  "Live chain data is temporarily unavailable. Showing last known claims.";
 
 function formatTrust(trust: TrustScore | null | undefined): string | null {
   if (!trust) return null;
@@ -280,6 +287,7 @@ function DetailPanel({
   onRetry,
   onAttest,
   onSupport,
+  detailNotice,
 }: {
   detail: TargetDetail | null;
   detailLoading: boolean;
@@ -289,6 +297,7 @@ function DetailPanel({
   onRetry: () => void;
   onAttest: (target: string) => void;
   onSupport: (target: string, claimText: string) => void;
+  detailNotice?: string | null;
 }) {
   const selectedMeta = detail ? KIND_META[detail.kind] : null;
   const SelectedIcon = selectedMeta?.icon ?? Shield;
@@ -324,10 +333,25 @@ function DetailPanel({
         </div>
       )}
 
-      {selectedTarget && !detailLoading && detailError && (
+      {selectedTarget && !detailLoading && detailError && !detail && (
         <div className="space-y-3 py-8 text-center">
-          <p className="font-mono text-xs text-destructive px-4">{detailError}</p>
+          <p className="font-mono text-xs text-muted-foreground px-4">{detailError}</p>
           <Button type="button" size="sm" variant="outline" className="border-[#333]" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {selectedTarget && !detailLoading && detailNotice && detail && detail.claims.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-[#333] bg-[#141414] px-3 py-2">
+          <p className="font-mono text-[11px] text-[#888] leading-relaxed">{detailNotice}</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 shrink-0 border-[#333] text-[#ccc] hover:text-[#f5f5f5]"
+            onClick={onRetry}
+          >
             Retry
           </Button>
         </div>
@@ -432,11 +456,13 @@ function DetailPanel({
 export function AttestationRegistry({ className }: { className?: string }) {
   const [targets, setTargets] = useState<TargetSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /** Quiet notice for partial / live-unavailable — never raw RPC text. */
+  const [listNotice, setListNotice] = useState<string | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [detail, setDetail] = useState<TargetDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailNotice, setDetailNotice] = useState<string | null>(null);
   const [attestOpen, setAttestOpen] = useState(false);
   const [attestSeed, setAttestSeed] = useState("");
   const [attestClaim, setAttestClaim] = useState("");
@@ -449,19 +475,42 @@ export function AttestationRegistry({ className }: { className?: string }) {
 
   const loadTargets = useCallback(async (refresh = false) => {
     setLoading(true);
-    setError(null);
     try {
       const qs = refresh ? "?refresh=1" : "";
       const res = await fetch(`/api/attestation/claims${qs}`, { cache: "no-store" });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Failed to load (${res.status})`);
+      const data = (await res.json().catch(() => ({}))) as {
+        targets?: TargetSummary[];
+        notice?: string;
+        partial?: boolean;
+        liveUnavailable?: boolean;
+        complete?: boolean;
+        error?: string;
+      };
+
+      const nextTargets = data.targets ?? [];
+      // Keep previous targets when the response is empty due to a live failure.
+      if (nextTargets.length > 0) {
+        setTargets(nextTargets);
+      } else if (data.liveUnavailable || !res.ok) {
+        // leave previous targets intact
+      } else {
+        setTargets([]);
       }
-      const data = (await res.json()) as { targets?: TargetSummary[] };
-      setTargets(data.targets ?? []);
+
+      if (data.partial) {
+        setListNotice(data.notice ?? "Partial results, still syncing");
+      } else if (data.liveUnavailable || (data.complete === false && nextTargets.length === 0)) {
+        setListNotice(data.notice ?? LIVE_UNAVAILABLE_NOTICE);
+      } else if (!res.ok) {
+        setListNotice(LIVE_UNAVAILABLE_NOTICE);
+        console.error("[claims] list load failed", data.error ?? res.status);
+      } else {
+        setListNotice(null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load attestations");
-      setTargets([]);
+      console.error("[claims] list load error", err);
+      setListNotice(LIVE_UNAVAILABLE_NOTICE);
+      // Keep last-known targets
     } finally {
       setLoading(false);
     }
@@ -470,21 +519,43 @@ export function AttestationRegistry({ className }: { className?: string }) {
   const loadDetail = useCallback(async (target: string, refresh = false) => {
     setDetailLoading(true);
     setDetailError(null);
+    setDetailNotice(null);
     try {
       const refreshQs = refresh ? "&refresh=1" : "";
       const res = await fetch(
         `/api/attestation/claims?target=${encodeURIComponent(target)}${refreshQs}`,
         { cache: "no-store" },
       );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Failed to load target (${res.status})`);
+      const data = (await res.json().catch(() => ({}))) as TargetDetail & {
+        error?: string;
+        notice?: string;
+        liveUnavailable?: boolean;
+      };
+
+      if (data.claims && Array.isArray(data.claims)) {
+        setDetail(data);
+        if (data.partial) {
+          setDetailNotice(data.notice ?? "Partial results, still syncing");
+        } else if (data.liveUnavailable || data.complete === false) {
+          setDetailNotice(data.notice ?? LIVE_UNAVAILABLE_NOTICE);
+        } else {
+          setDetailNotice(null);
+        }
+      } else if (!res.ok || data.liveUnavailable) {
+        console.error("[claims] detail load failed", data.error ?? res.status);
+        setDetailError(LIVE_UNAVAILABLE_NOTICE);
+      } else {
+        setDetail({
+          target,
+          label: target,
+          kind: "other",
+          totalUsdc: "0",
+          claims: [],
+        });
       }
-      const data = (await res.json()) as TargetDetail;
-      setDetail(data);
     } catch (err) {
-      setDetail(null);
-      setDetailError(err instanceof Error ? err.message : "Failed to load claims");
+      console.error("[claims] detail load error", err);
+      setDetailError(LIVE_UNAVAILABLE_NOTICE);
     } finally {
       setDetailLoading(false);
     }
@@ -595,26 +666,44 @@ export function AttestationRegistry({ className }: { className?: string }) {
           </div>
         )}
 
-        {loading && (
+        {loading && targets.length === 0 && (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground font-mono">
             <Loader2 size={16} className="animate-spin text-[#ff8a3d]" />
             Indexing attestations from Arc…
           </div>
         )}
 
-        {error && (
-          <p className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
-            {error}
-          </p>
+        {listNotice && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-[#333] bg-[#141414] px-3 py-2.5">
+            <p className="font-mono text-[11px] sm:text-xs text-[#888] leading-relaxed min-w-0">
+              {listNotice}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0 border-[#333] text-[#ccc] hover:text-[#f5f5f5] touch-manipulation"
+              onClick={refreshAll}
+              disabled={loading || detailLoading}
+            >
+              Retry
+            </Button>
+          </div>
         )}
 
-        {!loading && !error && targets.length === 0 && (
+        {!loading && targets.length === 0 && !listNotice && (
           <p className="py-8 text-center font-mono text-sm text-muted-foreground px-4">
             No attestations yet. Stake the first claim on @trustgated.
           </p>
         )}
 
-        {!loading && targets.length > 0 && (
+        {!loading && targets.length === 0 && listNotice && (
+          <p className="py-6 text-center font-mono text-xs text-muted-foreground px-4">
+            No cached claims for this session yet. Retry when the chain is reachable.
+          </p>
+        )}
+
+        {targets.length > 0 && (
           <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
             <div className={cn("space-y-2", selectedTarget && "max-lg:hidden")}>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono px-0.5">
@@ -638,6 +727,7 @@ export function AttestationRegistry({ className }: { className?: string }) {
                   detail={detail}
                   detailLoading={detailLoading}
                   detailError={detailError}
+                  detailNotice={detailNotice}
                   selectedTarget={selectedTarget}
                   onBack={closeDetail}
                   onRetry={() => void loadDetail(selectedTarget, true)}
@@ -649,6 +739,7 @@ export function AttestationRegistry({ className }: { className?: string }) {
                   detail={null}
                   detailLoading={false}
                   detailError={null}
+                  detailNotice={null}
                   selectedTarget=""
                   onBack={closeDetail}
                   onRetry={() => {}}

@@ -5,6 +5,7 @@ import {
   http,
   type AbiEvent,
   type Log,
+  type PublicClient,
 } from "viem";
 import { arcTestnet } from "viem/chains";
 import { ATTESTATION_ABI, getAttestationAddress } from "@/lib/attestation";
@@ -13,6 +14,21 @@ import {
   classifyTarget,
   formatTargetLabel,
 } from "@/lib/attestation-client";
+import {
+  chunkedGetLogs,
+  claimsLogsChunkDelayMs,
+  sleep,
+  withRpcRetry,
+} from "@/lib/chunked-get-logs";
+import {
+  getBlockTimestamps,
+  getLogCursor,
+  loadAttestationEvents,
+  setLogCursor,
+  upsertAttestationEvents,
+  upsertBlockTimestamps,
+  type StoredAttestationEvent,
+} from "@/lib/log-cursors";
 import { getTrustScores, type TrustScore } from "@/lib/trustgate";
 
 export type IndexedAttestation = {
@@ -49,6 +65,17 @@ export type PublicClaim = {
   timestamp: number;
   txHash: `0x${string}` | null;
   trust?: TrustScore | null;
+};
+
+/** Result of a claims index load — may be partial when RPC scan is incomplete. */
+export type IndexLoadResult = {
+  rows: IndexedAttestation[];
+  /** False when eth_getLogs or enrichment failed partway; UI should soft-warn. */
+  complete: boolean;
+  /** True when some rows are available even if complete is false. */
+  partial: boolean;
+  /** Server-only diagnostic; never show raw RPC text to clients. */
+  errorMessage?: string;
 };
 
 function toPublicClaim(
@@ -101,10 +128,8 @@ function computeTrustWeighted(
 type CacheEntry<T> = { at: number; data: T };
 
 let summaryCache: CacheEntry<TargetSummary[]> | null = null;
-let indexCache: CacheEntry<IndexedAttestation[]> | null = null;
+let indexCache: CacheEntry<IndexLoadResult> | null = null;
 const CACHE_TTL_MS = 5_000;
-/** Arc RPC rejects eth_getLogs ranges above 10_000 blocks (inclusive). */
-const LOG_CHUNK_SIZE = BigInt(9_998);
 const DEFAULT_DEPLOY_BLOCK = BigInt(48_054_370);
 
 const ATTESTED_EVENT_ABI: AbiEvent = {
@@ -137,7 +162,7 @@ function deployFromBlock(): bigint {
   return DEFAULT_DEPLOY_BLOCK;
 }
 
-function rpcClient() {
+function rpcClient(): PublicClient {
   const rpcUrl = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
   return createPublicClient({ chain: arcTestnet, transport: http(rpcUrl) });
 }
@@ -151,45 +176,218 @@ function logDedupeKey(log: Log): string {
   return `${log.transactionHash ?? "0x"}:${log.logIndex ?? 0}`;
 }
 
-async function fetchLogsForEvent(
-  contractAddress: `0x${string}`,
-  event: AbiEvent,
-): Promise<Log[]> {
-  const client = rpcClient();
-  const latest = await client.getBlockNumber();
-  const start = deployFromBlock();
-  const logs: Log[] = [];
-
-  for (let from = start; from <= latest; from += LOG_CHUNK_SIZE + BigInt(1)) {
-    const to = from + LOG_CHUNK_SIZE > latest ? latest : from + LOG_CHUNK_SIZE;
-    const chunk = await client.getLogs({
-      address: contractAddress,
-      event,
-      fromBlock: from,
-      toBlock: to,
-    });
-    logs.push(...chunk);
-  }
-
-  return logs;
+function storedToIndexed(row: StoredAttestationEvent): IndexedAttestation {
+  const amountUnits = BigInt(row.amountUnits);
+  return {
+    target: row.target,
+    canonicalTarget: canonicalizeAttestationTarget(row.target),
+    claim: row.claim,
+    amountUnits,
+    amountUsdc: formatUnits(amountUnits, 6),
+    staker: row.staker,
+    timestamp: row.blockTimestamp,
+    txHash: row.txHash,
+  };
 }
 
-async function fetchAttestedLogs(contractAddress: `0x${string}`) {
-  const [current, legacy] = await Promise.all([
-    fetchLogsForEvent(contractAddress, ATTESTED_EVENT_ABI),
-    fetchLogsForEvent(contractAddress, ATTESTED_LEGACY_EVENT_ABI),
-  ]);
+/**
+ * Fetch Attested logs for one event ABI over [fromBlock, toBlock] with
+ * rate-limited chunking. Does not throw on RPC failure.
+ */
+async function fetchLogsForEventRange(
+  client: PublicClient,
+  contractAddress: `0x${string}`,
+  event: AbiEvent,
+  fromBlock: bigint,
+  toBlock: bigint,
+) {
+  return chunkedGetLogs(client, {
+    address: contractAddress,
+    event,
+    fromBlock,
+    toBlock,
+  });
+}
+
+/**
+ * Current then legacy Attested event scans — sequential, never Promise.all.
+ * Merges and dedupes by txHash:logIndex.
+ */
+async function fetchAttestedLogsIncremental(
+  client: PublicClient,
+  contractAddress: `0x${string}`,
+  fromBlock: bigint,
+  toBlock: bigint,
+): Promise<{
+  logs: Log[];
+  complete: boolean;
+  lastScannedBlock: bigint | null;
+  errorMessage?: string;
+}> {
+  const current = await fetchLogsForEventRange(
+    client,
+    contractAddress,
+    ATTESTED_EVENT_ABI,
+    fromBlock,
+    toBlock,
+  );
+
+  // Small pause between the two ABI sweeps so we do not double-hit the RPC peak.
+  await sleep(claimsLogsChunkDelayMs());
+
+  const legacy = await fetchLogsForEventRange(
+    client,
+    contractAddress,
+    ATTESTED_LEGACY_EVENT_ABI,
+    fromBlock,
+    // If current stopped early, only scan legacy through the same high-water mark
+    // so cursor advancement stays consistent.
+    current.complete
+      ? toBlock
+      : (current.lastScannedBlock ?? fromBlock - BigInt(1)),
+  );
 
   const seen = new Set<string>();
   const merged: Log[] = [];
-  for (const log of [...current, ...legacy]) {
+  for (const log of [...current.logs, ...legacy.logs]) {
     const key = logDedupeKey(log);
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(log);
   }
 
-  return merged;
+  const complete = current.complete && legacy.complete;
+  const lastScannedBlock =
+    current.lastScannedBlock != null && legacy.lastScannedBlock != null
+      ? current.lastScannedBlock < legacy.lastScannedBlock
+        ? current.lastScannedBlock
+        : legacy.lastScannedBlock
+      : (current.lastScannedBlock ?? legacy.lastScannedBlock);
+
+  return {
+    logs: merged,
+    complete,
+    lastScannedBlock,
+    errorMessage: current.errorMessage ?? legacy.errorMessage,
+  };
+}
+
+type EnrichedRow = IndexedAttestation & { logIndex: number; blockNumber: bigint };
+
+/**
+ * Enrich raw logs into indexed rows. getTransaction / getBlock run sequentially
+ * with retry/backoff; block timestamps are deduped and persisted.
+ */
+async function enrichLogs(
+  client: PublicClient,
+  contractAddress: `0x${string}`,
+  logs: Log[],
+): Promise<{ rows: EnrichedRow[]; complete: boolean; errorMessage?: string }> {
+  if (logs.length === 0) return { rows: [], complete: true };
+
+  const blockNumbers = logs
+    .map((log) => log.blockNumber)
+    .filter((b): b is bigint => b != null);
+
+  const tsCache = await getBlockTimestamps(blockNumbers);
+  const memoryTs = new Map<bigint, number>(tsCache);
+  const newlyFetchedTs: Array<{ blockNumber: bigint; timestamp: number }> = [];
+  const txCache = new Map<
+    `0x${string}`,
+    { decoded: ReturnType<typeof decodeFunctionData>; from: `0x${string}` }
+  >();
+
+  const delayMs = claimsLogsChunkDelayMs();
+  const results: EnrichedRow[] = [];
+  let complete = true;
+  let errorMessage: string | undefined;
+
+  for (const log of logs) {
+    const txHash = log.transactionHash;
+    if (!txHash) continue;
+    const logIndex = Number(log.logIndex ?? 0);
+    const blockNumber = log.blockNumber ?? BigInt(0);
+
+    let cached = txCache.get(txHash);
+    if (!cached) {
+      const txResult = await withRpcRetry(`getTransaction ${txHash.slice(0, 10)}`, () =>
+        client.getTransaction({ hash: txHash }),
+      );
+      if (!txResult.ok || !txResult.value) {
+        complete = false;
+        errorMessage = txResult.errorMessage ?? "getTransaction failed";
+        // Keep going with remaining logs — partial index.
+        continue;
+      }
+      try {
+        const decoded = decodeFunctionData({
+          abi: ATTESTATION_ABI,
+          data: txResult.value.input,
+        });
+        cached = { decoded, from: txResult.value.from };
+        txCache.set(txHash, cached);
+      } catch {
+        continue;
+      }
+      if (delayMs > 0) await sleep(delayMs);
+    }
+
+    if (cached.decoded.functionName !== "attest") continue;
+    const [target, claim, amount] = cached.decoded.args as [string, string, bigint];
+
+    let timestamp = 0;
+    if (blockNumber > BigInt(0)) {
+      const mem = memoryTs.get(blockNumber);
+      if (mem !== undefined) {
+        timestamp = mem;
+      } else {
+        const blockResult = await withRpcRetry(`getBlock ${blockNumber}`, () =>
+          client.getBlock({ blockNumber }),
+        );
+        if (blockResult.ok && blockResult.value) {
+          timestamp = Number(blockResult.value.timestamp);
+          memoryTs.set(blockNumber, timestamp);
+          newlyFetchedTs.push({ blockNumber, timestamp });
+        } else {
+          complete = false;
+          errorMessage = blockResult.errorMessage ?? "getBlock failed";
+        }
+        if (delayMs > 0) await sleep(delayMs);
+      }
+    }
+
+    results.push({
+      target,
+      canonicalTarget: canonicalizeAttestationTarget(target),
+      claim,
+      amountUnits: amount,
+      amountUsdc: formatUnits(amount, 6),
+      staker: cached.from,
+      timestamp,
+      txHash,
+      logIndex,
+      blockNumber,
+    });
+  }
+
+  if (newlyFetchedTs.length > 0) {
+    await upsertBlockTimestamps(newlyFetchedTs);
+  }
+
+  const toStore: StoredAttestationEvent[] = results.map((row) => ({
+    contractAddress,
+    txHash: row.txHash!,
+    logIndex: row.logIndex,
+    target: row.target,
+    claim: row.claim,
+    amountUnits: row.amountUnits.toString(),
+    staker: row.staker,
+    blockNumber: row.blockNumber,
+    blockTimestamp: row.timestamp,
+  }));
+  await upsertAttestationEvents(toStore);
+
+  return { rows: results, complete, errorMessage };
 }
 
 async function readOnChainClaims(target: string): Promise<IndexedAttestation[]> {
@@ -197,14 +395,18 @@ async function readOnChainClaims(target: string): Promise<IndexedAttestation[]> 
   if (!contractAddress) return [];
 
   const client = rpcClient();
-  const rows = await client.readContract({
-    address: contractAddress,
-    abi: ATTESTATION_ABI,
-    functionName: "getAttestations",
-    args: [target],
-  });
+  const result = await withRpcRetry(`getAttestations ${target.slice(0, 24)}`, () =>
+    client.readContract({
+      address: contractAddress,
+      abi: ATTESTATION_ABI,
+      functionName: "getAttestations",
+      args: [target],
+    }),
+  );
 
-  return rows.map((row) => ({
+  if (!result.ok || !result.value) return [];
+
+  return result.value.map((row) => ({
     target: row.target,
     canonicalTarget: canonicalizeAttestationTarget(row.target),
     claim: row.claim,
@@ -216,66 +418,108 @@ async function readOnChainClaims(target: string): Promise<IndexedAttestation[]> 
   }));
 }
 
-export async function fetchIndexedAttestations(): Promise<IndexedAttestation[]> {
+/**
+ * Load indexed attestations: Supabase event index + incremental getLogs from
+ * log_cursors. Never throws for RPC failures; returns partial rows instead.
+ */
+export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult> {
   if (indexCache && Date.now() - indexCache.at < CACHE_TTL_MS) {
     return indexCache.data;
   }
 
   const contractAddress = getAttestationAddress();
-  if (!contractAddress) return [];
-
-  const client = rpcClient();
-  const logs = await fetchAttestedLogs(contractAddress);
-
-  const txCache = new Map<`0x${string}`, ReturnType<typeof decodeFunctionData>>();
-  const blockCache = new Map<bigint, number>();
-  const results: IndexedAttestation[] = [];
-
-  for (const log of logs) {
-    const txHash = log.transactionHash;
-    if (!txHash) continue;
-
-    let decoded = txCache.get(txHash);
-    if (!decoded) {
-      const tx = await client.getTransaction({ hash: txHash });
-      try {
-        decoded = decodeFunctionData({ abi: ATTESTATION_ABI, data: tx.input });
-        txCache.set(txHash, decoded);
-      } catch {
-        continue;
-      }
-    }
-    if (decoded.functionName !== "attest") continue;
-
-    const [target, claim, amount] = decoded.args as [string, string, bigint];
-    const blockNumber = log.blockNumber;
-    let timestamp = 0;
-    if (blockNumber) {
-      const cached = blockCache.get(blockNumber);
-      if (cached !== undefined) {
-        timestamp = cached;
-      } else {
-        timestamp = Number((await client.getBlock({ blockNumber })).timestamp);
-        blockCache.set(blockNumber, timestamp);
-      }
-    }
-
-    const tx = await client.getTransaction({ hash: txHash });
-    results.push({
-      target,
-      canonicalTarget: canonicalizeAttestationTarget(target),
-      claim,
-      amountUnits: amount,
-      amountUsdc: formatUnits(amount, 6),
-      staker: tx.from,
-      timestamp,
-      txHash,
-    });
+  if (!contractAddress) {
+    const empty: IndexLoadResult = { rows: [], complete: true, partial: false };
+    return empty;
   }
 
-  const sorted = results.sort((a, b) => b.timestamp - a.timestamp);
-  indexCache = { at: Date.now(), data: sorted };
-  return sorted;
+  const client = rpcClient();
+  const deploy = deployFromBlock();
+
+  // 1) Hydrate from durable index (cold-start safe).
+  const stored = await loadAttestationEvents(contractAddress);
+  const byKey = new Map<string, IndexedAttestation>();
+  for (const row of stored) {
+    const indexed = storedToIndexed(row);
+    const key = `${indexed.txHash}:${row.logIndex}`;
+    byKey.set(key, indexed);
+  }
+
+  // 2) Resolve scan window from cursor (source of truth for scanned range).
+  const cursor = await getLogCursor(contractAddress);
+  const latestResult = await withRpcRetry("getBlockNumber", () => client.getBlockNumber());
+  if (!latestResult.ok || latestResult.value == null) {
+    const rows = [...byKey.values()].sort((a, b) => b.timestamp - a.timestamp);
+    const result: IndexLoadResult = {
+      rows,
+      complete: false,
+      partial: rows.length > 0,
+      errorMessage: latestResult.errorMessage ?? "Failed to read chain head",
+    };
+    indexCache = { at: Date.now(), data: result };
+    return result;
+  }
+
+  const latest = latestResult.value;
+  const fromBlock =
+    cursor != null && cursor >= deploy ? cursor + BigInt(1) : deploy;
+
+  let scanComplete = true;
+  let scanError: string | undefined;
+
+  if (fromBlock <= latest) {
+    const logScan = await fetchAttestedLogsIncremental(
+      client,
+      contractAddress,
+      fromBlock,
+      latest,
+    );
+    scanComplete = logScan.complete;
+    scanError = logScan.errorMessage;
+
+    if (logScan.logs.length > 0) {
+      const enriched = await enrichLogs(client, contractAddress, logScan.logs);
+      if (!enriched.complete) {
+        scanComplete = false;
+        scanError = scanError ?? enriched.errorMessage;
+      }
+      for (const row of enriched.rows) {
+        byKey.set(`${row.txHash}:${row.logIndex}`, row);
+      }
+    }
+
+    // Persist scan progress so the next request continues past successful chunks.
+    // Only advance when lastScannedBlock is known (partial or full).
+    if (logScan.lastScannedBlock != null && logScan.lastScannedBlock >= fromBlock) {
+      await setLogCursor(contractAddress, logScan.lastScannedBlock);
+    }
+  }
+
+  // Prefer durable index after upsert (cold-start source of truth).
+  const refreshed = await loadAttestationEvents(contractAddress);
+  if (refreshed.length > 0) {
+    byKey.clear();
+    for (const row of refreshed) {
+      byKey.set(`${row.txHash}:${row.logIndex}`, storedToIndexed(row));
+    }
+  }
+
+  const rows = [...byKey.values()].sort((a, b) => b.timestamp - a.timestamp);
+
+  const result: IndexLoadResult = {
+    rows,
+    complete: scanComplete,
+    partial: !scanComplete && rows.length > 0,
+    errorMessage: scanError,
+  };
+  indexCache = { at: Date.now(), data: result };
+  return result;
+}
+
+/** @deprecated Prefer fetchIndexedAttestationsResult for partial-scan awareness. */
+export async function fetchIndexedAttestations(): Promise<IndexedAttestation[]> {
+  const result = await fetchIndexedAttestationsResult();
+  return result.rows;
 }
 
 async function supplementFromOnChain(
@@ -293,13 +537,29 @@ async function supplementFromOnChain(
   return supplemented.sort((a, b) => b.timestamp - a.timestamp);
 }
 
-export async function getTargetSummaries(): Promise<TargetSummary[]> {
+export type TargetSummariesResult = {
+  targets: TargetSummary[];
+  complete: boolean;
+  partial: boolean;
+  errorMessage?: string;
+};
+
+export async function getTargetSummariesResult(): Promise<TargetSummariesResult> {
   if (summaryCache && Date.now() - summaryCache.at < CACHE_TTL_MS) {
-    return summaryCache.data;
+    const cached = indexCache?.data;
+    return {
+      targets: summaryCache.data,
+      complete: cached?.complete ?? true,
+      partial: cached?.partial ?? false,
+      errorMessage: cached?.errorMessage,
+    };
   }
 
-  let rows = await fetchIndexedAttestations();
-  rows = await supplementFromOnChain(rows);
+  const loaded = await fetchIndexedAttestationsResult();
+  let rows = loaded.rows;
+  if (rows.length === 0) {
+    rows = await supplementFromOnChain(rows);
+  }
 
   const byTarget = new Map<string, IndexedAttestation[]>();
   for (const row of rows) {
@@ -338,7 +598,17 @@ export async function getTargetSummaries(): Promise<TargetSummary[]> {
     .sort((a, b) => parseFloat(b.totalUsdc) - parseFloat(a.totalUsdc));
 
   summaryCache = { at: Date.now(), data: summaries };
-  return summaries;
+  return {
+    targets: summaries,
+    complete: loaded.complete,
+    partial: loaded.partial,
+    errorMessage: loaded.errorMessage,
+  };
+}
+
+export async function getTargetSummaries(): Promise<TargetSummary[]> {
+  const result = await getTargetSummariesResult();
+  return result.targets;
 }
 
 function buildTargetSummary(
@@ -397,28 +667,34 @@ export async function getBackingSummariesForTargets(
   if (needsOnChain.length === 0) return [...byTarget.values()];
 
   const client = rpcClient();
-  const onChainRows = await Promise.all(
-    needsOnChain.map(async (target) => {
-      try {
-        const count = await client.readContract({
+  // Sequential on-chain fills to avoid RPC storms (was Promise.all).
+  const onChainRows: Array<{ target: string; rows: IndexedAttestation[] }> = [];
+  for (const target of needsOnChain) {
+    try {
+      const countResult = await withRpcRetry(`attestationCount ${target.slice(0, 24)}`, () =>
+        client.readContract({
           address: contractAddress,
           abi: ATTESTATION_ABI,
           functionName: "attestationCount",
           args: [target],
-        });
-        if (count === BigInt(0)) return { target, rows: [] as IndexedAttestation[] };
-        const rows = await readOnChainClaims(target);
-        return { target, rows };
-      } catch (err) {
-        console.warn(
-          "[attestation-index] on-chain backing read failed for",
-          target,
-          err instanceof Error ? err.message : err,
-        );
-        return { target, rows: [] as IndexedAttestation[] };
+        }),
+      );
+      if (!countResult.ok || countResult.value === BigInt(0)) {
+        onChainRows.push({ target, rows: [] });
+        continue;
       }
-    }),
-  );
+      const rows = await readOnChainClaims(target);
+      onChainRows.push({ target, rows });
+      await sleep(claimsLogsChunkDelayMs());
+    } catch (err) {
+      console.warn(
+        "[attestation-index] on-chain backing read failed for",
+        target,
+        err instanceof Error ? err.message : err,
+      );
+      onChainRows.push({ target, rows: [] });
+    }
+  }
 
   const allStakers = onChainRows.flatMap((entry) => entry.rows.map((row) => row.staker));
   const scores = await getTrustScores(allStakers);
@@ -439,11 +715,12 @@ export async function getTargetClaims(target: string): Promise<{
   trustWeightedUsdc: string;
   unscoredStakers: number;
   claims: PublicClaim[];
+  complete: boolean;
+  partial: boolean;
 }> {
   const canonical = canonicalizeAttestationTarget(target);
-  let claims = (await fetchIndexedAttestations()).filter(
-    (row) => row.canonicalTarget === canonical,
-  );
+  const loaded = await fetchIndexedAttestationsResult();
+  let claims = loaded.rows.filter((row) => row.canonicalTarget === canonical);
 
   if (claims.length === 0) {
     for (const candidate of [canonical, target.trim()]) {
@@ -470,5 +747,7 @@ export async function getTargetClaims(target: string): Promise<{
     claims: [...claims]
       .sort((a, b) => b.timestamp - a.timestamp)
       .map((row) => toPublicClaim(row, scores)),
+    complete: loaded.complete,
+    partial: loaded.partial,
   };
 }
