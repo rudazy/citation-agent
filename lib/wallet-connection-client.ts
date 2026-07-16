@@ -2,7 +2,10 @@
 
 import type { AppKit } from "@reown/appkit/react";
 import { getAccount, switchChain, watchAccount } from "@wagmi/core";
-import type { EthereumProvider } from "@/lib/ethereum-provider";
+import {
+  resolveInjectedProvider,
+  type EthereumProvider,
+} from "@/lib/ethereum-provider";
 import { arcNetwork, wagmiConfig } from "@/config/wagmi";
 import { isWalletConnectConfigured } from "@/lib/wallet-connect-env";
 
@@ -25,7 +28,7 @@ export async function openConnectModal(): Promise<void> {
 }
 
 function hasInjectedEthereum(): boolean {
-  return typeof window !== "undefined" && Boolean(window.ethereum);
+  return Boolean(resolveInjectedProvider());
 }
 
 export function waitForWalletConnection(
@@ -138,7 +141,7 @@ export async function getEthereumProvider(): Promise<EthereumProvider | undefine
     }
   }
 
-  return window.ethereum;
+  return resolveInjectedProvider();
 }
 
 /** Read already-authorized wallet address only — never opens a connect popup. */
@@ -174,28 +177,24 @@ async function connectViaInjectedWallet(): Promise<{
   provider: EthereumProvider;
   address: `0x${string}`;
 }> {
-  let provider = await getEthereumProvider();
+  // Prefer MetaMask provider directly — do not rely on a stale wagmi connector.
+  const provider = resolveInjectedProvider();
   if (!provider) {
     throw new Error(
       "No wallet available. Connect via WalletConnect or install MetaMask.",
     );
   }
 
-  let accounts = (await provider.request({
-    method: "eth_accounts",
+  // Always request accounts on explicit Connect so MetaMask must prompt
+  // (or re-confirm). eth_accounts alone never opens a popup.
+  const accounts = (await provider.request({
+    method: "eth_requestAccounts",
   })) as string[];
-
-  if (!accounts[0]) {
-    accounts = (await provider.request({
-      method: "eth_requestAccounts",
-    })) as string[];
-  }
 
   if (!accounts[0]) {
     throw new Error("No wallet account selected.");
   }
 
-  provider = (await getEthereumProvider()) ?? provider;
   const address = accounts[0] as `0x${string}`;
 
   const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(

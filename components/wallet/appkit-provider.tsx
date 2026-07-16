@@ -6,6 +6,7 @@ import { type ReactNode } from "react";
 import { cookieToInitialState, WagmiProvider, type Config } from "wagmi";
 import {
   arcNetwork,
+  pairingFallbackNetwork,
   wagmiAdapter,
   wagmiConfig,
   walletConnectProjectId,
@@ -32,10 +33,16 @@ if (walletConnectProjectId) {
     typeof window !== "undefined" ? window.location.origin : undefined,
   );
 
+  const arcRpc =
+    process.env.NEXT_PUBLIC_ARC_TESTNET_RPC?.trim() ||
+    "https://rpc.testnet.arc.network";
+
   appKitModal = createAppKit({
     adapters: [wagmiAdapter],
     projectId: walletConnectProjectId,
-    networks: [arcNetwork],
+    // Sepolia listed second so MetaMask mobile can finish WalletConnect pairing
+    // when Arc is not in its chain registry (avoids endless "Connecting...").
+    networks: [arcNetwork, pairingFallbackNetwork],
     defaultNetwork: arcNetwork,
     metadata,
     // Keep WalletConnect + injected extensions available in the sheet.
@@ -43,6 +50,10 @@ if (walletConnectProjectId) {
     enableInjected: true,
     enableCoinbase: true,
     allowUnsupportedChain: true,
+    // Prefer our Arc RPC over any stale public default.
+    customRpcUrls: {
+      "eip155:5042002": [{ url: arcRpc }],
+    },
     themeMode: "dark",
     themeVariables: {
       "--w3m-accent": "#f5c842",
