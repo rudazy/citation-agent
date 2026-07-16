@@ -6,9 +6,9 @@
 
 **Researchers sell crypto research. Agents buy it.**
 
-Paywalled research marketplace on Arc Testnet — x402 unlocks, optional reputation scoring, and on-chain research backing underneath.
+Crypto research marketplace on Arc Testnet: x402 + Circle Gateway USDC unlocks, creator royalties, TrustGate wallet scoring, and on-chain research backing.
 
-[agentcitation.xyz](https://agentcitation.xyz) · [Arc Testnet](https://docs.arc.network) · [Circle Gateway](https://developers.circle.com) · [x402](https://www.x402.org)
+[Live demo](https://agentcitation.xyz) · [Demo video](https://youtu.be/hZEROArwU3c) · [Arc Testnet](https://docs.arc.network) · [Circle Gateway](https://developers.circle.com) · [x402](https://www.x402.org)
 
 </div>
 
@@ -16,7 +16,7 @@ Paywalled research marketplace on Arc Testnet — x402 unlocks, optional reputat
 
 ## Overview
 
-Citation Agent is a production-style reference for agentic commerce over paywalled knowledge. Analysts publish crypto research; humans and autonomous agents unlock reports with USDC via x402 and Circle Gateway. Settlement, reputation, and attestations are infrastructure — visible when needed, never the headline.
+Citation Agent is a crypto research marketplace on **Arc Testnet**. Analysts publish paywalled reports; humans and agents unlock them with **USDC** via **x402** and **Circle Gateway**. Each unlock settles in full to the creator's payout wallet (royalty ledger in Supabase). Optional **TrustGate** wallet scores appear on cards. **Attestation.sol** lets anyone stake USDC behind a report or researcher. Settlement machinery stays visible on the dashboard without dominating the product surface.
 
 | Layer | What users see | What runs underneath |
 | --- | --- | --- |
@@ -31,7 +31,8 @@ Citation Agent is a production-style reference for agentic commerce over paywall
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, on-chain registry |
 | **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect, Gateway pay |
 
-Extended reference: [docs/platform-overview.md](docs/platform-overview.md)
+Architecture (unlock → payout sequence): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
+Extended product reference: [docs/platform-overview.md](docs/platform-overview.md)
 
 ---
 
@@ -327,22 +328,44 @@ sequenceDiagram
 **Prerequisites:** Node.js 22+, Arc Testnet USDC ([Circle faucet](https://faucet.circle.com/))
 
 ```cmd
+git clone https://github.com/rudazy/citation-agent.git
+cd citation-agent
 npm install
 copy .env.example .env.local
 npm run generate-wallets
 ```
 
-Fund the buyer address from the faucet. Configure attestation and Supabase variables (see `.env.example` and `.env.local.example`). Apply all migrations in `supabase/migrations/` on your Supabase project (agent wallets, publish, usernames, comments, drafts, follows). Per file:
+Edit `.env.local` with real values. **Never commit `.env.local` or any `*_PRIVATE_KEY`.** If a private key is exposed, rotate it immediately.
+
+### Minimum env (local UI + x402 unlock against seed catalog)
+
+| Variable | Why |
+| --- | --- |
+| `SELLER_ADDRESS` / `SELLER_PRIVATE_KEY` | x402 payee for legacy seeds; withdrawals |
+| `BUYER_ADDRESS` / `BUYER_PRIVATE_KEY` | CLI funder / smoke tests only |
+| `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts in-app session agent wallets (32+ chars) |
+| `ARC_TESTNET_RPC` | Arc Testnet RPC |
+| `ATTESTATION_*` / `NEXT_PUBLIC_ATTESTATION_ADDRESS` | Backing flows (optional for unlock-only) |
+| `NEXT_PUBLIC_SITE_URL` / `BASE_URL` | `http://localhost:3000` locally |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Mobile WalletConnect (optional on desktop MetaMask) |
+
+### Full marketplace (publish, royalties UI, agent restore, comments)
+
+Also set Supabase URL + anon/publishable key + **`SUPABASE_SERVICE_ROLE_KEY`** (never commit), then apply migrations in `supabase/migrations/` (agent wallets, publish, usernames, comments, drafts, follows). Per file:
 
 ```cmd
 npx tsx scripts/apply-sql-migration.mts supabase/migrations/<migration>.sql
 ```
 
-Includes growth migrations such as `20260712000000_growth_profiles_drafts_follows.sql` (nullable `published_at` for drafts, `creator_follows`) and author_name case normalization.
+Optional TrustGate badges: append vars from [`.env.local.example`](.env.local.example) into `.env.local`.
+
+Script-only keys (documented in `.env.example` with never-commit warnings): `DEPLOYER_PRIVATE_KEY`, `PUBLISHER_PRIVATE_KEY`.
 
 ```cmd
 npm run dev
 ```
+
+Open [http://localhost:3000](http://localhost:3000). Create a session agent wallet, fund it from the faucet, deposit to Gateway, then unlock a catalog report.
 
 | Route | Purpose |
 | --- | --- |
@@ -372,6 +395,12 @@ npx tsx scripts/archive-catalog-noise.mts
 ```cmd
 npm run smoke:marketplace
 npm run smoke:marketplace:full
+```
+
+Unit tests (no live keys required for the default suite):
+
+```cmd
+npm run test
 ```
 
 ---
@@ -434,28 +463,36 @@ Catalog merges **markdown seeds** (`content/creators/`) and **Supabase posts** (
 
 ## Environment
 
-Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.example).
+1. Copy [`.env.example`](.env.example) → `.env.local`.
+2. Optionally append TrustGate keys from [`.env.local.example`](.env.local.example).
+3. Run `npm run generate-wallets` if you need new seller/buyer pairs.
+
+**Never commit** real `*_PRIVATE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, or `AGENT_WALLET_ENCRYPTION_KEY` values. Placeholders in the examples are not credentials. If a key leaks, rotate it and treat any funded wallet as compromised.
 
 | Variable | Purpose |
 | --- | --- |
 | `SELLER_ADDRESS` / `SELLER_PRIVATE_KEY` | Platform x402 payee; legacy seed fallback |
 | `BUYER_ADDRESS` / `BUYER_PRIVATE_KEY` | CLI funder (`npm run agent`, `npm run attest`) |
+| `DEPLOYER_PRIVATE_KEY` | Script-only attestation deploy; falls back to `BUYER_PRIVATE_KEY`. **Never commit.** |
+| `PUBLISHER_PRIVATE_KEY` | Script-only seed publisher. **Never commit.** |
+| `DEPOSIT_AMOUNT` | Optional CLI Gateway deposit size (default `1`) |
 | `ATTESTATION_ADDRESS` / `NEXT_PUBLIC_ATTESTATION_ADDRESS` | `Attestation.sol` |
 | `ATTESTATION_DEPLOY_BLOCK` | Event indexer start block |
 | `NEXT_PUBLIC_OPERATOR_ADDRESS` | Platform fee recipient; markdown seed trust identity |
-| `ARC_TESTNET_RPC` / `GATEWAY_API` | Chain and Circle Gateway |
+| `ARC_TESTNET_RPC` / `NEXT_PUBLIC_ARC_TESTNET_RPC` | Server / client RPC (public Arc default if unset) |
+| `GATEWAY_API` | Circle Gateway API |
 | `AGENT_WALLET_ENCRYPTION_KEY` | Encrypts per-session agent keys (32+ chars); keep stable across deploys |
 | `NEXT_PUBLIC_SITE_URL` / `BASE_URL` | Official origin (`https://agentcitation.xyz` in production) |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Reown AppKit / WalletConnect (mobile connect); allowlist `https://agentcitation.xyz` in [dashboard.reown.com](https://dashboard.reown.com) |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Reown AppKit / WalletConnect; allowlist origin in [dashboard.reown.com](https://dashboard.reown.com) |
 | Supabase URL, anon key, `SUPABASE_SERVICE_ROLE_KEY` | Publish, drafts, profiles, follows, comments, tips ledger, agent wallets |
 
-**TrustGate (optional)**
+**TrustGate (optional)** — full key list in `.env.local.example`
 
 | Variable | Purpose |
 | --- | --- |
-| `TRUSTGATE_SCORE_API_URL` | Free reader — use `https://www.trustgated.xyz/api/arc-score/{address}` |
-| `TRUSTGATE_ORACLE_URL` | Paid verify — use `https://www.trustgated.xyz/api/oracle/{address}` (not direct oracle host) |
-| `SCORING_WALLET_*` (full set) | Wallet-rescore caps — **required for accurate badges**; copy from local `.env.local` |
+| `TRUSTGATE_SCORE_API_URL` | Free reader — `https://www.trustgated.xyz/api/arc-score/{address}` |
+| `TRUSTGATE_ORACLE_URL` | Paid verify — `https://www.trustgated.xyz/api/oracle/{address}` (not a direct oracle host) |
+| `SCORING_WALLET_*` (full set) | Wallet-rescore caps — **required for accurate badges** |
 | `TRUSTGATE_TIMEOUT_MS` | Upstream arc-score timeout (default `12000` ms) |
 | `TRUSTGATE_PAID_CACHE_TTL_MS` | Paid score cache TTL (Supabase + memory) |
 
@@ -467,10 +504,11 @@ Copy [`.env.example`](.env.example) and [`.env.local.example`](.env.local.exampl
 | --- | --- |
 | Attestation | `0xc8886a68f2160a57a01b32aae542b6eec5ca3d02` |
 | USDC | `0x3600000000000000000000000000000000000000` |
+| Gateway wallet | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` |
 
 Indexer start block: `48323587` (override with `ATTESTATION_DEPLOY_BLOCK` if redeployed).
 
-[Verified on Arcscan](https://testnet.arcscan.app/address/0xc8886a68f2160a57a01b32aae542b6eec5ca3d02#code)
+[Attestation verified on Arcscan](https://testnet.arcscan.app/address/0xc8886a68f2160a57a01b32aae542b6eec5ca3d02#code)
 
 ---
 
@@ -489,7 +527,7 @@ Post-deploy: confirm [https://agentcitation.xyz/llms.txt](https://agentcitation.
 
 - **Testnet only.** Do not reuse generated keys on mainnet.
 - Private keys remain server-side; never expose them to the client.
-- See [`SECURITY.md`](SECURITY.md) for reporting.
+- Never commit `.env.local` or real private keys. See [`SECURITY.md`](SECURITY.md) for reporting.
 
 ---
 

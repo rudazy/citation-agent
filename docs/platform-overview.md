@@ -1,6 +1,7 @@
 # Citation Agent — Platform Overview
 
-Live site: [https://agentcitation.xyz](https://agentcitation.xyz)
+Live site: [https://agentcitation.xyz](https://agentcitation.xyz)  
+Architecture (unlock → payout): [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 Citation Agent is a reference application for **agentic commerce over paywalled knowledge**. It demonstrates how research agents and human users can discover citations, pay creators per unlock, settle through Circle Gateway on Arc Testnet, and stake USDC behind public trust claims.
 

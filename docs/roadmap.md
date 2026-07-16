@@ -76,7 +76,7 @@ Every report gets a permanent asset page:
 - Last updated
 - Version history
 - Collection membership
-- Similar research (knowledge graph)
+- Similar research (related reports by topic/entity)
 - Purchase timeline
 
 ### Research reputation (compound score)
@@ -91,9 +91,9 @@ One overall **Research Reputation** built from:
 | Buyer retention | Repeat unlocks, followers who buy |
 | Consistency | Publish cadence, account age |
 
-### Knowledge graph (Phase 3 moat)
+### Related research links (Phase 3 moat)
 
-Reports link to entities and to each other (e.g. Hyperliquid, Circle, stablecoins). Agents use the graph for discovery and chaining. The marketplace is interconnected, not a flat list.
+Reports link to entities and to each other (e.g. Hyperliquid, Circle, stablecoins). Agents use those links for discovery and chaining. The marketplace is interconnected, not a flat list.
 
 ### Social and demand (retention)
 
@@ -193,11 +193,11 @@ Do not build until post-traction review:
 
 ### Phase 3 — Moat
 
-*Reputation, graph, competition, agent APIs*
+*Reputation, related research, competition, agent APIs*
 
 - [ ] Research Reputation (five components + overall)
 - [ ] Citation tracking ("Referenced by N workflows")
-- [ ] Knowledge graph (entity + cross-report links)
+- [ ] Entity and cross-report links (related research discovery)
 - [ ] Leaderboards (four windows x four dimensions)
 - [ ] AI APIs (discover, unlock, cite, metadata)
 - [ ] Full marketplace filter set
@@ -205,7 +205,7 @@ Do not build until post-traction review:
 
 **North star:** Citations per asset + agent API unlocks.
 
-**Exit:** Citations and graph are visible; agents integrate via API; reputation compounds.
+**Exit:** Citations and related-research links are visible; agents integrate via API; reputation compounds.
 
 ---
 
@@ -251,6 +251,7 @@ Do not build until post-traction review:
 
 ## Related docs
 
+- [Architecture](./ARCHITECTURE.md) — paid unlock sequence and system layers
 - [Platform overview](./platform-overview.md) — current technical architecture and live product behavior
 
 ---
