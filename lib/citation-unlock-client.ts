@@ -16,6 +16,7 @@ export type CitationUnlockPayload = {
     body?: string;
     price_usdc?: string;
   };
+  attribution?: string;
   error?: string;
   reason?: string;
 };
@@ -34,16 +35,25 @@ function extractBody(data: unknown): { body?: string; subheading?: string } {
   };
 }
 
-/** Free publisher access — server skips payment when the signing wallet owns the post. */
+/**
+ * Free publisher / prior-access path.
+ * Always hits the API with credentials so the session agent cookie + linked
+ * recovery wallet are visible server-side — even when no my-posts headers exist.
+ * Optional catalogAuthHeaders prove the MetaMask publisher wallet.
+ */
 export async function tryPublisherCitationAccess(
   listingId: string,
   authHeaders: Record<string, string> = {},
 ): Promise<CitationUnlockResult | null> {
-  if (Object.keys(authHeaders).length === 0) return null;
-
   const path = `/api/marketplace/citations?id=${encodeURIComponent(listingId)}`;
   try {
-    const res = await fetch(path, { headers: authHeaders, credentials: "same-origin" });
+    const res = await fetch(path, {
+      headers: authHeaders,
+      credentials: "same-origin",
+    });
+
+    // 402 = payment required; free access did not apply.
+    if (res.status === 402) return null;
     if (!res.ok) return null;
 
     const data = (await res.json()) as CitationUnlockPayload;
@@ -76,12 +86,15 @@ export async function unlockCitationViaMetaMask(params: {
   const memo = formatCitationPaymentMemo(params.listingId, params.author);
 
   try {
+    // Always try free access first (session linked wallet and/or my-posts headers).
     const publisherAccess = await tryPublisherCitationAccess(
       params.listingId,
       params.catalogAuthHeaders ?? {},
     );
     if (publisherAccess) return publisherAccess;
 
+    // If headers were empty, still try once after signing — caller usually supplies
+    // forceSign headers; if not, fall through to payment.
     const result = await payGatewayWithMetaMask({
       path,
       account: params.account,

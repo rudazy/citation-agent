@@ -46,11 +46,13 @@ export function waitForWalletConnection(
      * their wallet app — that must NOT count as cancel.
      */
     let sawConnecting = false;
+    let cancelGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const finish = (address: `0x${string}` | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (cancelGraceTimer) clearTimeout(cancelGraceTimer);
       unwatch();
       unsubscribeModal?.();
       resolve(address);
@@ -71,10 +73,13 @@ export function waitForWalletConnection(
 
       if (state.open) {
         sawModalOpen = true;
+        if (cancelGraceTimer) {
+          clearTimeout(cancelGraceTimer);
+          cancelGraceTimer = null;
+        }
       }
       if (state.loading || state.connectingWallet) {
         sawConnecting = true;
-        return;
       }
 
       const account = getAccount(wagmiConfig);
@@ -83,10 +88,35 @@ export function waitForWalletConnection(
         return;
       }
 
-      // User closed the modal before choosing a wallet.
-      // Do not cancel if a wallet handoff is in flight (mobile deep link).
-      if (sawModalOpen && !state.open && !sawConnecting) {
-        finish(null);
+      // Sheet closed: MetaMask extension often opens AFTER the sheet dismisses.
+      // Give the extension handoff a grace window before treating as cancel.
+      if (sawModalOpen && !state.open) {
+        if (cancelGraceTimer) return;
+        const graceMs = sawConnecting || hasInjectedEthereum() ? 8_000 : 1_500;
+        cancelGraceTimer = setTimeout(() => {
+          void (async () => {
+            const again = getAccount(wagmiConfig);
+            if (again.isConnected && again.address) {
+              finish(again.address as `0x${string}`);
+              return;
+            }
+            try {
+              const provider = await getEthereumProvider();
+              if (provider) {
+                const accounts = (await provider.request({
+                  method: "eth_accounts",
+                })) as string[];
+                if (accounts[0] && /^0x[a-fA-F0-9]{40}$/.test(accounts[0])) {
+                  finish(accounts[0] as `0x${string}`);
+                  return;
+                }
+              }
+            } catch {
+              // ignore
+            }
+            finish(null);
+          })();
+        }, graceMs);
       }
     });
   });
@@ -224,8 +254,9 @@ export async function connectWalletInteractive(): Promise<{
     }
   }
 
-  // Desktop extension: open MetaMask (or other injected) directly.
-  // More reliable than routing every click through the WalletConnect sheet.
+  // Desktop extension: open MetaMask (or other injected) via eth_requestAccounts
+  // BEFORE AppKit. Routing through the WC sheet then picking MetaMask often closes
+  // the sheet without ever triggering the extension popup.
   if (hasInjectedEthereum()) {
     try {
       return await connectViaInjectedWallet();

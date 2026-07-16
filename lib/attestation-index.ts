@@ -22,6 +22,7 @@ import {
   sleep,
   withRpcRetry,
 } from "@/lib/chunked-get-logs";
+import { indexAttestationsFromArcscan } from "@/lib/arcscan-attestations";
 import {
   getBlockTimestamps,
   getLogCursor,
@@ -432,8 +433,11 @@ async function readOnChainClaims(target: string): Promise<IndexedAttestation[]> 
 }
 
 /**
- * Load indexed attestations: Supabase event index + incremental getLogs from
- * log_cursors. Never throws for RPC failures; returns partial rows instead.
+ * Load indexed attestations.
+ *
+ * Primary: Arcscan contract txlist (public eth_getLogs on Arc is unreliable).
+ * Secondary: durable Supabase event index + optional eth_getLogs tip catch-up.
+ * Never throws for index failures; returns partial rows instead.
  */
 export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult> {
   if (indexCache && Date.now() - indexCache.at < CACHE_TTL_MS) {
@@ -448,110 +452,93 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
 
   const client = rpcClient();
   const deploy = deployFromBlock();
-
-  // 1) Hydrate from durable index (cold-start safe).
-  const stored = await loadAttestationEvents(contractAddress);
   const byKey = new Map<string, IndexedAttestation>();
+
+  // 1) Arcscan primary index (decodes attest() txs on the contract).
+  let latest = deploy;
+  const latestResult = await withRpcRetry("getBlockNumber", () =>
+    client.getBlockNumber(),
+  );
+  if (latestResult.ok && latestResult.value != null) {
+    latest = latestResult.value;
+  }
+
+  const arcscan = await indexAttestationsFromArcscan({
+    contractAddress,
+    deployBlock: deploy,
+    latestBlock: latest,
+    persist: true,
+  });
+
+  for (const row of arcscan.rows) {
+    byKey.set(`${row.txHash}:${row.logIndex}`, {
+      target: row.target,
+      canonicalTarget: row.canonicalTarget,
+      claim: row.claim,
+      amountUnits: row.amountUnits,
+      amountUsdc: row.amountUsdc,
+      staker: row.staker,
+      timestamp: row.timestamp,
+      txHash: row.txHash,
+    });
+  }
+
+  // 2) Merge any previously stored rows (covers gaps if Arcscan paginated).
+  const stored = await loadAttestationEvents(contractAddress);
   for (const row of stored) {
-    const indexed = storedToIndexed(row);
-    const key = `${indexed.txHash}:${row.logIndex}`;
-    byKey.set(key, indexed);
+    const key = `${row.txHash}:${row.logIndex}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, storedToIndexed(row));
+    }
   }
 
-  // 2) Resolve scan window from cursor (source of truth for scanned range).
-  const cursor = await getLogCursor(contractAddress);
-  const latestResult = await withRpcRetry("getBlockNumber", () => client.getBlockNumber());
-  if (!latestResult.ok || latestResult.value == null) {
-    const rows = [...byKey.values()].sort((a, b) => b.timestamp - a.timestamp);
-    const result: IndexLoadResult = {
-      rows,
-      complete: false,
-      partial: rows.length > 0,
-      errorMessage: latestResult.errorMessage ?? "Failed to read chain head",
-    };
-    indexCache = { at: Date.now(), data: result };
-    return result;
-  }
-
-  const latest = latestResult.value;
-  const fromBlock =
-    cursor != null && cursor >= deploy ? cursor + BigInt(1) : deploy;
-
-  let scanComplete = true;
-  let scanError: string | undefined;
-
-  if (fromBlock <= latest) {
-    const logScan = await fetchAttestedLogsIncremental(
-      client,
-      contractAddress,
-      fromBlock,
-      latest,
-    );
-    scanComplete = logScan.complete;
-    scanError = logScan.budgetExhausted
-      ? "Partial results, still syncing"
-      : logScan.errorMessage;
-
-    let enrichComplete = true;
-    let lastEnrichedBlock: bigint | null = null;
-
-    if (logScan.logs.length > 0) {
-      const enriched = await enrichLogs(client, contractAddress, logScan.logs);
-      enrichComplete = enriched.complete;
-      if (!enriched.complete) {
-        scanComplete = false;
-        scanError = scanError ?? enriched.errorMessage;
-      }
-      for (const row of enriched.rows) {
-        byKey.set(`${row.txHash}:${row.logIndex}`, row);
-        if (
-          lastEnrichedBlock == null ||
-          row.blockNumber > lastEnrichedBlock
-        ) {
-          lastEnrichedBlock = row.blockNumber;
+  // 3) Optional eth_getLogs tip catch-up (best-effort; often empty on public RPC).
+  if (latestResult.ok && latestResult.value != null) {
+    const tipFrom =
+      latest > BigInt(5_000) ? latest - BigInt(5_000) : deploy;
+    try {
+      const logScan = await fetchAttestedLogsIncremental(
+        client,
+        contractAddress,
+        tipFrom,
+        latest,
+      );
+      if (logScan.logs.length > 0) {
+        const enriched = await enrichLogs(client, contractAddress, logScan.logs);
+        for (const row of enriched.rows) {
+          byKey.set(`${row.txHash}:${row.logIndex}`, row);
         }
       }
-    }
-
-    // Advance cursor only through blocks we actually covered.
-    // If enrichment failed, do not jump past the last successfully enriched block
-    // (otherwise events are permanently skipped).
-    let cursorTo: bigint | null = null;
-    if (logScan.logs.length === 0 && logScan.lastScannedBlock != null) {
-      // Empty range scanned successfully — safe to advance.
-      cursorTo = logScan.lastScannedBlock;
-    } else if (enrichComplete && logScan.lastScannedBlock != null) {
-      cursorTo = logScan.lastScannedBlock;
-    } else if (lastEnrichedBlock != null) {
-      cursorTo = lastEnrichedBlock;
-    }
-
-    if (cursorTo != null && cursorTo >= fromBlock) {
-      await setLogCursor(contractAddress, cursorTo);
-    }
-
-    if (logScan.budgetExhausted || !logScan.complete) {
-      scanComplete = false;
+    } catch (err) {
+      console.warn(
+        "[attestation-index] eth_getLogs tip catch-up skipped:",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
-  // Prefer durable index after upsert (cold-start source of truth).
-  const refreshed = await loadAttestationEvents(contractAddress);
-  if (refreshed.length > 0) {
-    byKey.clear();
-    for (const row of refreshed) {
-      byKey.set(`${row.txHash}:${row.logIndex}`, storedToIndexed(row));
-    }
+  // Advance cursor to tip when Arcscan completed so other paths know we synced.
+  if (arcscan.complete && latestResult.ok && latestResult.value != null) {
+    await setLogCursor(contractAddress, latestResult.value);
   }
 
   const rows = [...byKey.values()].sort((a, b) => b.timestamp - a.timestamp);
-
+  const complete = arcscan.complete && rows.length > 0
+    ? true
+    : arcscan.complete;
   const result: IndexLoadResult = {
     rows,
-    complete: scanComplete,
-    partial: !scanComplete && rows.length > 0,
-    errorMessage: scanError,
+    complete,
+    partial: !complete && rows.length > 0,
+    errorMessage: arcscan.errorMessage,
   };
+
+  // If Arcscan failed but we still have stored rows, treat as partial not empty.
+  if (!arcscan.complete && rows.length > 0) {
+    result.partial = true;
+    result.complete = false;
+  }
+
   indexCache = { at: Date.now(), data: result };
   return result;
 }

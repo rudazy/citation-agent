@@ -27,7 +27,11 @@ function resolvePublisherAddress(
   return connected ?? linked;
 }
 
-/** Auth headers so the catalog API can recognize posts you published. */
+/**
+ * Auth headers so the catalog API can recognize posts you published.
+ * forceSign: true (unlock path) always prompts the connected wallet so authors
+ * get free access even when linked-wallet localStorage was cleared.
+ */
 export async function resolveCatalogAuthHeaders(
   options: ResolveOptions = {},
 ): Promise<Record<string, string>> {
@@ -41,19 +45,39 @@ export async function resolveCatalogAuthHeaders(
   if (!options.signIfMissing) return {};
 
   const linkedPublisher = getStoredLinkedMetaMaskAddress() as `0x${string}` | null;
+  // forceSign (explicit unlock) always allowed; otherwise only when localStorage
+  // already knows this publisher from a prior link/publish flow.
   const hasPublisherHint =
-    options.forceSign ||
+    options.forceSign === true ||
     linkedPublisher?.toLowerCase() === publisher.toLowerCase();
   if (!hasPublisherHint) return {};
 
   const ethereum = await getEthereumProvider();
   if (!ethereum) return {};
 
-  const account = connected ?? (await getAuthorizedAccount(ethereum));
-  if (!account || account.toLowerCase() !== publisher.toLowerCase()) return {};
+  // Prefer live eth_requestAccounts when force-signing so a locked extension
+  // still surfaces the MetaMask popup.
+  let account = connected ?? (await getAuthorizedAccount(ethereum));
+  if (!account && options.forceSign) {
+    try {
+      const accounts = (await ethereum.request({
+        method: "eth_requestAccounts",
+      })) as string[];
+      if (accounts[0]) account = accounts[0] as `0x${string}`;
+    } catch {
+      return {};
+    }
+  }
+  if (!account) return {};
+
+  // When force-signing, the active account is the publisher identity for this action.
+  const signAs = options.forceSign ? account : publisher;
+  if (!options.forceSign && account.toLowerCase() !== publisher.toLowerCase()) {
+    return {};
+  }
 
   try {
-    const auth = await signMyPostsAuth(ethereum, account);
+    const auth = await signMyPostsAuth(ethereum, signAs);
     cacheMyPostsAuth(auth);
     return myPostsHeaders(auth);
   } catch {
