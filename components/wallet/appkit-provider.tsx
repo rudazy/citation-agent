@@ -2,7 +2,8 @@
 
 import { createAppKit, type AppKit } from "@reown/appkit/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { reconnect } from "@wagmi/core";
 import { cookieToInitialState, WagmiProvider, type Config } from "wagmi";
 import {
   arcNetwork,
@@ -43,7 +44,11 @@ if (walletConnectProjectId) {
     // Sepolia listed second so MetaMask mobile can finish WalletConnect pairing
     // when Arc is not in its chain registry (avoids endless "Connecting...").
     networks: [arcNetwork, pairingFallbackNetwork],
-    defaultNetwork: arcNetwork,
+    // Pair on Sepolia: MetaMask mobile approves WC sessions WITHOUT Arc (it
+    // does not know chain 5042002), and finalizing on an unapproved default
+    // network can leave AppKit stuck on "Connecting...". Post-connect code
+    // (settleArcAfterConnect) moves the wallet onto Arc afterwards.
+    defaultNetwork: pairingFallbackNetwork,
     metadata,
     // Keep WalletConnect + injected extensions available in the sheet.
     enableWalletConnect: true,
@@ -87,6 +92,35 @@ type AppKitProviderProps = {
 
 export function AppKitProvider({ children, cookies }: AppKitProviderProps) {
   const initialState = cookieToInitialState(wagmiConfig as Config, cookies);
+
+  // Mobile browsers frequently reload this tab while the user approves the
+  // pairing inside their wallet app. Restore ONLY the WalletConnect session on
+  // mount — relay-based, reads local storage, can never open a wallet popup.
+  // Injected wallets stay untouched (reconnectOnMount stays false) to preserve
+  // the no-MetaMask-popup-on-load guarantee.
+  useEffect(() => {
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryReconnectWalletConnect = () => {
+      if (cancelled) return;
+      const wcConnector = wagmiConfig.connectors.find(
+        (connector) => connector.id === "walletConnect",
+      );
+      if (wcConnector) {
+        void reconnect(wagmiConfig as Config, { connectors: [wcConnector] });
+        return;
+      }
+      // AppKit registers the WalletConnect connector asynchronously after init.
+      attempts += 1;
+      if (attempts < 10) setTimeout(tryReconnectWalletConnect, 500);
+    };
+
+    tryReconnectWalletConnect();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <WagmiProvider

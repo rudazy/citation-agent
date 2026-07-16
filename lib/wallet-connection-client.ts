@@ -43,6 +43,8 @@ export function waitForWalletConnection(
     let settled = false;
     /** True once AppKit reports the connect sheet is visible. */
     let sawModalOpen = false;
+    /** True once the sheet has closed again (wallet handoff or cancel). */
+    let sheetClosed = false;
     /**
      * True once a wallet handoff starts (QR scanned / deep link / extension
      * prompt). After this, the modal often closes while the user is still in
@@ -51,17 +53,75 @@ export function waitForWalletConnection(
     let sawConnecting = false;
     let cancelGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const clearCancelGrace = () => {
+      if (cancelGraceTimer) {
+        clearTimeout(cancelGraceTimer);
+        cancelGraceTimer = null;
+      }
+    };
+
     const finish = (address: `0x${string}` | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (cancelGraceTimer) clearTimeout(cancelGraceTimer);
+      clearCancelGrace();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       unwatch();
       unsubscribeModal?.();
       resolve(address);
     };
 
     const timer = setTimeout(() => finish(null), timeoutMs);
+
+    const startCancelGrace = (returnedFromWallet = false) => {
+      if (settled || cancelGraceTimer) return;
+      // While the tab is hidden the user is inside their wallet app; timers
+      // are throttled and must not count toward cancellation. The
+      // visibilitychange handler restarts the countdown on return.
+      if (document.visibilityState === "hidden") return;
+      const graceMs = returnedFromWallet
+        ? 12_000
+        : sawConnecting || hasInjectedEthereum()
+          ? 8_000
+          : 1_500;
+      cancelGraceTimer = setTimeout(() => {
+        void (async () => {
+          const again = getAccount(wagmiConfig);
+          if (again.isConnected && again.address) {
+            finish(again.address as `0x${string}`);
+            return;
+          }
+          try {
+            const provider = await getEthereumProvider();
+            if (provider) {
+              const accounts = (await provider.request({
+                method: "eth_accounts",
+              })) as string[];
+              if (accounts[0] && /^0x[a-fA-F0-9]{40}$/.test(accounts[0])) {
+                finish(accounts[0] as `0x${string}`);
+                return;
+              }
+            }
+          } catch {
+            // ignore
+          }
+          finish(null);
+        })();
+      }, graceMs);
+    };
+
+    // Mobile: tapping a wallet in the sheet backgrounds this tab while the
+    // user approves in the wallet app. Pause the cancel countdown while
+    // hidden and grant a fresh window once the tab is visible again so the
+    // WalletConnect session has time to settle.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        clearCancelGrace();
+        return;
+      }
+      if (sheetClosed && !settled) startCancelGrace(true);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     const unwatch = watchAccount(wagmiConfig, {
       onChange(account) {
@@ -76,10 +136,8 @@ export function waitForWalletConnection(
 
       if (state.open) {
         sawModalOpen = true;
-        if (cancelGraceTimer) {
-          clearTimeout(cancelGraceTimer);
-          cancelGraceTimer = null;
-        }
+        sheetClosed = false;
+        clearCancelGrace();
       }
       if (state.loading || state.connectingWallet) {
         sawConnecting = true;
@@ -91,35 +149,12 @@ export function waitForWalletConnection(
         return;
       }
 
-      // Sheet closed: MetaMask extension often opens AFTER the sheet dismisses.
-      // Give the extension handoff a grace window before treating as cancel.
+      // Sheet closed: MetaMask extension often opens AFTER the sheet dismisses,
+      // and on mobile the wallet app takes over. Give the handoff a grace
+      // window before treating the close as a cancel.
       if (sawModalOpen && !state.open) {
-        if (cancelGraceTimer) return;
-        const graceMs = sawConnecting || hasInjectedEthereum() ? 8_000 : 1_500;
-        cancelGraceTimer = setTimeout(() => {
-          void (async () => {
-            const again = getAccount(wagmiConfig);
-            if (again.isConnected && again.address) {
-              finish(again.address as `0x${string}`);
-              return;
-            }
-            try {
-              const provider = await getEthereumProvider();
-              if (provider) {
-                const accounts = (await provider.request({
-                  method: "eth_accounts",
-                })) as string[];
-                if (accounts[0] && /^0x[a-fA-F0-9]{40}$/.test(accounts[0])) {
-                  finish(accounts[0] as `0x${string}`);
-                  return;
-                }
-              }
-            } catch {
-              // ignore
-            }
-            finish(null);
-          })();
-        }, graceMs);
+        sheetClosed = true;
+        startCancelGrace();
       }
     });
   });
@@ -173,10 +208,42 @@ export async function getConnectedWalletAddress(): Promise<`0x${string}` | null>
   return getAuthorizedAccount();
 }
 
-async function connectViaInjectedWallet(): Promise<{
+export type ConnectedWallet = {
   provider: EthereumProvider;
   address: `0x${string}`;
-}> {
+  /**
+   * Set when the wallet connected but could not be moved onto Arc Testnet
+   * (typical for MetaMask mobile over WalletConnect, which cannot add custom
+   * chains remotely). Connection still succeeds; transaction paths re-run the
+   * strict chain switch when it actually matters.
+   */
+  chainWarning?: string;
+};
+
+/**
+ * Post-connect housekeeping: best-effort switch to Arc plus agent-wallet
+ * restore. A chain-switch failure must never fail the connection itself.
+ */
+async function settleArcAfterConnect(
+  provider: EthereumProvider,
+): Promise<string | undefined> {
+  const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(
+    "@/lib/attestation-client"
+  );
+  let chainWarning: string | undefined;
+  try {
+    // Generous window: on mobile the switch/add prompt appears inside the
+    // wallet app and the user needs time to read and approve it. Only wallets
+    // that silently drop the request burn the full timeout.
+    await switchToArcTestnet(provider, { timeoutMs: 20_000 });
+  } catch (err) {
+    chainWarning = err instanceof Error ? err.message : String(err);
+  }
+  await tryRestoreAgentWalletOnConnect(provider);
+  return chainWarning;
+}
+
+async function connectViaInjectedWallet(): Promise<ConnectedWallet> {
   // Prefer MetaMask provider directly — do not rely on a stale wagmi connector.
   const provider = resolveInjectedProvider();
   if (!provider) {
@@ -196,20 +263,12 @@ async function connectViaInjectedWallet(): Promise<{
   }
 
   const address = accounts[0] as `0x${string}`;
+  const chainWarning = await settleArcAfterConnect(provider);
 
-  const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(
-    "@/lib/attestation-client"
-  );
-  await switchToArcTestnet(provider);
-  await tryRestoreAgentWalletOnConnect(provider);
-
-  return { provider, address };
+  return { provider, address, chainWarning };
 }
 
-async function connectViaWalletConnectModal(): Promise<{
-  provider: EthereumProvider;
-  address: `0x${string}`;
-}> {
+async function connectViaWalletConnectModal(): Promise<ConnectedWallet> {
   await openConnectModal();
 
   const address = await waitForWalletConnection();
@@ -224,31 +283,21 @@ async function connectViaWalletConnectModal(): Promise<{
     );
   }
 
-  const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(
-    "@/lib/attestation-client"
-  );
-  await switchToArcTestnet(provider);
-  await tryRestoreAgentWalletOnConnect(provider);
+  const chainWarning = await settleArcAfterConnect(provider);
 
-  return { provider, address };
+  return { provider, address, chainWarning };
 }
 
-export async function connectWalletInteractive(): Promise<{
-  provider: EthereumProvider;
-  address: `0x${string}`;
-}> {
+export async function connectWalletInteractive(): Promise<ConnectedWallet> {
   const existing = getAccount(wagmiConfig);
   if (existing.isConnected && existing.address) {
     const provider = await getEthereumProvider();
     if (provider) {
-      const { switchToArcTestnet, tryRestoreAgentWalletOnConnect } = await import(
-        "@/lib/attestation-client"
-      );
-      await switchToArcTestnet(provider);
-      await tryRestoreAgentWalletOnConnect(provider);
+      const chainWarning = await settleArcAfterConnect(provider);
       return {
         provider,
         address: existing.address as `0x${string}`,
+        chainWarning,
       };
     }
   }

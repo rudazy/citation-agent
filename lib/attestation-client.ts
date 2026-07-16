@@ -3,10 +3,10 @@ import {
   encodeFunctionData,
   erc20Abi,
   formatUnits,
-  http,
   parseUnits,
 } from "viem";
 import { arcTestnet } from "viem/chains";
+import { arcHttpTransport } from "@/lib/arc-rpc";
 import {
   ATTESTATION_ABI,
   ATTESTATION_PLATFORM_FEE_USDC,
@@ -50,7 +50,7 @@ export type { EthereumProvider };
 
 const publicClient = createPublicClient({
   chain: arcTestnet,
-  transport: http(RPC),
+  transport: arcHttpTransport(RPC),
 });
 
 export type TargetPreset = "x" | "wallet" | "website" | "linkedin" | "agent" | "custom";
@@ -225,9 +225,61 @@ async function waitForReceipt(
   throw new Error(`Transaction confirmation timed out: ${hash}`);
 }
 
+/** Actionable guidance when a wallet cannot reach Arc Testnet (MetaMask mobile over WalletConnect). */
+export const ARC_SWITCH_HELP =
+  "Could not switch your wallet to Arc Testnet. On MetaMask mobile, open the MetaMask app and approve the pending network request. If nothing appears, add Arc Testnet manually in MetaMask (Networks > Add network: chain ID 5042002, RPC https://rpc.testnet.arc.network), then reconnect.";
+
+/**
+ * MetaMask mobile over WalletConnect can silently drop switch/add-chain
+ * requests for chains missing from the approved session, so every request
+ * needs a deadline — otherwise the connect UI spins forever.
+ */
+function requestWithTimeout<T>(
+  request: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `${label} timed out. Open your wallet app to approve the pending request, then retry.`,
+        ),
+      );
+    }, ms);
+    request.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * "Chain unknown to the wallet" is signalled as EIP-3085 code 4902 by injected
+ * MetaMask, but WalletConnect sessions reject unapproved chains with other
+ * codes/messages ("Unrecognized chain ID", "not approved", ...). All of these
+ * mean the same thing: try wallet_addEthereumChain next.
+ */
+function isUnknownChainError(error: unknown): boolean {
+  const err = error as { code?: number; message?: string };
+  if (err?.code === 4902) return true;
+  const message = err?.message ?? String(error);
+  return /unrecognized chain|unsupported chain|chain.*not.*(approved|authorized|supported|added)|missing or invalid.*chain/i.test(
+    message,
+  );
+}
+
 export async function switchToArcTestnet(
   ethereum?: EthereumProvider,
+  options?: { timeoutMs?: number },
 ): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 20_000;
   let provider = ethereum;
   if (!provider) {
     if (typeof window === "undefined") {
@@ -244,24 +296,58 @@ export async function switchToArcTestnet(
     );
   }
 
-  const current = (await provider.request({ method: "eth_chainId" })) as string;
-  if (current.toLowerCase() === ARC_TESTNET_HEX) return;
+  const activeProvider = provider;
+  const onArc = async () => {
+    const chainId = (await requestWithTimeout(
+      activeProvider.request({ method: "eth_chainId" }) as Promise<string>,
+      timeoutMs,
+      "Reading wallet network",
+    )) as string;
+    return chainId.toLowerCase() === ARC_TESTNET_HEX;
+  };
+  const requestSwitch = () =>
+    requestWithTimeout(
+      activeProvider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: ARC_TESTNET_HEX }],
+      }),
+      timeoutMs,
+      "Network switch",
+    );
+
+  if (await onArc()) return;
 
   try {
-    await provider.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: ARC_TESTNET_HEX }],
-    });
+    await requestSwitch();
+    return;
   } catch (switchError) {
-    const err = switchError as { code?: number };
-    if (err.code === 4902) {
-      await provider.request({
+    if (!isUnknownChainError(switchError)) throw switchError;
+  }
+
+  // Arc is unknown to the wallet: add it, then verify the result instead of
+  // trusting the response — MetaMask mobile over WalletConnect may accept the
+  // add request without actually switching (or ignore it entirely).
+  try {
+    await requestWithTimeout(
+      activeProvider.request({
         method: "wallet_addEthereumChain",
         params: [ARC_TESTNET_ADD_CHAIN],
-      });
-      return;
-    }
-    throw switchError;
+      }),
+      timeoutMs,
+      "Adding Arc Testnet",
+    );
+  } catch {
+    throw new Error(ARC_SWITCH_HELP);
+  }
+
+  if (await onArc()) return;
+  try {
+    await requestSwitch();
+  } catch {
+    // Verified below; some wallets auto-switch after the add instead.
+  }
+  if (!(await onArc())) {
+    throw new Error(ARC_SWITCH_HELP);
   }
 }
 
@@ -665,13 +751,18 @@ export async function attestViaAgentWallet(params: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  const data = (await res.json()) as {
-    error?: string;
-    attestTxHash?: string;
-    staker?: string;
-  };
+  let data: { error?: string; attestTxHash?: string; staker?: string };
+  try {
+    data = (await res.json()) as typeof data;
+  } catch {
+    // Non-JSON body (proxy error page, crashed route) — never surface a parse error.
+    data = {};
+  }
   if (!res.ok) {
-    throw new Error(data.error ?? "Agent attestation failed");
+    throw new Error(
+      data.error ??
+        `Attestation service error (HTTP ${res.status}). If this repeats, check Arcscan before retrying so you don't stake twice.`,
+    );
   }
   if (!data.attestTxHash || !data.staker) {
     throw new Error("Invalid response from attestation API");

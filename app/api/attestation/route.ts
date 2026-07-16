@@ -3,12 +3,11 @@ import { z } from "zod";
 import {
   createPublicClient,
   createWalletClient,
-  encodeFunctionData,
   erc20Abi,
   formatUnits,
-  http,
   parseUnits,
 } from "viem";
+import { arcHttpTransport, isRpcRateLimitError } from "@/lib/arc-rpc";
 import { privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "viem/chains";
 import {
@@ -62,12 +61,12 @@ export async function POST(request: Request) {
 
   const publicClient = createPublicClient({
     chain: arcTestnet,
-    transport: http(rpcUrl),
+    transport: arcHttpTransport(rpcUrl),
   });
 
   const walletClient = createWalletClient({
     chain: arcTestnet,
-    transport: http(rpcUrl),
+    transport: arcHttpTransport(rpcUrl),
     account,
   });
 
@@ -82,54 +81,93 @@ export async function POST(request: Request) {
   }
 
   const totalCost = totalAttestationCostUnits(amount);
+  const target = canonicalizeAttestationTarget(body.target);
 
-  const walletBalance = await publicClient.readContract({
-    address: ARC_USDC,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [account.address],
-  });
-
-  if (walletBalance < totalCost) {
-    return NextResponse.json(
-      {
-        error: `Insufficient agent USDC. Have ${formatUnits(walletBalance, 6)}, need ${formatUnits(totalCost, 6)} (stake + 0.1 platform fee)`,
-      },
-      { status: 400 },
-    );
-  }
-
-  const allowance = await publicClient.readContract({
-    address: ARC_USDC,
-    abi: erc20Abi,
-    functionName: "allowance",
-    args: [account.address, contractAddress],
-  });
-
-  if (allowance < totalCost) {
-    const approveHash = await walletClient.writeContract({
+  // Everything up to broadcasting the attest tx is safe to fail and retry.
+  let attestHash: `0x${string}`;
+  try {
+    const walletBalance = await publicClient.readContract({
       address: ARC_USDC,
       abi: erc20Abi,
-      functionName: "approve",
-      args: [contractAddress, totalCost],
+      functionName: "balanceOf",
+      args: [account.address],
+    });
+
+    if (walletBalance < totalCost) {
+      return NextResponse.json(
+        {
+          error: `Insufficient agent USDC. Have ${formatUnits(walletBalance, 6)}, need ${formatUnits(totalCost, 6)} (stake + 0.1 platform fee)`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const allowance = await publicClient.readContract({
+      address: ARC_USDC,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [account.address, contractAddress],
+    });
+
+    if (allowance < totalCost) {
+      const approveHash = await walletClient.writeContract({
+        address: ARC_USDC,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [contractAddress, totalCost],
+        account,
+        chain: arcTestnet,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    }
+
+    attestHash = await walletClient.writeContract({
+      address: contractAddress,
+      abi: ATTESTATION_ABI,
+      functionName: "attest",
+      args: [target, body.claim.trim(), amount],
       account,
       chain: arcTestnet,
     });
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  } catch (err) {
+    console.error("[attestation] stake failed before broadcast:", err);
+    if (isRpcRateLimitError(err)) {
+      return NextResponse.json(
+        {
+          error:
+            "Arc testnet RPC is rate-limited right now. Nothing was staked — wait a few seconds and retry.",
+        },
+        { status: 503 },
+      );
+    }
+    const message = err instanceof Error ? err.message : "";
+    const reverted = /revert/i.test(message);
+    return NextResponse.json(
+      {
+        error: reverted
+          ? "Stake transaction was rejected by the contract. Nothing was staked."
+          : "Could not reach Arc testnet to send the stake. Nothing was staked — retry shortly.",
+      },
+      { status: reverted ? 400 : 502 },
+    );
   }
 
-  const target = canonicalizeAttestationTarget(body.target);
+  // The attest tx is broadcast: from here on, never return an error that
+  // invites a retry — that would double-stake. Report the hash instead.
+  let receiptPending = false;
+  try {
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: attestHash });
+    if (receipt.status === "reverted") {
+      return NextResponse.json(
+        { error: `Stake transaction reverted on-chain (${attestHash}). Nothing was staked.` },
+        { status: 400 },
+      );
+    }
+  } catch (err) {
+    console.warn("[attestation] receipt wait failed; tx already broadcast:", attestHash, err);
+    receiptPending = true;
+  }
 
-  const attestHash = await walletClient.writeContract({
-    address: contractAddress,
-    abi: ATTESTATION_ABI,
-    functionName: "attest",
-    args: [target, body.claim.trim(), amount],
-    account,
-    chain: arcTestnet,
-  });
-
-  await publicClient.waitForTransactionReceipt({ hash: attestHash });
   invalidateAttestationCache();
 
   await recordAttestationPlatformFee({
@@ -145,5 +183,6 @@ export async function POST(request: Request) {
     staker: account.address,
     platformFeeUsdc: "0.1",
     totalPaidUsdc: formatUnits(totalCost, 6),
+    ...(receiptPending ? { receiptPending: true } : {}),
   });
 }

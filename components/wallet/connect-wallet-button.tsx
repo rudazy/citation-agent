@@ -43,7 +43,13 @@ export function ConnectWalletButton({
 
     setConnecting(true);
     try {
-      const { address } = await connectWalletInteractive();
+      const { address, chainWarning } = await connectWalletInteractive();
+      if (chainWarning) {
+        toast.warning("Connected, but not on Arc Testnet", {
+          description: chainWarning,
+          duration: 12_000,
+        });
+      }
       await onConnected?.(address);
     } catch (err) {
       toast.error("Could not connect wallet", {
