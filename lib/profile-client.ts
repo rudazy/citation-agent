@@ -7,6 +7,10 @@ export type ProfileStatus = {
   canChangeUsername: boolean;
   nextChangeAt: string | null;
   agentConfigured: boolean;
+  /** Set-once payout wallet; owner-only (null when viewing someone else). */
+  payoutWallet: string | null;
+  /** Optional tip wallet override; null = tips settle to the payout wallet. */
+  tipWallet: string | null;
 };
 
 const EMPTY_PROFILE: ProfileStatus = {
@@ -16,6 +20,8 @@ const EMPTY_PROFILE: ProfileStatus = {
   canChangeUsername: true,
   nextChangeAt: null,
   agentConfigured: false,
+  payoutWallet: null,
+  tipWallet: null,
 };
 
 export async function fetchProfile(publisherAddress?: string): Promise<ProfileStatus> {
@@ -56,5 +62,47 @@ export async function saveUsername(
     canChangeUsername: data.canChangeUsername ?? false,
     nextChangeAt: data.nextChangeAt ?? null,
     agentConfigured: true,
+    payoutWallet: data.payoutWallet ?? null,
+    tipWallet: data.tipWallet ?? null,
   };
+}
+
+/**
+ * Set or clear (pass null) the tip wallet override with my-posts-style
+ * signed headers. Cleared tips revert to the payout wallet.
+ */
+export async function saveTipWallet(
+  tipWallet: string | null,
+  headers: Record<string, string>,
+): Promise<string | null> {
+  const res = await fetch("/api/profile/tip-wallet", {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ tipWallet }),
+  });
+  const data = (await res.json()) as { error?: string; tipWallet?: string | null };
+  if (!res.ok) {
+    throw new Error(data.error ?? `Failed to save tip wallet (${res.status})`);
+  }
+  return data.tipWallet ?? null;
+}
+
+/**
+ * Change the profile payout wallet with my-posts-style signed headers.
+ * Applies to future publishes and tips only.
+ */
+export async function savePayoutWallet(
+  payoutWallet: string,
+  headers: Record<string, string>,
+): Promise<string> {
+  const res = await fetch("/api/profile/payout-wallet", {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ payoutWallet }),
+  });
+  const data = (await res.json()) as { error?: string; payoutWallet?: string };
+  if (!res.ok || !data.payoutWallet) {
+    throw new Error(data.error ?? `Failed to save payout wallet (${res.status})`);
+  }
+  return data.payoutWallet;
 }

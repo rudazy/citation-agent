@@ -1,6 +1,10 @@
 import { getAddress } from "viem";
 import { getAdminClient } from "@/lib/supabase/admin";
-import { getProfileByUsername } from "@/lib/platform-profile";
+import {
+  getProfilePayoutWallet,
+  getProfileTipWallet,
+  getProfileByUsername,
+} from "@/lib/platform-profile";
 import { loadPublishedPostsForProfile } from "@/lib/creator-follows";
 import { parsePriceUsdc } from "@/lib/creator-posts";
 import { MIN_POST_PRICE_USDC } from "@/lib/creator-post-constants";
@@ -23,14 +27,35 @@ export function formatTipPrice(amount: number): string {
 }
 
 /**
- * Resolve where tip USDC should settle: preferred latest post payout wallet,
- * else publisher wallet linked to the profile.
+ * Tip destination rule: the optional tip wallet override wins, otherwise the
+ * payout wallet. Pure so the resolution order is unit-testable.
+ */
+export function preferredTipWallet(
+  tipWallet: `0x${string}` | null,
+  payoutWallet: `0x${string}` | null,
+): `0x${string}` | null {
+  return tipWallet ?? payoutWallet;
+}
+
+/**
+ * Resolve where tip USDC should settle: tip wallet override, else the
+ * profile's payout wallet, then the latest post's payout wallet, then a
+ * publisher wallet linked to the profile.
  */
 export async function resolveCreatorTipPayee(
   username: string,
 ): Promise<{ payTo: `0x${string}`; username: string } | null> {
   const profile = await getProfileByUsername(username);
   if (!profile) return null;
+
+  const [tipOverride, storedPayout] = await Promise.all([
+    getProfileTipWallet(profile.id),
+    getProfilePayoutWallet(profile.id),
+  ]);
+  const preferred = preferredTipWallet(tipOverride, storedPayout);
+  if (preferred) {
+    return { payTo: preferred, username: profile.username };
+  }
 
   const posts = await loadPublishedPostsForProfile(profile);
   if (posts.length > 0) {

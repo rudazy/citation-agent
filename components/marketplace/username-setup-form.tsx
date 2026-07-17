@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { saveUsername, type ProfileStatus } from "@/lib/profile-client";
+import { usernameCooldownMessage } from "@/lib/username";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -84,9 +85,13 @@ export function UsernameSetupForm({
           {saving ? <Loader2 size={14} className="animate-spin" /> : submitLabel}
         </Button>
       </div>
-      {changing && profile?.canChangeUsername === false && profile.nextChangeAt && (
-        <p className="font-mono text-[10px] text-[#666]">
-          Next change available {new Date(profile.nextChangeAt).toLocaleString()}
+      {changing && profile?.canChangeUsername === false && (
+        <p className="font-mono text-[10px] text-[#f5c842]/80">
+          {usernameCooldownMessage(profile.nextChangeAt) ??
+            "Username changes unlock again soon"}
+          {profile.nextChangeAt
+            ? ` (${new Date(profile.nextChangeAt).toLocaleString()})`
+            : ""}
         </p>
       )}
       {error && <p className="font-mono text-[10px] text-red-400">{error}</p>}

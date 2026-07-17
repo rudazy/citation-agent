@@ -101,18 +101,24 @@ async function getCommentById(commentId: string): Promise<{
   id: string;
   post_id: string;
   parent_id: string | null;
+  profile_id: string | null;
 } | null> {
   const supabase = getAdminClient();
   if (!supabase) return null;
 
   const { data, error } = await supabase
     .from("post_comments")
-    .select("id, post_id, parent_id")
+    .select("id, post_id, parent_id, profile_id")
     .eq("id", commentId)
     .maybeSingle();
 
   if (error || !data) return null;
-  return data as { id: string; post_id: string; parent_id: string | null };
+  return data as {
+    id: string;
+    post_id: string;
+    parent_id: string | null;
+    profile_id: string | null;
+  };
 }
 
 export async function addComment(params: {
@@ -185,6 +191,41 @@ export async function addComment(params: {
   if (error || !data) {
     console.error("[post-comments] insert failed:", error?.message);
     return { ok: false, error: "Failed to save comment", status: 500 };
+  }
+
+  // Best-effort notifications: post author on new comments, parent author on
+  // replies. Self-notifications are skipped; failures never fail the comment.
+  try {
+    const { createNotification } = await import("@/lib/notifications");
+    const { getProfileByUsername } = await import("@/lib/platform-profile");
+
+    const notified = new Set<string>([params.profile.id]);
+
+    if (parentId) {
+      const parent = await getCommentById(parentId);
+      const parentProfileId = (parent as { profile_id?: string } | null)?.profile_id;
+      if (parentProfileId && !notified.has(parentProfileId)) {
+        notified.add(parentProfileId);
+        await createNotification({
+          profileId: parentProfileId,
+          type: "reply",
+          actorUsername: params.profile.username,
+          postId,
+        });
+      }
+    }
+
+    const authorProfile = await getProfileByUsername(post.author);
+    if (authorProfile && !notified.has(authorProfile.id)) {
+      await createNotification({
+        profileId: authorProfile.id,
+        type: "comment",
+        actorUsername: params.profile.username,
+        postId,
+      });
+    }
+  } catch (err) {
+    console.warn("[post-comments] notification hook failed:", err);
   }
 
   return {

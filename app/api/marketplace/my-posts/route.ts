@@ -6,6 +6,7 @@ import {
   fetchCitationLedgerStats,
   getCitationLedgerStats,
 } from "@/lib/catalog-earnings-stats";
+import { getViewStatsForPosts } from "@/lib/post-views";
 import { verifyMyPostsRequest } from "@/lib/publisher-auth";
 import { getTrustScores } from "@/lib/trustgate";
 
@@ -30,16 +31,19 @@ export async function GET(request: Request) {
   const payoutWallets = posts.map((p) => p.payoutWallet);
 
   const publisherTrustWallet = wallet.toLowerCase();
-  const [scores, ledgerStats, publisherScore] = await Promise.all([
+  const [scores, ledgerStats, publisherScore, viewStats] = await Promise.all([
     getTrustScores(posts.map((p) => resolveTrustIdentityWallet(p))),
     fetchCitationLedgerStats(citationIds, payoutWallets),
     getTrustScores([wallet]),
+    getViewStatsForPosts(citationIds),
   ]);
 
   const items = posts.map((post) => {
     const ledger = getCitationLedgerStats(ledgerStats, post.id);
     const paidCount = Math.max(post.paidCount, ledger.allTimeReaders);
     const trustWallet = resolveTrustIdentityWallet(post);
+    const views = viewStats.get(post.id);
+    const viewsTotal = views?.viewsTotal ?? 0;
     return {
       id: post.id,
       title: post.title,
@@ -51,6 +55,13 @@ export async function GET(request: Request) {
       recent_readers_7d: ledger.recentReaders7d,
       post_earnings_usdc: ledger.postEarningsUsdc,
       published_at: post.publishedAt,
+      cover_image_url: post.coverImageUrl ?? null,
+      edit_version: post.editVersion ?? 1,
+      views_total: viewsTotal,
+      views_7d: views?.views7d ?? 0,
+      // Teaser-to-unlock conversion; null until the post has views.
+      unlock_conversion: viewsTotal > 0 ? Number((paidCount / viewsTotal).toFixed(4)) : null,
+      top_referrers: views?.topReferrers ?? [],
       endpoint: `/api/marketplace/citations?id=${post.id}`,
       trust: trustScoreToSignal(
         scores.get(trustWallet.toLowerCase()) ?? null,

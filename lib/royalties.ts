@@ -44,6 +44,22 @@ export async function recordCitationRoyalty(params: {
 
   if (earningsError) {
     console.error("[royalties] Failed to record creator earnings:", earningsError.message);
+  } else {
+    // Best-effort sale notification to the creator (author_name is the username).
+    try {
+      const { createNotification } = await import("@/lib/notifications");
+      const { getProfileByUsername } = await import("@/lib/platform-profile");
+      const profile = await getProfileByUsername(params.creatorName);
+      if (profile) {
+        await createNotification({
+          profileId: profile.id,
+          type: "sale",
+          postId: params.citationId,
+        });
+      }
+    } catch (err) {
+      console.warn("[royalties] sale notification failed:", err);
+    }
   }
 
   const { data: existing, error: fetchError } = await supabase

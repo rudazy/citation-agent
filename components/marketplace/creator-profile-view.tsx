@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Link2, Loader2, Users } from "lucide-react";
+import { BadgeCheck, FileText, Link2, Loader2, Users } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
 import { AttestModal } from "@/components/attest";
 import { AttestTrigger } from "@/components/attest/attest-trigger";
 import { FollowCreatorButton } from "@/components/marketplace/follow-creator-button";
+import { ProfileOwnerSettings } from "@/components/marketplace/profile-owner-settings";
 import { CreatorTipPanel } from "@/components/marketplace/creator-tip-panel";
 import {
   ProfilePostCard,
@@ -29,6 +30,7 @@ type ProfilePayload = {
   totalReaders: number;
   following: boolean;
   isSelf: boolean;
+  verified_links?: string[];
   researcher_backing?: ResearchBackingStats | null;
   posts: ProfilePostCardData[];
 };
@@ -122,8 +124,17 @@ export function CreatorProfileView({ username }: { username: string }) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2 min-w-0">
             <p className="font-mono text-xs text-[#666] tracking-wide">Creator</p>
-            <h1 className="text-2xl font-semibold tracking-wide text-[#f5f5f5]">
+            <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-wide text-[#f5f5f5]">
               {formatUsernameDisplay(data.username)}
+              {(data.verified_links?.length ?? 0) > 0 && (
+                <span
+                  title={`Verified links: ${data.verified_links!.join(", ")}`}
+                  className="inline-flex items-center gap-1 rounded border border-[#c8f135]/30 bg-[#c8f135]/10 px-1.5 py-0.5 font-mono text-[10px] font-normal text-[#c8f135]"
+                >
+                  <BadgeCheck size={11} />
+                  verified
+                </span>
+              )}
             </h1>
             <p className="font-mono text-xs text-[#888] leading-relaxed max-w-md">
               Public research desk. View a report in the catalog to unlock and read.
@@ -184,6 +195,10 @@ export function CreatorProfileView({ username }: { username: string }) {
           <p className="border-t border-[#1f1f1f] pt-3 font-mono text-[10px] text-[#888]">
             Your backing: {formatBackingHint(data.researcher_backing)}
           </p>
+        )}
+
+        {data.isSelf && (
+          <ProfileOwnerSettings className="border-t border-[#1f1f1f] pt-4" />
         )}
 
         {!data.isSelf && (

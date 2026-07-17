@@ -1,13 +1,36 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, GitBranch, ImagePlus, Loader2 } from "lucide-react";
+import {
+  Bold,
+  ChevronDown,
+  Code,
+  FileText,
+  Heading2,
+  ImagePlus,
+  Italic,
+  Link2,
+  List,
+  Loader2,
+  Quote,
+  Sigma,
+  Superscript,
+  Table,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { CitationBodyMarkdown } from "@/components/marketplace/citation-body-markdown";
+import {
+  FORMULA_BLOCK_SNIPPET,
+  insertFootnote,
+  prefixSelectedLines,
+  REPORT_TEMPLATE,
+  TABLE_SNIPPET,
+  wrapSelection,
+  type FormatResult,
+} from "@/lib/article-format";
 import { imageMarkdownAtCursor, insertTextAtCursor } from "@/lib/article-image";
 import { imageFileFromClipboard, uploadArticleImage } from "@/lib/article-image-upload";
-import { mermaidMarkdownAtCursor } from "@/lib/article-mermaid";
 import { isSvgDocument, svgMarkdownAtCursor } from "@/lib/article-svg";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
 import { signArticleImageUploadAuth } from "@/lib/publish-client";
@@ -144,11 +167,93 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
     [uploadAndInsert],
   );
 
-  const insertDiagram = useCallback(() => {
+  /** Apply a selection-aware formatter and restore focus/selection. */
+  const applyFormat = useCallback(
+    (format: (value: string, start: number, end: number) => FormatResult) => {
+      if (disabled || uploading) return;
+      const el = textareaRef.current;
+      const start = el?.selectionStart ?? value.length;
+      const end = el?.selectionEnd ?? value.length;
+      const { next, selStart, selEnd } = format(value, start, end);
+      onChange(next);
+      requestAnimationFrame(() => {
+        el?.focus();
+        if (el) {
+          el.selectionStart = selStart;
+          el.selectionEnd = selEnd;
+        }
+      });
+    },
+    [disabled, onChange, uploading, value],
+  );
+
+  const insertTemplate = useCallback(() => {
     if (disabled || uploading) return;
-    insertMarkdown(mermaidMarkdownAtCursor());
-    toast.success("Diagram block inserted — expand Live preview to check the chart");
-  }, [disabled, insertMarkdown, uploading]);
+    if (value.trim() && !window.confirm("Replace the current draft with the report template?")) {
+      return;
+    }
+    onChange(REPORT_TEMPLATE);
+    setPreview(REPORT_TEMPLATE);
+    toast.success("Report template loaded. Replace each section with your research");
+  }, [disabled, onChange, uploading, value]);
+
+  const formatActions: {
+    label: string;
+    icon: typeof Bold;
+    run: () => void;
+  }[] = [
+    {
+      label: "Bold",
+      icon: Bold,
+      run: () => applyFormat((v, s, e) => wrapSelection(v, s, e, "**", "**", "bold text")),
+    },
+    {
+      label: "Italic",
+      icon: Italic,
+      run: () => applyFormat((v, s, e) => wrapSelection(v, s, e, "_", "_", "italic text")),
+    },
+    {
+      label: "Heading",
+      icon: Heading2,
+      run: () => applyFormat((v, s, e) => prefixSelectedLines(v, s, e, "## ")),
+    },
+    {
+      label: "Link",
+      icon: Link2,
+      run: () =>
+        applyFormat((v, s, e) => wrapSelection(v, s, e, "[", "](https://)", "link text")),
+    },
+    {
+      label: "Inline code",
+      icon: Code,
+      run: () => applyFormat((v, s, e) => wrapSelection(v, s, e, "`", "`", "code")),
+    },
+    {
+      label: "Quote",
+      icon: Quote,
+      run: () => applyFormat((v, s, e) => prefixSelectedLines(v, s, e, "> ")),
+    },
+    {
+      label: "Bullet list",
+      icon: List,
+      run: () => applyFormat((v, s, e) => prefixSelectedLines(v, s, e, "- ")),
+    },
+    {
+      label: "Table",
+      icon: Table,
+      run: () => insertMarkdown(TABLE_SNIPPET),
+    },
+    {
+      label: "Formula (LaTeX)",
+      icon: Sigma,
+      run: () => insertMarkdown(FORMULA_BLOCK_SNIPPET),
+    },
+    {
+      label: "Footnote",
+      icon: Superscript,
+      run: () => applyFormat(insertFootnote),
+    },
+  ];
 
   const trimmedPreview = preview.trim();
 
@@ -171,11 +276,11 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
             variant="outline"
             size="sm"
             disabled={disabled || uploading}
-            onClick={insertDiagram}
+            onClick={insertTemplate}
             className="h-7 gap-1.5 border-[#333] font-mono text-[10px]"
           >
-            <GitBranch size={12} />
-            Insert diagram
+            <FileText size={12} />
+            Start from template
           </Button>
           <Button
             type="button"
@@ -196,10 +301,39 @@ export function ArticleBodyEditor({ id, value, onChange, connected, disabled }: 
       </div>
 
       <p className="font-mono text-[10px] leading-relaxed text-[#666]">
-        Write or paste below. Paste SVG source or images for figures; mermaid fences for
-        flowcharts. Expand <span className="text-[#888]">Live preview</span> only when you
-        want to check how it looks before posting.
+        Write or paste below. Formulas render with LaTeX ($$…$$), footnotes with [^1],
+        and code blocks get syntax highlighting. Paste SVG source or images for figures;
+        mermaid fences for flowcharts. Expand{" "}
+        <span className="text-[#888]">Live preview</span> to check how it looks.
       </p>
+
+      <div
+        role="toolbar"
+        aria-label="Formatting"
+        className="flex flex-wrap items-center gap-1 rounded border border-[#1f1f1f] bg-[#0d0d0d] px-1.5 py-1"
+      >
+        {formatActions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <button
+              key={action.label}
+              type="button"
+              title={action.label}
+              aria-label={action.label}
+              disabled={disabled || uploading}
+              onClick={action.run}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded text-[#888]",
+                "transition-colors hover:bg-[#1a1a1a] hover:text-[#f5f5f5]",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#f5c842]/40",
+                "disabled:opacity-40",
+              )}
+            >
+              <Icon size={13} />
+            </button>
+          );
+        })}
+      </div>
 
       <textarea
         ref={textareaRef}

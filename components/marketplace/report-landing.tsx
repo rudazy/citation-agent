@@ -27,11 +27,16 @@ type Listing = {
   subheading: string;
   paid_count: number;
   published_at?: string;
+  cover_image_url?: string;
+  edit_version?: number;
+  last_edited_at?: string | null;
   author_is_username?: boolean;
   already_unlocked?: boolean;
   is_own_post?: boolean;
   unlocked_body?: string;
 };
+
+type VersionMeta = { version: number; createdAt: string; changeNote: string | null };
 
 export function ReportLanding({ postId }: { postId: string }) {
   const [listing, setListing] = useState<Listing | null>(null);
@@ -39,6 +44,34 @@ export function ReportLanding({ postId }: { postId: string }) {
   const [loading, setLoading] = useState(true);
   const [unlocking, setUnlocking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [changelog, setChangelog] = useState<VersionMeta[] | null>(null);
+  const [changelogOpen, setChangelogOpen] = useState(false);
+
+  // Creator analytics beacon: one dedicated row per viewer per day, fire-and-forget.
+  useEffect(() => {
+    if (!postId) return;
+    void fetch("/api/marketplace/views", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ postId, referrer: document.referrer || null }),
+    }).catch(() => {});
+  }, [postId]);
+
+  const toggleChangelog = useCallback(async () => {
+    setChangelogOpen((open) => !open);
+    if (changelog) return;
+    try {
+      const res = await fetch(
+        `/api/marketplace/citations/versions?id=${encodeURIComponent(postId)}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { versions?: VersionMeta[] };
+      setChangelog(data.versions ?? []);
+    } catch {
+      setChangelog([]);
+    }
+  }, [changelog, postId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +188,15 @@ export function ReportLanding({ postId }: { postId: string }) {
   return (
     <div className="mx-auto max-w-3xl w-full space-y-6">
       <Panel glow className="space-y-5 p-5 sm:p-6 border-[#f5c842]/20">
+        {listing.cover_image_url && (
+          // eslint-disable-next-line @next/next/no-img-element -- creator-hosted https URL, unknown domain
+          <img
+            src={listing.cover_image_url}
+            alt=""
+            className="max-h-64 w-full rounded border border-[#1f1f1f] object-cover"
+            loading="lazy"
+          />
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="border-[#333] font-mono text-[10px]">
             ${listing.price_usdc} USDC
@@ -167,6 +209,16 @@ export function ReportLanding({ postId }: { postId: string }) {
             <span className="font-mono text-[10px] text-[#666]">
               {formatPaymentDate(listing.published_at)}
             </span>
+          )}
+          {(listing.edit_version ?? 1) > 1 && (
+            <button
+              type="button"
+              onClick={() => void toggleChangelog()}
+              className="font-mono text-[10px] text-[#f5c842]/80 underline-offset-2 hover:underline"
+            >
+              Updated v{listing.edit_version}
+              {listing.last_edited_at ? ` · ${formatPaymentDate(listing.last_edited_at)}` : ""}
+            </button>
           )}
           <Badge className="bg-[#f5c842]/10 text-[#f5c842] border border-[#f5c842]/30 text-[10px]">
             {isOpen
@@ -200,6 +252,27 @@ export function ReportLanding({ postId }: { postId: string }) {
             <MentionText text={listing.subheading} />
           </p>
         </div>
+
+        {changelogOpen && (
+          <div className="rounded border border-[#1f1f1f] bg-[#0d0d0d] px-3 py-2.5 space-y-1.5">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-[#666]">
+              Edit history
+            </p>
+            {changelog === null ? (
+              <p className="font-mono text-[10px] text-[#555]">Loading…</p>
+            ) : changelog.length === 0 ? (
+              <p className="font-mono text-[10px] text-[#555]">No recorded edits.</p>
+            ) : (
+              changelog.map((v) => (
+                <p key={v.version} className="font-mono text-[11px] text-[#a3a3a3]">
+                  <span className="text-[#666]">v{v.version + 1}</span>{" "}
+                  {formatPaymentDate(v.createdAt)}
+                  {v.changeNote ? ` — ${v.changeNote}` : " — updated"}
+                </p>
+              ))
+            )}
+          </div>
+        )}
 
         {listing.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">

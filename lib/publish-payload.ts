@@ -7,9 +7,14 @@ export type PublishPayloadInput = {
   priceUsdc: string;
   payoutWallet?: string;
   tags?: string[];
+  coverImageUrl?: string;
 };
 
-/** Stable JSON for publish body binding — field order and tag sort are fixed. */
+/**
+ * Stable JSON for publish body binding — field order and tag sort are fixed.
+ * cover_image_url joins the digest ONLY when set, so signatures for posts
+ * without covers stay byte-identical to the pre-cover format.
+ */
 export function canonicalPublishPayload(input: PublishPayloadInput): string {
   const tags = [...(input.tags ?? [])]
     .map((tag) => tag.trim())
@@ -17,9 +22,11 @@ export function canonicalPublishPayload(input: PublishPayloadInput): string {
     .sort((a, b) => a.localeCompare(b));
 
   const payout = input.payoutWallet?.trim() ?? "";
+  const cover = input.coverImageUrl?.trim() ?? "";
 
   return JSON.stringify({
     body: input.body,
+    ...(cover ? { cover_image_url: cover } : {}),
     payout_wallet: payout ? payout.toLowerCase() : "",
     price_usdc: input.priceUsdc.trim(),
     subheading: input.subheading.trim(),
@@ -78,5 +85,11 @@ export function publishPayloadFromBody(body: Record<string, unknown>): PublishPa
           ? body.payoutWallet
           : undefined,
     tags,
+    coverImageUrl:
+      typeof body.cover_image_url === "string"
+        ? body.cover_image_url
+        : typeof body.coverImageUrl === "string"
+          ? body.coverImageUrl
+          : undefined,
   };
 }

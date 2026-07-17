@@ -24,6 +24,9 @@ import { WalletProvidersLoader } from "@/components/wallet/wallet-providers-load
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
 import { resolveSiteOrigin } from "@/lib/site-url";
+// KaTeX layout CSS must load globally — client-only import on the markdown
+// component was not enough for footnote/body formulas in the marketplace view.
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const defaultUrl = resolveSiteOrigin();

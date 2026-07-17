@@ -94,6 +94,7 @@ type CitationListing = {
   is_own_post?: boolean;
   unlocked_body?: string;
   published_at?: string;
+  cover_image_url?: string;
   comment_count?: number;
   author_is_username?: boolean;
 };
@@ -812,8 +813,17 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                           )}
                         />
                       </div>
-                      <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
-                        {item.title}
+                      <h3 className="flex items-center gap-2 text-sm font-semibold tracking-wide text-[#f5f5f5]">
+                        {item.cover_image_url && (
+                          // eslint-disable-next-line @next/next/no-img-element -- creator-hosted https URL, unknown domain
+                          <img
+                            src={item.cover_image_url}
+                            alt=""
+                            loading="lazy"
+                            className="h-9 w-14 shrink-0 rounded border border-[#1f1f1f] object-cover"
+                          />
+                        )}
+                        <span>{item.title}</span>
                       </h3>
                     </button>
                     <div className="flex flex-wrap items-center gap-2">

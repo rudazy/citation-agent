@@ -22,6 +22,7 @@ import { buildPostSharePath, copyPostShareLink } from "@/lib/post-share-url";
 import { cacheMyPostsAuth } from "@/lib/my-posts-auth-cache";
 import { myPostsHeaders, signMyPostsAuth } from "@/lib/publish-client";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
+import { EditPostDialog } from "@/components/marketplace/edit-post-dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import "@/lib/ethereum-provider";
@@ -29,10 +30,18 @@ import "@/lib/ethereum-provider";
 type PublisherPost = {
   id: string;
   title: string;
+  subheading?: string;
+  tags?: string[];
   price_usdc: string;
   paid_count: number;
   post_earnings_usdc?: number;
   published_at?: string;
+  views_total?: number;
+  views_7d?: number;
+  unlock_conversion?: number | null;
+  top_referrers?: Array<{ host: string; count: number }>;
+  edit_version?: number;
+  cover_image_url?: string | null;
   trust?: PublicTrustSignal | null;
 };
 
@@ -59,6 +68,7 @@ export function PublisherPostsDropdown({
   const [loading, setLoading] = useState(false);
   const [posts, setPosts] = useState<PublisherPost[]>([]);
   const [loadedRefreshKey, setLoadedRefreshKey] = useState<number | null>(null);
+  const [editingPost, setEditingPost] = useState<PublisherPost | null>(null);
 
   const loadPosts = useCallback(async () => {
     const ethereum: EthereumProvider | undefined = window.ethereum;
@@ -188,6 +198,24 @@ export function PublisherPostsDropdown({
               {post.published_at && (
                 <p className="font-mono text-[10px] text-[#666]">
                   {formatPaymentDate(post.published_at)}
+                  {new Date(post.published_at).getTime() > Date.now() && (
+                    <span className="ml-1.5 text-[#f5c842]">scheduled</span>
+                  )}
+                  {(post.edit_version ?? 1) > 1 && (
+                    <span className="ml-1.5 text-[#888]">v{post.edit_version}</span>
+                  )}
+                </p>
+              )}
+              {(post.views_total ?? 0) > 0 && (
+                <p className="font-mono text-[10px] text-[#666]">
+                  {post.views_total} view{post.views_total === 1 ? "" : "s"}
+                  {post.views_7d ? ` · ${post.views_7d} this week` : ""}
+                  {post.unlock_conversion != null
+                    ? ` · ${(post.unlock_conversion * 100).toFixed(1)}% unlock`
+                    : ""}
+                  {post.top_referrers?.length
+                    ? ` · via ${post.top_referrers.map((r) => r.host).join(", ")}`
+                    : ""}
                 </p>
               )}
               <div className="flex gap-1 pt-0.5">
@@ -211,6 +239,15 @@ export function PublisherPostsDropdown({
                     View
                   </Link>
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setEditingPost(post)}
+                  className="h-6 px-2 font-mono text-[10px] text-[#888]"
+                >
+                  Edit
+                </Button>
               </div>
             </div>
           ))}
@@ -232,6 +269,15 @@ export function PublisherPostsDropdown({
           </Button>
         </div>
       </DropdownMenuContent>
+      {editingPost && (
+        <EditPostDialog
+          post={editingPost}
+          connected={connected}
+          open
+          onClose={() => setEditingPost(null)}
+          onSaved={() => void loadPosts()}
+        />
+      )}
     </DropdownMenu>
   );
 }

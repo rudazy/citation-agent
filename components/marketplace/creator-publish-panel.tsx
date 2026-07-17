@@ -15,9 +15,21 @@ import {
   getEthereumProvider,
 } from "@/lib/wallet-connection-client";
 import { ArticleBodyEditor } from "@/components/marketplace/article-body-editor";
-import { CreatorGatewayEarnings } from "@/components/marketplace/creator-gateway-earnings";
+import { PROFILE_SETUP_PATH } from "@/lib/profile-home";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { defaultTagsInput, needsUsernameSetup } from "@/lib/publish-form-setup";
+import {
+  resolveSchedulePreset,
+  SCHEDULE_PRESET_OPTIONS,
+  type SchedulePreset,
+} from "@/lib/publish-schedule";
 import { PublisherPostsDropdown } from "@/components/marketplace/publisher-posts-dropdown";
-import { UsernameSetupForm } from "@/components/marketplace/username-setup-form";
 import {
   TrustSignalBadge,
   type PublicTrustSignal,
@@ -76,8 +88,12 @@ export function CreatorPublishPanel({ onPublished }: Props) {
   const [subheading, setSubheading] = useState("");
   const [body, setBody] = useState("");
   const [priceUsdc, setPriceUsdc] = useState(String(MIN_POST_PRICE_USDC));
-  const [payoutWallet, setPayoutWallet] = useState("");
-  const [tags, setTags] = useState("");
+  const [tags, setTags] = useState(defaultTagsInput());
+  const [coverImageUrl, setCoverImageUrl] = useState("");
+  /** Dropdown preset; "custom" reveals the datetime picker below. */
+  const [schedulePreset, setSchedulePreset] = useState<SchedulePreset>("now");
+  /** datetime-local value used only when schedulePreset is "custom". */
+  const [scheduledFor, setScheduledFor] = useState("");
   const [profile, setProfile] = useState<ProfileStatus | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
@@ -96,7 +112,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     setSubheading(local.subheading);
     setBody(local.body);
     if (local.priceUsdc) setPriceUsdc(local.priceUsdc);
-    setPayoutWallet(local.payoutWallet);
     setTags(local.tags);
     setServerDraftId(local.serverDraftId ?? null);
     setLocalSavedAt(local.updatedAt);
@@ -116,14 +131,15 @@ export function CreatorPublishPanel({ onPublished }: Props) {
         subheading,
         body,
         priceUsdc,
-        payoutWallet,
+        // Payout is a profile setting now; drafts keep the field for shape compatibility.
+        payoutWallet: "",
         tags,
         serverDraftId,
       });
       setLocalSavedAt(saved.updatedAt);
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [connected, title, subheading, body, priceUsdc, payoutWallet, tags, serverDraftId]);
+  }, [connected, title, subheading, body, priceUsdc, tags, serverDraftId]);
 
   useEffect(() => {
     if (!connected) {
@@ -254,7 +270,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
           subheading,
           body,
           price_usdc: priceUsdc,
-          payout_wallet: payoutWallet.trim() || undefined,
           tags: tags
             .split(",")
             .map((t) => t.trim())
@@ -275,7 +290,7 @@ export function CreatorPublishPanel({ onPublished }: Props) {
         subheading,
         body,
         priceUsdc,
-        payoutWallet,
+        payoutWallet: "",
         tags,
         serverDraftId: draftId,
       });
@@ -297,7 +312,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     body,
     connected,
     ensureMyPostsAuth,
-    payoutWallet,
     priceUsdc,
     profile?.username,
     serverDraftId,
@@ -348,12 +362,29 @@ export function CreatorPublishPanel({ onPublished }: Props) {
         subheading,
         body,
         priceUsdc,
-        payoutWallet: payoutWallet.trim() || undefined,
         tags: tags
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        coverImageUrl: coverImageUrl.trim() || undefined,
       };
+
+      // Delivery time is not signed content; validate it before asking for a signature.
+      let scheduledForIso: string | undefined;
+      const presetDate = resolveSchedulePreset(schedulePreset);
+      if (presetDate) {
+        scheduledForIso = presetDate.toISOString();
+      } else if (schedulePreset === "custom") {
+        if (!scheduledFor.trim()) {
+          throw new Error("Pick a custom publish time or switch back to Publish now");
+        }
+        const scheduledMs = new Date(scheduledFor).getTime();
+        if (!Number.isFinite(scheduledMs)) throw new Error("Invalid scheduled time");
+        if (scheduledMs <= Date.now()) {
+          throw new Error("Scheduled time must be in the future");
+        }
+        scheduledForIso = new Date(scheduledMs).toISOString();
+      }
 
       // One wallet signature is enough to publish. Do not block on my-posts auth.
       setPublishPhase("Approve signature in wallet…");
@@ -375,8 +406,9 @@ export function CreatorPublishPanel({ onPublished }: Props) {
             subheading: publishPayload.subheading,
             body: publishPayload.body,
             price_usdc: publishPayload.priceUsdc,
-            payout_wallet: publishPayload.payoutWallet,
             tags: publishPayload.tags,
+            cover_image_url: publishPayload.coverImageUrl,
+            scheduled_for: scheduledForIso,
           }),
         });
       } catch (err) {
@@ -446,9 +478,13 @@ export function CreatorPublishPanel({ onPublished }: Props) {
       setSubheading("");
       setBody("");
       setPriceUsdc(String(MIN_POST_PRICE_USDC));
-      setPayoutWallet("");
-      setTags("");
+      setTags(defaultTagsInput());
+      setCoverImageUrl("");
+      setSchedulePreset("now");
+      setScheduledFor("");
       setArticleExpanded(false);
+      // setMyPostsRefresh below re-fetches the profile, so a first-time payout
+      // save hides the payout field on the next publish.
       setMyPostsRefresh((n) => n + 1);
       onPublished?.(postId);
     } catch (err) {
@@ -467,10 +503,12 @@ export function CreatorPublishPanel({ onPublished }: Props) {
     body,
     profile?.username,
     connected,
+    coverImageUrl,
     onPublished,
-    payoutWallet,
     router,
     priceUsdc,
+    schedulePreset,
+    scheduledFor,
     serverDraftId,
     subheading,
     tags,
@@ -676,18 +714,6 @@ export function CreatorPublishPanel({ onPublished }: Props) {
                   />
                 </div>
 
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="publish-payout" className="font-mono text-xs text-[#888]">
-                    Payout wallet (optional)
-                  </Label>
-                  <Input
-                    id="publish-payout"
-                    value={payoutWallet}
-                    onChange={(e) => setPayoutWallet(e.target.value)}
-                    placeholder="0x... receives unlock payments; defaults to connected wallet"
-                    className="border-[#333] bg-[#111] font-mono text-sm"
-                  />
-                </div>
 
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="publish-tags" className="font-mono text-xs text-[#888]">
@@ -701,40 +727,94 @@ export function CreatorPublishPanel({ onPublished }: Props) {
                     className="border-[#333] bg-[#111] font-mono text-sm"
                   />
                 </div>
+
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="publish-cover" className="font-mono text-xs text-[#888]">
+                    Cover image URL (optional)
+                  </Label>
+                  <Input
+                    id="publish-cover"
+                    value={coverImageUrl}
+                    onChange={(e) => setCoverImageUrl(e.target.value)}
+                    placeholder="https://… shown on catalog cards and shared links"
+                    className="border-[#333] bg-[#111] font-mono text-sm"
+                  />
+                  <p className="font-mono text-[10px] text-[#666]">
+                    Tip: paste an image into the article body first, then reuse its URL here.
+                  </p>
+                </div>
+
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="publish-schedule" className="font-mono text-xs text-[#888]">
+                    Schedule
+                  </Label>
+                  <Select
+                    value={schedulePreset}
+                    onValueChange={(value) => setSchedulePreset(value as SchedulePreset)}
+                  >
+                    <SelectTrigger
+                      id="publish-schedule"
+                      className="w-full border-[#333] bg-[#111] font-mono text-sm"
+                    >
+                      <SelectValue placeholder="Publish now" />
+                    </SelectTrigger>
+                    <SelectContent className="border-[#333] bg-[#111] font-mono text-sm">
+                      {SCHEDULE_PRESET_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {schedulePreset === "custom" && (
+                    <Input
+                      type="datetime-local"
+                      aria-label="Custom publish time"
+                      value={scheduledFor}
+                      onChange={(e) => setScheduledFor(e.target.value)}
+                      className="border-[#333] bg-[#111] font-mono text-sm"
+                    />
+                  )}
+                  {schedulePreset !== "now" && (
+                    <p className="font-mono text-[10px] text-[#666]">
+                      Scheduled posts stay hidden until the chosen time.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
 
-          {connected && (
-            <div className="rounded border border-[#1f1f1f] bg-[#111]/60 px-3 py-3 space-y-2">
-              <p className="text-sm font-semibold tracking-wide">Username</p>
-              {profileLoading ? (
-                <p className="font-mono text-[10px] text-[#666]">Loading profile…</p>
-              ) : profile?.displayName && profile.username ? (
-                <p className="font-mono text-xs text-[#f5c842]">
-                  <Link
-                    href={buildProfilePath(profile.username)}
-                    className="hover:underline"
-                  >
-                    {profile.displayName}
-                  </Link>
-                  {" — public profile"}
-                </p>
-              ) : (
-                <p className="font-mono text-[10px] text-[#888]">
-                  Required for drafts and publishing. Shared with comments and follows.
-                </p>
-              )}
-              <UsernameSetupForm
-                publisherAddress={connected}
-                profile={profile}
-                submitLabel={profile?.hasProfile ? "Update username" : "Choose username"}
-                onSaved={(saved) => setProfile(saved)}
-              />
-            </div>
+          {connected && needsUsernameSetup(profile) && !profileLoading && (
+            <p className="font-mono text-[10px] text-[#666]">
+              <Link
+                href={PROFILE_SETUP_PATH}
+                className="text-[#f5c842] hover:underline"
+              >
+                Set up your account
+              </Link>
+              {" to publish. Reading and unlocking research needs no account."}
+            </p>
           )}
 
-          <CreatorGatewayEarnings connected={connected} payoutWalletInput={payoutWallet} />
+          {connected && !needsUsernameSetup(profile) && profile?.username && (
+            <p className="font-mono text-[10px] text-[#666]">
+              Publishing as{" "}
+              <Link
+                href={buildProfilePath(profile.username)}
+                className="text-[#f5c842] hover:underline"
+              >
+                {profile.displayName ?? profile.username}
+              </Link>
+              {" · manage username, payout wallet, verification, and earnings on your "}
+              <Link
+                href={buildProfilePath(profile.username)}
+                className="text-[#f5c842] hover:underline"
+              >
+                profile
+              </Link>
+            </p>
+          )}
 
           {(localSavedAt || serverDraftId) && (
             <p className="font-mono text-[10px] text-[#666]">

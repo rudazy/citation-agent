@@ -40,3 +40,25 @@ export function usernameChangeCooldownEndsAt(changedAtMs: number): number {
 export function canChangeUsername(changedAtMs: number, now = Date.now()): boolean {
   return now >= usernameChangeCooldownEndsAt(changedAtMs);
 }
+
+/**
+ * User-facing cooldown line for the profile settings, or null when a change
+ * is allowed right now. Display only; the server stays the source of truth.
+ */
+export function usernameCooldownMessage(
+  nextChangeAt: string | null | undefined,
+  now = Date.now(),
+): string | null {
+  if (!nextChangeAt) return null;
+  const nextMs = new Date(nextChangeAt).getTime();
+  if (!Number.isFinite(nextMs) || nextMs <= now) return null;
+
+  const remainingMs = nextMs - now;
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (remainingMs >= dayMs) {
+    const days = Math.ceil(remainingMs / dayMs);
+    return `You can change your username again in ${days} day${days === 1 ? "" : "s"}`;
+  }
+  const hours = Math.max(1, Math.ceil(remainingMs / (60 * 60 * 1000)));
+  return `You can change your username again in ${hours} hour${hours === 1 ? "" : "s"}`;
+}

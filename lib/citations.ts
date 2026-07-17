@@ -25,6 +25,12 @@ export type CreatorContent = {
   source: "markdown" | "database";
   /** ISO timestamp when the post was published (database posts only). */
   publishedAt?: string;
+  /** Optional hero/OG image shown on cards and shared links. */
+  coverImageUrl?: string;
+  /** Increments on every post edit; 1 = never edited. */
+  editVersion?: number;
+  /** ISO timestamp of the latest edit, if any. */
+  lastEditedAt?: string;
   /** TrustGate score for connectedWallet, attached server side by consumers. */
   trust?: TrustScore | null;
 };

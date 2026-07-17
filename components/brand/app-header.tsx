@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
 import { AppLogo } from "@/components/brand/app-logo";
+import { ProfileNavLink } from "@/components/brand/profile-nav-link";
+import { NotificationsBell } from "@/components/marketplace/notifications-bell";
 import { TopBarGatewayControls } from "@/components/dashboard/top-bar-gateway-controls";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Activity, LayoutDashboard, Store } from "lucide-react";
+import { LayoutDashboard, Store } from "lucide-react";
 
 type AppHeaderProps = {
   active?: "dashboard" | "marketplace";
@@ -32,16 +33,7 @@ function NavLink({
     <Button
       variant={active ? "secondary" : "ghost"}
       size="sm"
-      className={cn(
-        "h-8 gap-1.5",
-        label === "Payment Trace" &&
-          !active &&
-          "text-[#ff8a3d]/80 hover:text-[#ff8a3d] hover:bg-[#ff8a3d]/10",
-        label === "Payment Trace" &&
-          active &&
-          "bg-[#ff8a3d]/12 text-[#ff8a3d] ring-1 ring-[#ff8a3d]/35",
-        active && label !== "Payment Trace" && "bg-secondary text-foreground",
-      )}
+      className={cn("h-8 gap-1.5", active && "bg-secondary text-foreground")}
       asChild
     >
       <Link href={href}>
@@ -60,11 +52,8 @@ export function AppHeader({
   trailing,
   className,
 }: AppHeaderProps) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const onTraceTab =
-    pathname === "/dashboard" && searchParams.get("tab") === "trace";
-
+  // Payment Trace left the top nav; it remains reachable as the dashboard
+  // trace tab (/dashboard?tab=trace) and the marketplace trace card.
   const navItems = [
     {
       href: "/marketplace",
@@ -76,13 +65,7 @@ export function AppHeader({
       href: "/dashboard",
       label: "Dashboard",
       icon: LayoutDashboard,
-      isActive: active === "dashboard" && !onTraceTab,
-    },
-    {
-      href: "/dashboard?tab=trace",
-      label: "Payment Trace",
-      icon: Activity,
-      isActive: onTraceTab,
+      isActive: active === "dashboard",
     },
   ] as const;
 
@@ -113,9 +96,11 @@ export function AppHeader({
               label={item.label}
             />
           ))}
+          <ProfileNavLink />
         </nav>
 
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <NotificationsBell />
           <TopBarGatewayControls />
           {trailing}
         </div>

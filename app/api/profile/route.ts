@@ -3,6 +3,8 @@ import { getAddress } from "viem";
 import { provisionAgentWalletForSession } from "@/lib/agent-wallet";
 import {
   getProfileByWallet,
+  getProfilePayoutWallet,
+  getProfileTipWallet,
   getUsernameChangeStatus,
   linkPublisherToAgentProfile,
   resolveProfileForWallets,
@@ -52,7 +54,24 @@ export async function GET(req: NextRequest) {
       canChangeUsername: true,
       nextChangeAt: null,
       agentConfigured: Boolean(agent),
+      payoutWallet: null,
+      tipWallet: null,
     });
+  }
+
+  // Payout and tip wallets are owner-only detail: include them only when the
+  // caller's own session (agent wallet) belongs to this profile, never for
+  // lookups made purely via the ?publisher= query parameter.
+  let payoutWallet: string | null = null;
+  let tipWallet: string | null = null;
+  if (agent) {
+    const own = await getProfileByWallet(agent.address);
+    if (own?.id === profile.id) {
+      [payoutWallet, tipWallet] = await Promise.all([
+        getProfilePayoutWallet(profile.id),
+        getProfileTipWallet(profile.id),
+      ]);
+    }
   }
 
   const change = getUsernameChangeStatus(profile);
@@ -63,6 +82,8 @@ export async function GET(req: NextRequest) {
     canChangeUsername: change.canChange,
     nextChangeAt: change.nextChangeAt,
     agentConfigured: Boolean(agent),
+    payoutWallet,
+    tipWallet,
   });
 }
 

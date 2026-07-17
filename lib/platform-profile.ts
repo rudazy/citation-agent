@@ -318,6 +318,124 @@ export async function setUsername(params: {
   return { ok: true, profile };
 }
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/** Stored set-once payout wallet for a profile; null when not configured. */
+export async function getProfilePayoutWallet(
+  profileId: string,
+): Promise<`0x${string}` | null> {
+  const supabase = getAdminClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("platform_profiles")
+    .select("default_payout_wallet")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  if (error || !data?.default_payout_wallet) return null;
+  return normalizeWallet(String(data.default_payout_wallet));
+}
+
+export type SetPayoutWalletResult =
+  | { ok: true; payoutWallet: `0x${string}` }
+  | { ok: false; error: string; status: number };
+
+/** Save the profile's payout wallet. Applies to future publishes and tips only. */
+export async function setProfilePayoutWallet(params: {
+  profileId: string;
+  payoutWallet: string;
+}): Promise<SetPayoutWalletResult> {
+  const supabase = getAdminClient();
+  if (!supabase) {
+    return { ok: false, error: "Profiles are not configured", status: 503 };
+  }
+
+  const normalized = normalizeWallet(params.payoutWallet);
+  if (!normalized) {
+    return { ok: false, error: "Payout wallet must be a valid address", status: 400 };
+  }
+  if (normalized === ZERO_ADDRESS) {
+    return { ok: false, error: "Payout wallet cannot be the zero address", status: 400 };
+  }
+
+  const { error } = await supabase
+    .from("platform_profiles")
+    .update({
+      default_payout_wallet: normalized.toLowerCase(),
+      payout_wallet_updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.profileId);
+
+  if (error) {
+    console.error("[platform-profile] payout wallet update failed:", error.message);
+    return { ok: false, error: "Failed to save payout wallet", status: 500 };
+  }
+
+  return { ok: true, payoutWallet: normalized };
+}
+
+/** Optional tip wallet override; null means tips settle to the payout wallet. */
+export async function getProfileTipWallet(
+  profileId: string,
+): Promise<`0x${string}` | null> {
+  const supabase = getAdminClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("platform_profiles")
+    .select("tip_payout_wallet")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  if (error || !data?.tip_payout_wallet) return null;
+  return normalizeWallet(String(data.tip_payout_wallet));
+}
+
+export type SetTipWalletResult =
+  | { ok: true; tipWallet: `0x${string}` | null }
+  | { ok: false; error: string; status: number };
+
+/**
+ * Set or clear the tip wallet override. Passing null clears it, reverting
+ * tips to the payout wallet.
+ */
+export async function setProfileTipWallet(params: {
+  profileId: string;
+  tipWallet: string | null;
+}): Promise<SetTipWalletResult> {
+  const supabase = getAdminClient();
+  if (!supabase) {
+    return { ok: false, error: "Profiles are not configured", status: 503 };
+  }
+
+  let normalized: `0x${string}` | null = null;
+  if (params.tipWallet != null && params.tipWallet.trim()) {
+    normalized = normalizeWallet(params.tipWallet);
+    if (!normalized) {
+      return { ok: false, error: "Tip wallet must be a valid address", status: 400 };
+    }
+    if (normalized === ZERO_ADDRESS) {
+      return { ok: false, error: "Tip wallet cannot be the zero address", status: 400 };
+    }
+  }
+
+  const { error } = await supabase
+    .from("platform_profiles")
+    .update({
+      tip_payout_wallet: normalized ? normalized.toLowerCase() : null,
+      tip_wallet_updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.profileId);
+
+  if (error) {
+    console.error("[platform-profile] tip wallet update failed:", error.message);
+    return { ok: false, error: "Failed to save tip wallet", status: 500 };
+  }
+
+  return { ok: true, tipWallet: normalized };
+}
+
 export async function requirePublisherUsername(
   publisherAddress: `0x${string}`,
   agentAddress?: `0x${string}` | null,

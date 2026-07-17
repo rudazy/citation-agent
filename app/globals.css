@@ -159,3 +159,110 @@
     }
   }
 }
+/* Syntax highlighting (rehype-highlight) — grayscale base with lime/gold/orange
+   accents to match the report palette. Scoped to rendered article bodies. */
+.citation-body-markdown .hljs-comment,
+.citation-body-markdown .hljs-quote {
+  color: #777777;
+  font-style: italic;
+}
+.citation-body-markdown .hljs-keyword,
+.citation-body-markdown .hljs-selector-tag,
+.citation-body-markdown .hljs-meta,
+.citation-body-markdown .hljs-doctag,
+.citation-body-markdown .hljs-section {
+  color: #f5c842;
+}
+.citation-body-markdown .hljs-string,
+.citation-body-markdown .hljs-regexp,
+.citation-body-markdown .hljs-addition,
+.citation-body-markdown .hljs-attribute {
+  color: #c8f135;
+}
+.citation-body-markdown .hljs-number,
+.citation-body-markdown .hljs-literal,
+.citation-body-markdown .hljs-symbol,
+.citation-body-markdown .hljs-bullet,
+.citation-body-markdown .hljs-deletion,
+.citation-body-markdown .hljs-link {
+  color: #ff8a3d;
+}
+.citation-body-markdown .hljs-title,
+.citation-body-markdown .hljs-name,
+.citation-body-markdown .hljs-type,
+.citation-body-markdown .hljs-class .hljs-title,
+.citation-body-markdown .hljs-title.class_,
+.citation-body-markdown .hljs-title.function_ {
+  color: #f5f5f5;
+  font-weight: 600;
+}
+.citation-body-markdown .hljs-attr,
+.citation-body-markdown .hljs-variable,
+.citation-body-markdown .hljs-template-variable,
+.citation-body-markdown .hljs-property,
+.citation-body-markdown .hljs-selector-attr,
+.citation-body-markdown .hljs-selector-class,
+.citation-body-markdown .hljs-selector-id,
+.citation-body-markdown .hljs-selector-pseudo,
+.citation-body-markdown .hljs-built_in,
+.citation-body-markdown .hljs-builtin-name,
+.citation-body-markdown .hljs-params {
+  color: #e8d9a8;
+}
+.citation-body-markdown .hljs-emphasis {
+  font-style: italic;
+}
+.citation-body-markdown .hljs-strong {
+  font-weight: 600;
+}
+
+/* KaTeX formulas — palette + Tailwind preflight coexistence.
+   Preflight sets border-width: 0 on *; frac-line needs its bottom border. */
+.citation-body-markdown .katex {
+  font-size: 1.15em;
+  color: #e8e8e8;
+  font-family: KaTeX_Main, "Times New Roman", serif;
+}
+.citation-body-markdown .katex-display {
+  margin: 1rem 0;
+  padding: 0.5rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.citation-body-markdown .katex .frac-line,
+.citation-body-markdown .katex .hline,
+.citation-body-markdown .katex .overline .overline-line,
+.citation-body-markdown .katex .underline .underline-line,
+.citation-body-markdown .katex .hdashline {
+  border-bottom-style: solid;
+  border-bottom-width: 0.04em;
+}
+/* Hide any residual MathML/source so only the visual formula shows. */
+.citation-body-markdown .katex .katex-mathml {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Footnote list — always show every note; backrefs in gold. */
+.citation-body-markdown .citation-footnotes {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+.citation-body-markdown .citation-footnotes li {
+  display: list-item;
+  min-height: 1.25em;
+  color: #d4d4d4;
+}
+.citation-body-markdown .citation-footnotes .data-footnote-backref,
+.citation-body-markdown .citation-footnotes a[data-footnote-backref] {
+  margin-left: 0.35em;
+  font-size: 0.85em;
+  text-decoration: none;
+  color: #f5c842;
+}

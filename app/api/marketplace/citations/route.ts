@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCreatorContentById, loadAllCreatorContent, resolveUnlockPayee } from "@/lib/citations";
 import { filterPublicResearchCatalog } from "@/lib/catalog-filter";
 import { resolveTrustIdentityWallet } from "@/lib/catalog-identity";
-import { incrementPostPaidCount, insertPublishedPost } from "@/lib/creator-posts";
+import {
+  incrementPostPaidCount,
+  insertPublishedPost,
+  updatePublishedPost,
+} from "@/lib/creator-posts";
 import { recordCitationRoyalty } from "@/lib/royalties";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
 import { publishPayloadFromBody } from "@/lib/publish-payload";
@@ -31,7 +35,12 @@ import {
   reportBackingTarget,
   type ResearchBackingStats,
 } from "@/lib/research-backing";
-import { requirePublisherUsername } from "@/lib/platform-profile";
+import {
+  getProfilePayoutWallet,
+  requirePublisherUsername,
+  setProfilePayoutWallet,
+} from "@/lib/platform-profile";
+import { resolvePublishPayout } from "@/lib/publish-payout";
 import { getCommentCountsForPosts } from "@/lib/post-comments";
 import { resolveUserAgent } from "@/lib/resolve-user-agent";
 import { ensurePublisherLinkedToSession } from "@/lib/publisher-session-link";
@@ -311,6 +320,10 @@ export async function GET(req: NextRequest) {
           is_own_post: creatorOwned.has(item.id),
           ...(alreadyUnlocked ? { unlocked_body: item.body } : {}),
           ...(item.publishedAt ? { published_at: item.publishedAt } : {}),
+          ...(item.coverImageUrl ? { cover_image_url: item.coverImageUrl } : {}),
+          ...(item.editVersion && item.editVersion > 1
+            ? { edit_version: item.editVersion, last_edited_at: item.lastEditedAt ?? null }
+            : {}),
           comment_count: commentCounts.get(item.id) ?? 0,
           author_is_username: item.source === "database",
         };
@@ -392,6 +405,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: profileResult.error }, { status: profileResult.status });
   }
 
+  // Set-once payout wallet with no publish-page field: reuse the stored
+  // default; on a first publish with nothing stored, the signing wallet
+  // silently becomes the default. Explicit payout_wallet stays supported for
+  // direct API callers. The signature was verified against the payload as sent.
+  const storedPayout = await getProfilePayoutWallet(profileResult.profile.id);
+  const { payoutWallet: effectivePayout, storeAsDefault } = resolvePublishPayout({
+    explicitPayout: payload.payoutWallet,
+    storedPayout,
+    connectedWallet: publishAuth.connectedWallet,
+  });
+  if (storeAsDefault) {
+    const saved = await setProfilePayoutWallet({
+      profileId: profileResult.profile.id,
+      payoutWallet: storeAsDefault,
+    });
+    if (!saved.ok) {
+      // Invalid addresses are caught by insert validation below; log the rest.
+      console.warn("[citations] could not store default payout wallet:", saved.error);
+    }
+  }
+
+  // scheduled_for is delivery metadata, not signed content. It is parsed from
+  // the raw body and validated server-side in insertPublishedPost.
+  const scheduledForRaw = body.scheduled_for ?? body.scheduledFor;
+  const scheduledForMs =
+    typeof scheduledForRaw === "string" && scheduledForRaw.trim()
+      ? Date.parse(scheduledForRaw)
+      : typeof scheduledForRaw === "number"
+        ? scheduledForRaw
+        : undefined;
+  if (scheduledForRaw != null && scheduledForRaw !== "" && !Number.isFinite(scheduledForMs)) {
+    return NextResponse.json({ error: "Invalid scheduled_for timestamp" }, { status: 400 });
+  }
+
   const result = await insertPublishedPost({
     title: payload.title,
     subheading: payload.subheading,
@@ -399,9 +446,11 @@ export async function POST(req: NextRequest) {
     priceUsdc: payload.priceUsdc,
     tags: payload.tags,
     username: profileResult.profile.username,
-    payoutWallet: payload.payoutWallet,
+    payoutWallet: effectivePayout,
     connectedWallet: publishAuth.connectedWallet,
     signedAtMs: publishAuth.signedAtMs,
+    coverImageUrl: payload.coverImageUrl,
+    scheduledForMs: Number.isFinite(scheduledForMs) ? scheduledForMs : undefined,
   });
 
   if (!result.ok) {
@@ -428,9 +477,79 @@ export async function POST(req: NextRequest) {
         author: result.post.author_name,
         tags: result.post.tags,
         publish_signed_at: result.post.publish_signed_at,
+        published_at: result.post.published_at,
+        cover_image_url: result.post.cover_image_url,
         endpoint: `/api/marketplace/citations?id=${result.post.id}`,
       },
     },
     { status: 201 },
   );
+}
+
+/**
+ * Edit a published post. Same wallet-signature scheme as publishing: the
+ * signature binds the NEW content digest; ownership is enforced against the
+ * post's publishing wallet. The pre-edit content is version-snapshotted.
+ */
+export async function PATCH(req: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const postId = typeof body.id === "string" ? body.id.trim() : "";
+  if (!postId) {
+    return NextResponse.json({ error: "Missing post id" }, { status: 400 });
+  }
+
+  const payload = publishPayloadFromBody(body);
+  const publishAuth = await verifyPublishRequest(req, payload);
+  if (!publishAuth) {
+    return NextResponse.json(
+      { error: "Connect your wallet and sign the edited payload" },
+      { status: 401 },
+    );
+  }
+
+  const rate = checkRateLimit(publishAuth.connectedWallet, {
+    namespace: "citation-edit",
+    limit: 10,
+    windowMs: 60_000,
+  });
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many edit requests. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
+    );
+  }
+
+  const result = await updatePublishedPost({
+    postId,
+    title: payload.title,
+    subheading: payload.subheading,
+    body: payload.body,
+    priceUsdc: payload.priceUsdc,
+    tags: payload.tags,
+    coverImageUrl: payload.coverImageUrl,
+    changeNote: typeof body.change_note === "string" ? body.change_note : undefined,
+    connectedWallet: publishAuth.connectedWallet,
+  });
+
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  return NextResponse.json({
+    post: {
+      id: result.post.id,
+      title: result.post.title,
+      subheading: result.post.subheading,
+      price_usdc: result.post.price_usdc,
+      tags: result.post.tags,
+      edit_version: result.post.edit_version,
+      last_edited_at: result.post.last_edited_at,
+    },
+  });
 }

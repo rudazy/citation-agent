@@ -97,7 +97,7 @@ export function CreatorGatewayEarnings({ connected, payoutWalletInput }: Props) 
       await switchToArcTestnet(ethereum);
       const result = await withdrawGatewayViaMetaMask(ethereum, connected, amount);
       toast.success("Withdrawn to wallet", {
-        description: `${result.amount} USDC — check wallet balance on Arc`,
+        description: `${result.amount} USDC settled. Check wallet balance on Arc`,
       });
       setWithdrawAmount("");
       await refreshBalances();
@@ -134,8 +134,8 @@ export function CreatorGatewayEarnings({ connected, payoutWalletInput }: Props) 
             Unlock earnings · {shortPayout}
           </p>
           <p className="font-mono text-[10px] text-[#666] leading-relaxed max-w-prose">
-            Reader payments land in Circle Gateway for this payout address — not wallet USDC until
-            you withdraw.
+            Reader payments land in Circle Gateway for this payout address. They become
+            wallet USDC when you withdraw.
           </p>
         </div>
         <Button
@@ -215,7 +215,7 @@ export function CreatorGatewayEarnings({ connected, payoutWalletInput }: Props) 
 
       {canWithdraw && !hasGateway && !loading && (
         <p className="font-mono text-[10px] text-[#666]">
-          No Gateway earnings yet — unlock payments will appear here after readers pay.
+          No Gateway earnings yet. Unlock payments will appear here after readers pay.
         </p>
       )}
     </div>

@@ -35,15 +35,25 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
   let following = false;
   let isSelf = false;
+  let verifiedLinks: string[] = [];
   const agent = await resolveUserAgent();
+  const creator = await getProfileByUsername(profile.username);
   if (agent) {
     const viewer = await getProfileByWallet(agent.address);
-    const creator = await getProfileByUsername(profile.username);
     if (viewer && creator) {
       isSelf = viewer.id === creator.id;
       if (!isSelf) {
         following = await isFollowing(viewer.id, creator.id);
       }
+    }
+  }
+
+  if (creator) {
+    try {
+      const { getVerifiedKindsForProfile } = await import("@/lib/profile-verification");
+      verifiedLinks = await getVerifiedKindsForProfile(creator.id);
+    } catch (err) {
+      console.warn("[profiles] verification lookup failed:", err);
     }
   }
 
@@ -74,6 +84,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     totalReaders: profile.totalReaders,
     following,
     isSelf,
+    verified_links: verifiedLinks,
     researcher_backing: researcherBacking,
     posts: profile.posts.map((p) => ({
       id: p.id,

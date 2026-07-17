@@ -62,6 +62,16 @@ export async function followCreator(
     console.error("[creator-follows] follow failed:", error.message);
     return { ok: false, error: "Failed to follow creator", status: 500 };
   }
+
+  // Best-effort in-app notification; never fails the follow itself.
+  const { createNotification } = await import("@/lib/notifications");
+  const follower = await getProfileById(followerProfileId);
+  await createNotification({
+    profileId: creator.id,
+    type: "follow",
+    actorUsername: follower?.username ?? null,
+  });
+
   return { ok: true };
 }
 
