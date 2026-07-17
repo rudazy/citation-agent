@@ -246,6 +246,57 @@ export async function getPublishedPostById(id: string): Promise<CreatorContent |
   return rowToCreatorContent(data as CreatorPostRow);
 }
 
+/** Live post ids for build-time route enumeration (generateStaticParams). */
+export async function loadPublishedPostIds(limit = 500): Promise<string[]> {
+  const supabase = getAdminClient();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("creator_posts")
+    .select("id")
+    .eq("status", "published")
+    .lte("published_at", new Date().toISOString())
+    .order("published_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn("[creator-posts] id enumeration failed:", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => String(row.id));
+}
+
+export type PostMeta = {
+  title: string;
+  subheading: string;
+  coverImageUrl: string | null;
+};
+
+/**
+ * Metadata-only lookup for generateMetadata under Cache Components. The
+ * cached metadata scope cannot read the current time, so this query has no
+ * scheduling gate: a scheduled post's title/teaser may appear in link
+ * previews slightly before it goes live (the body stays gated).
+ */
+export async function getPostMetaById(id: string): Promise<PostMeta | null> {
+  const supabase = getAdminClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("creator_posts")
+    .select("title, subheading, cover_image_url")
+    .eq("id", id)
+    .eq("status", "published")
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return {
+    title: String(data.title),
+    subheading: String(data.subheading),
+    coverImageUrl: (data.cover_image_url as string | null) ?? null,
+  };
+}
+
 export async function insertPublishedPost(
   input: PublishPostInput,
 ): Promise<PublishPostResult> {

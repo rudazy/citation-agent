@@ -2,15 +2,34 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { ReportLanding } from "@/components/marketplace/report-landing";
-import { getPublishedPostById } from "@/lib/creator-posts";
+import { getPostMetaById, loadPublishedPostIds } from "@/lib/creator-posts";
 
 type Props = { params: Promise<{ postId: string }> };
 
-/** Per-report meta: title, teaser, and the cover as the OG/Twitter card image. */
+/**
+ * Enumerate live posts at build so the cached per-post metadata can execute
+ * during prerender. Posts published after the deploy render on demand.
+ */
+export async function generateStaticParams(): Promise<Array<{ postId: string }>> {
+  try {
+    const ids = await loadPublishedPostIds();
+    return ids.map((postId) => ({ postId }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Per-report meta: title, teaser, and the cover as the OG/Twitter card image.
+ * Cache Components requires prerenderable metadata on this route: the whole
+ * function is cached with params as the cache key (awaited inside), and the
+ * lookup is time-free because cached scopes cannot read the current time.
+ */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  "use cache";
   const { postId: raw } = await params;
   const postId = decodeURIComponent(raw ?? "").trim();
-  const post = postId ? await getPublishedPostById(postId) : null;
+  const post = postId ? await getPostMetaById(postId) : null;
   if (!post) return {};
 
   const description = post.subheading.slice(0, 200);
