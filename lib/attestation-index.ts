@@ -2,12 +2,12 @@ import {
   createPublicClient,
   decodeFunctionData,
   formatUnits,
-  http,
   type AbiEvent,
   type Log,
   type PublicClient,
 } from "viem";
 import { arcTestnet } from "viem/chains";
+import { arcHttpTransport } from "@/lib/arc-rpc";
 import { ATTESTATION_ABI, getAttestationAddress } from "@/lib/attestation";
 import {
   canonicalizeAttestationTarget,
@@ -166,8 +166,7 @@ function deployFromBlock(): bigint {
 }
 
 function rpcClient(): PublicClient {
-  const rpcUrl = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
-  return createPublicClient({ chain: arcTestnet, transport: http(rpcUrl) });
+  return createPublicClient({ chain: arcTestnet, transport: arcHttpTransport() });
 }
 
 export function invalidateAttestationCache(): void {

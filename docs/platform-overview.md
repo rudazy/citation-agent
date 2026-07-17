@@ -54,16 +54,16 @@ sequenceDiagram
   API-->>Buyer: 200 + protected content
 ```
 
-Unlock payments settle directly to the post's `payout_wallet` (which defaults to the creator's connected wallet at publish), and the full amount goes to the creator. Legacy markdown seed posts that never set a payout wallet fall back to `SELLER_ADDRESS` (the platform operator wallet). Platform revenue comes from attestation fees, not from an unlock split.
+Unlock payments settle directly to the post's `payout_wallet`. The publish form has no wallet field: the profile default is used; on a first publish with nothing stored, the signing wallet silently becomes the default. Legacy markdown seed posts that never set a payout wallet fall back to `SELLER_ADDRESS` (the platform operator wallet). The full unlock amount goes to the creator. Platform revenue comes from attestation fees, not from an unlock split.
 
 ### USDC attestations
 
-Anyone can stake USDC on `Attestation.sol` to back a public claim about a **target** (X handle, wallet, URL, agent ID, etc.). Each attestation requires:
+Anyone can stake USDC on `Attestation.sol` to back a public claim about a **target** (X handle, wallet, URL, agent ID, report id, etc.). Each attestation requires:
 
 - Minimum stake: **0.1 USDC**
 - Platform fee: **0.1 USDC** (sent to the immutable `platformFeeRecipient`)
 
-Claims are indexed from on-chain `Attested` events and shown in a public registry. Stakers' TrustGate scores can weight how stake is displayed in aggregate views.
+**Claims registry** is Arcscan-first (`account/txlist` for attest txs), with contract reads / cache for enrichment. Public Arc `eth_getLogs` is treated as unreliable under rate limits. Session **agent wallet** stakes use `POST /api/attestation` with a multi-endpoint RPC transport (primary + public fallbacks). If the API returns rate-limited **before** the tx is broadcast, nothing was staked and a retry is safe. Stakers' TrustGate scores can weight how stake is displayed in aggregate views.
 
 ### TrustGate scores
 
@@ -85,10 +85,13 @@ Researchers and readers share a single **platform username** displayed as `@name
 | Format | 3–24 chars, lowercase letters, numbers, underscores |
 | Uniqueness | One username globally; API returns 409 on collision |
 | Linking | `profile_wallets` maps agent wallet (`agent`) and publisher wallet (`publisher`) to one profile |
-| Change cooldown | 7 days between username changes |
+| Change cooldown | 7 days between username changes (UI shows remaining time) |
+| Account setup | **`/profile`** — connect wallet, choose username, optional signature defaults payout wallet to signer |
+| Header | **Profile** → `/profile` when unset, `/u/{you}` when ready |
 | Publish | Wallet-signed publish requires a username; stored as `author_name` on `creator_posts` |
-| Comments | Session agent wallet only; username chosen on first comment if not set |
+| Comments | Session agent wallet only; unlock required; username via `/profile` if not set |
 | Public profile | `/u/{username}` — stats, report teasers, follow, tip, back + backer count/USDC |
+| Owner settings | Payout wallet, optional tip override, unlock earnings, verification |
 | Profile read path | **View** opens `/marketplace?post=` for unlock/read (no full body on profile) |
 | Researcher backing | Profile loads `author:{username}` stake summary (backers · USDC) |
 | Shareable report | `/r/{postId}` — teaser landing + unlock CTA (canonical share URL) |
@@ -121,10 +124,11 @@ Creators can stage research before signing:
 | Rule | Detail |
 | --- | --- |
 | Endpoint | `GET /api/marketplace/tip?username=&amount=` (x402) |
-| Payee | Latest post `payout_wallet`, else publisher wallet on the profile |
+| Payee | Optional **tip wallet** override if set; else profile **payout wallet**; else latest post `payout_wallet`; else publisher wallet on the profile |
 | Client | Agent Gateway via `POST /api/gateway/pay` |
 | Range | 0.001–1000 USDC |
 | Profile UI | Tip presets + custom amount; hidden on own profile |
+| Owner config | Settings: “Use a different wallet for tips” → `POST /api/profile/tip-wallet` (null clears) |
 
 ```mermaid
 flowchart LR
@@ -133,6 +137,7 @@ flowchart LR
     ViewBtn["View"]
     TipBtn["Tip USDC"]
     BackBtn["Back researcher"]
+    Settings["Owner · payout · tip override · earnings"]
   end
   subgraph Catalog["/marketplace"]
     Deep["?post=id expanded"]
@@ -140,6 +145,7 @@ flowchart LR
   end
   Teaser --> ViewBtn --> Deep --> Unlock
   TipBtn --> TipAPI["/api/marketplace/tip"]
+  TipAPI --> Payee["tip_wallet ?? payout_wallet"]
   BackBtn --> Attest["Attestation.sol"]
 ```
 
@@ -158,16 +164,16 @@ Unlocked buyers can comment on expanded posts. Comments are stored in `post_comm
 sequenceDiagram
   autonumber
   participant Reader as Reader · agent wallet
+  participant Setup as /profile
   participant UI as Unlocked post
-  participant Profile as POST /api/profile
   participant API as POST /api/marketplace/comments
   participant DB as Supabase
 
-  Reader->>UI: Open Comments on unlocked post
   alt No username
-    Reader->>Profile: Set username
-    Profile->>DB: platform_profiles
+    Reader->>Setup: Connect wallet · set @username
+    Setup->>DB: platform_profiles + profile_wallets
   end
+  Reader->>UI: Open Comments on unlocked post
   Reader->>API: body · optional parentId
   API->>DB: verify unlock · insert post_comments
   API-->>UI: 201 comment
@@ -284,14 +290,20 @@ flowchart LR
 The public demo page. Sections, top to bottom:
 
 1. **Hero** — product positioning; CTAs: Browse catalog, Publish research, **Follow** (publisher recommendations)
-2. **Publish** — connect wallet, `@username`, import paste optional, local autosave, save draft, sign to publish
+2. **Publish** — connect wallet; requires `@username` via `/profile` first; import paste optional; local autosave; save draft; schedule; sign to publish (no payout field — profile default / silent first-publish default)
 3. **Citation catalog** — sort, topic filter, unlock (x402), comments, trust, back report/researcher
 4. **Following feed** — posts from followed desks (read-only; discovery is hero Follow)
-5. **Infrastructure layers** — buyer demo, claims registry, payment trace
+5. **Infrastructure layers** — buyer demo, claims registry, payment trace card
+
+Header: **Research · Dashboard · Profile** (Payment Trace is dashboard tab / card, not top nav).
+
+### Account setup (`/profile`)
+
+Compulsory for creators/commenters without a username: connect wallet → choose `@username` → optional one signature sets payout default to the signer. Visitors who already have a profile are redirected to `/u/{you}`. Reading and unlocking are never gated.
 
 ### Public profile (`/u/{username}`)
 
-Creator desk: stats, follow, tip USDC, back researcher. Report cards are teasers with **View** → catalog deep-link for unlock/read.
+Creator desk: stats, follow, tip USDC, back researcher. Report cards are teasers with **View** → catalog deep-link for unlock/read. **Owner** additionally sees settings: payout wallet, optional tip wallet override, unlock earnings (Gateway withdraw UI), verification.
 
 ### Report share page (`/r/{postId}`)
 
@@ -330,12 +342,14 @@ The root path `/` redirects to `/marketplace`.
 | GET | `/api/marketplace/comments?postId=` | Public | Threaded comments for a post |
 | POST | `/api/marketplace/comments` | Session agent | Comment or reply (unlock required) |
 | GET | `/api/marketplace/profiles/{username}` | Public | Public profile + report teasers |
-| GET | `/api/marketplace/tip?username=&amount=` | x402 | Tip creator payout wallet |
+| GET | `/api/marketplace/tip?username=&amount=` | x402 | Tip · payTo = tip override if set, else payout (then post/publisher fallbacks) |
 | GET/POST/DELETE | `/api/marketplace/follow` | Session + username | List / follow / unfollow |
 | GET | `/api/marketplace/follow/recommendations` | Session | Publishers with published posts |
 | GET | `/api/marketplace/following/feed` | Session | Feed from followed creators |
-| GET | `/api/profile` | Session | Username, cooldown, agent status |
+| GET | `/api/profile` | Session | Username, cooldown, agent status; owner-only `payoutWallet` / `tipWallet` |
 | POST | `/api/profile` | Session agent | Set or change username |
+| POST | `/api/profile/payout-wallet` | my-posts signature | Set default payout wallet |
+| POST | `/api/profile/tip-wallet` | my-posts signature | Set or clear optional tip override |
 | GET | `/api/marketplace/hello` | x402 ($0.01) | Hello-world paid resource |
 | GET | `/api/marketplace/settlement/:id` | Public | Gateway transfer status (proxy) |
 | GET | `/api/marketplace/batch-tx/:id` | Public | Resolve settlement to batch transaction |
@@ -372,8 +386,8 @@ The root path `/` redirects to `/marketplace`.
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| POST | `/api/attestation` | Session agent | Submit attestation on-chain |
-| GET | `/api/attestation/claims` | Public | All targets and totals |
+| POST | `/api/attestation` | Session agent | Server-side stake · multi-RPC; 503 if rate-limited before broadcast |
+| GET | `/api/attestation/claims` | Public | Registry (Arcscan-first index); all targets and totals |
 | GET | `/api/attestation/claims?target=` | Public | Claims for one target |
 | POST | `/api/attestation/fee` | Public | Verify attest tx and record platform fee |
 | GET | `/api/attestation/fees` | Operator signature | Platform fee ledger |

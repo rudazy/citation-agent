@@ -1,9 +1,9 @@
 import {
   createPublicClient,
   formatUnits,
-  http,
 } from "viem";
 import { arcTestnet } from "viem/chains";
+import { arcHttpTransport } from "@/lib/arc-rpc";
 import { ensureAgentSession } from "@/lib/agent-session";
 import { fetchGatewayBalanceSnapshot } from "@/lib/gateway-balances";
 import { hasUserAgentWallet } from "@/lib/resolve-user-agent";
@@ -79,10 +79,9 @@ export async function getAgentWalletStatus(): Promise<AgentWalletStatus> {
   }
 
   const address = stored.address;
-  const rpcUrl = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
   const publicClient = createPublicClient({
     chain: arcTestnet,
-    transport: http(rpcUrl),
+    transport: arcHttpTransport(),
   });
 
   try {

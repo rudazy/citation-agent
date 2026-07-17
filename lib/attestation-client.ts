@@ -746,28 +746,48 @@ export async function attestViaAgentWallet(params: {
   claim: string;
   stakeUsdc: number;
 }): Promise<{ attestTxHash: string; staker: string }> {
-  const res = await fetch("/api/attestation", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  let data: { error?: string; attestTxHash?: string; staker?: string };
-  try {
-    data = (await res.json()) as typeof data;
-  } catch {
-    // Non-JSON body (proxy error page, crashed route) — never surface a parse error.
-    data = {};
-  }
-  if (!res.ok) {
-    throw new Error(
+  // One automatic retry on pre-broadcast RPC rate-limit (503). Safe: the API
+  // only returns that status when nothing was staked.
+  const maxAttempts = 2;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 2_500));
+    }
+
+    const res = await fetch("/api/attestation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    let data: { error?: string; attestTxHash?: string; staker?: string };
+    try {
+      data = (await res.json()) as typeof data;
+    } catch {
+      // Non-JSON body (proxy error page, crashed route) — never surface a parse error.
+      data = {};
+    }
+
+    if (res.ok) {
+      if (!data.attestTxHash || !data.staker) {
+        throw new Error("Invalid response from attestation API");
+      }
+      return { attestTxHash: data.attestTxHash, staker: data.staker };
+    }
+
+    const message =
       data.error ??
-        `Attestation service error (HTTP ${res.status}). If this repeats, check Arcscan before retrying so you don't stake twice.`,
-    );
+      `Attestation service error (HTTP ${res.status}). If this repeats, check Arcscan before retrying so you don't stake twice.`;
+    lastError = new Error(message);
+
+    const rateLimited =
+      res.status === 503 &&
+      /rate-limited|rate limit|request limit|retry/i.test(message);
+    if (!rateLimited) throw lastError;
   }
-  if (!data.attestTxHash || !data.staker) {
-    throw new Error("Invalid response from attestation API");
-  }
-  return { attestTxHash: data.attestTxHash, staker: data.staker };
+
+  throw lastError ?? new Error("Attestation failed");
 }
 
 export async function recordAttestationPlatformFeeOnServer(

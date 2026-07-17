@@ -18,7 +18,8 @@ Focused reference for builders and coding agents. Live product behavior and full
 | Gateway ops | Deposit, server-side pay, balance, withdraw | `app/api/gateway/*`, `lib/gateway-*.ts` |
 | Session agent wallet | Encrypted per-browser wallet bound to `agent_session` cookie | `lib/agent-wallet.ts`, `lib/agent-session.ts`, `proxy.ts` |
 | Royalty ledger | Post-unlock creator earnings + agent reputation counters | `lib/royalties.ts`, Supabase |
-| Attestation | On-chain USDC stake behind a target; event index | `contracts/Attestation.sol`, `lib/attestation*.ts` |
+| Attestation | On-chain USDC stake behind a target; Arcscan-first claims index | `contracts/Attestation.sol`, `lib/attestation*.ts`, `lib/arcscan-attestations.ts`, `lib/arc-rpc.ts` |
+| Profile account | `/profile` setup · payout / tip wallets · unlock earnings | `app/profile/`, `lib/platform-profile.ts`, `lib/publish-payout.ts`, `lib/creator-tip.ts` |
 | TrustGate (optional) | Free arc-score badges + paid verify cache | `lib/trustgate*.ts` |
 | Persistence | Posts, drafts, profiles, follows, comments, wallets, earnings | Supabase + `content/creators/*.md` seeds |
 
@@ -89,12 +90,14 @@ This is the main marketplace path. MetaMask/WalletConnect can fund and deposit; 
    for dashboard and “already unlocked” UX.
 
 8. Optional: tip
-   GET /api/marketplace/tip?username=&amount=  (same x402/Gateway path; payTo = creator)
+   GET /api/marketplace/tip?username=&amount=  (same x402/Gateway path)
+   payTo = profile tip_wallet if set, else payout_wallet, else post/publisher fallbacks.
 
 9. Optional: back research (attestation)
    Approve USDC → Attestation.attest(target, amount) or POST /api/attestation
    for session agent. Platform fee (0.1 USDC) → immutable operator; stake locked
-   to target. Indexed via Attested events for card “backers / USDC” stats.
+   to target. Claims index is Arcscan-first; agent stake uses multi-RPC fallback
+   (503 only if rate-limited before broadcast — nothing staked, safe to retry).
 ```
 
 ### Sequence diagram

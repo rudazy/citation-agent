@@ -56,17 +56,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const rpcUrl = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
+  // Multi-endpoint transport: public Arc RPC rate-limits under load; fallbacks
+  // (Blockdaemon / dRPC / QuickNode / thirdweb) keep stake writes alive.
   const account = privateKeyToAccount(agent.privateKey);
 
   const publicClient = createPublicClient({
     chain: arcTestnet,
-    transport: arcHttpTransport(rpcUrl),
+    transport: arcHttpTransport(),
   });
 
   const walletClient = createWalletClient({
     chain: arcTestnet,
-    transport: arcHttpTransport(rpcUrl),
+    transport: arcHttpTransport(),
     account,
   });
 
