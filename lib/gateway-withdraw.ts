@@ -6,12 +6,12 @@ import {
 import {
   createPublicClient,
   createWalletClient,
-  http,
   parseEther,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arcTestnet } from "viem/chains";
 import { isCliFunderConfigured } from "@/lib/agent-wallet";
+import { arcHttpTransport, getPreferredArcRpcUrl } from "@/lib/arc-rpc";
 import { getSellerPrivateKey } from "@/lib/payment-wallets";
 
 export type WithdrawRole = "seller" | "agent";
@@ -28,7 +28,6 @@ export const WITHDRAW_CHAIN_LABELS: Record<string, string> = {
 
 const MIN_NATIVE_GAS = parseEther("0.003");
 const GAS_TOP_UP = parseEther("0.01");
-const RPC = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
 
 function normalizeKey(key: string): `0x${string}` {
   return (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`;
@@ -65,6 +64,8 @@ async function createGatewayForRole(
   return new GatewayClient({
     chain: "arcTestnet",
     privateKey: privateKeyForRole(role, agentPrivateKey),
+    // Single-URL client: prefer non-Circle public endpoints under rate limit.
+    rpcUrl: getPreferredArcRpcUrl(),
   });
 }
 
@@ -81,9 +82,10 @@ export async function ensureArcNativeGas(
   recipient: `0x${string}`,
   options?: { topUpPrivateKey?: `0x${string}` },
 ): Promise<void> {
+  const transport = arcHttpTransport();
   const publicClient = createPublicClient({
     chain: arcTestnet,
-    transport: http(RPC),
+    transport,
   });
   const native = await publicClient.getBalance({ address: recipient });
   if (native >= MIN_NATIVE_GAS) return;
@@ -94,7 +96,7 @@ export async function ensureArcNativeGas(
     const walletClient = createWalletClient({
       account,
       chain: arcTestnet,
-      transport: http(RPC),
+      transport,
     });
     const funderNative = await publicClient.getBalance({ address: account.address });
     if (funderNative > GAS_TOP_UP) {

@@ -3,14 +3,17 @@ import {
   encodeFunctionData,
   erc20Abi,
   formatUnits,
-  http,
   parseUnits,
 } from "viem";
 import { arcTestnet } from "viem/chains";
+import {
+  ARC_RPC_RATE_LIMIT_MESSAGE,
+  arcHttpTransport,
+  isRpcRateLimitError,
+} from "@/lib/arc-rpc";
 import { GATEWAY_WALLET } from "@/lib/marketplace";
 
 const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
-const RPC = process.env.NEXT_PUBLIC_ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
 
 const GATEWAY_DEPOSIT_ABI = [
   {
@@ -31,8 +34,15 @@ type EthereumProvider = {
 
 const publicClient = createPublicClient({
   chain: arcTestnet,
-  transport: http(RPC),
+  transport: arcHttpTransport(),
 });
+
+function mapReadError(error: unknown): never {
+  if (isRpcRateLimitError(error)) {
+    throw new Error(ARC_RPC_RATE_LIMIT_MESSAGE, { cause: error });
+  }
+  throw error instanceof Error ? error : new Error(String(error));
+}
 
 async function waitForReceipt(
   ethereum: EthereumProvider,
@@ -57,13 +67,17 @@ async function waitForReceipt(
 }
 
 export async function getWalletUsdcBalance(address: `0x${string}`): Promise<string> {
-  const balance = await publicClient.readContract({
-    address: ARC_USDC,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [address],
-  });
-  return formatUnits(balance, 6);
+  try {
+    const balance = await publicClient.readContract({
+      address: ARC_USDC,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [address],
+    });
+    return formatUnits(balance, 6);
+  } catch (error) {
+    mapReadError(error);
+  }
 }
 
 export async function depositToGatewayViaMetaMask(
@@ -73,24 +87,35 @@ export async function depositToGatewayViaMetaMask(
 ): Promise<{ approvalTxHash?: string; depositTxHash: string }> {
   const depositAmount = parseUnits(amount, 6);
 
-  const walletBalance = await publicClient.readContract({
-    address: ARC_USDC,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [account],
-  });
+  let walletBalance: bigint;
+  try {
+    walletBalance = await publicClient.readContract({
+      address: ARC_USDC,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [account],
+    });
+  } catch (error) {
+    mapReadError(error);
+  }
+
   if (walletBalance < depositAmount) {
     throw new Error(
       `Insufficient wallet USDC. Have ${formatUnits(walletBalance, 6)}, need ${amount}`,
     );
   }
 
-  const allowance = await publicClient.readContract({
-    address: ARC_USDC,
-    abi: erc20Abi,
-    functionName: "allowance",
-    args: [account, GATEWAY_WALLET],
-  });
+  let allowance: bigint;
+  try {
+    allowance = await publicClient.readContract({
+      address: ARC_USDC,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [account, GATEWAY_WALLET],
+    });
+  } catch (error) {
+    mapReadError(error);
+  }
 
   let approvalTxHash: string | undefined;
   if (allowance < depositAmount) {

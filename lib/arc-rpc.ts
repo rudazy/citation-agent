@@ -76,6 +76,43 @@ export function arcHttpTransport(rpcUrl?: string | null): Transport {
   );
 }
 
+/**
+ * Circle's public Arc RPC rate-limits aggressively under marketplace load.
+ * Clients that only accept a single URL (e.g. Circle GatewayClient) should
+ * try alternate public endpoints first when no private RPC is configured.
+ */
+export const CIRCLE_PUBLIC_ARC_RPC = "https://rpc.testnet.arc.network";
+
+/**
+ * Ordered RPC list optimized for single-endpoint clients.
+ * If the primary is still the free Circle endpoint, deprioritize it so
+ * Blockdaemon/dRPC/QuickNode absorb deposit balanceOf + approve traffic.
+ * Explicit private/paid ARC_TESTNET_RPC stays first.
+ */
+export function resolveGatewayRpcUrls(primary?: string | null): string[] {
+  const urls = resolveArcRpcUrls(primary);
+  if (urls.length <= 1) return urls;
+
+  const explicitPrimary =
+    primary?.trim() ||
+    process.env.ARC_TESTNET_RPC?.trim() ||
+    process.env.NEXT_PUBLIC_ARC_TESTNET_RPC?.trim();
+
+  // Keep a configured non-Circle primary first.
+  if (explicitPrimary && explicitPrimary !== CIRCLE_PUBLIC_ARC_RPC) {
+    return urls;
+  }
+
+  const preferred = urls.filter((u) => u !== CIRCLE_PUBLIC_ARC_RPC);
+  const circle = urls.filter((u) => u === CIRCLE_PUBLIC_ARC_RPC);
+  return [...preferred, ...circle];
+}
+
+/** First RPC for single-URL clients (GatewayClient, etc.). */
+export function getPreferredArcRpcUrl(primary?: string | null): string {
+  return resolveGatewayRpcUrls(primary)[0] ?? CIRCLE_PUBLIC_ARC_RPC;
+}
+
 /** True when an RPC error is the public endpoint's rate limit, not our bug. */
 export function isRpcRateLimitError(error: unknown): boolean {
   const message =
@@ -84,3 +121,7 @@ export function isRpcRateLimitError(error: unknown): boolean {
     message,
   );
 }
+
+/** User-facing copy when Arc public RPCs are exhausted. */
+export const ARC_RPC_RATE_LIMIT_MESSAGE =
+  "Arc testnet RPC is rate-limited right now. Wait a few seconds and retry — nothing was deposited.";

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { createPublicClient, http, formatUnits, erc20Abi } from "viem";
+import { createPublicClient, formatUnits, erc20Abi } from "viem";
 import { arcTestnet } from "viem/chains";
+import { arcHttpTransport } from "@/lib/arc-rpc";
 import { fetchGatewayBalanceSnapshot } from "@/lib/gateway-balances";
 import { getSellerAddress, getSellerPrivateKey, isSellerConfigured } from "@/lib/payment-wallets";
 import { verifyOperatorRequest } from "@/lib/operator";
 
-const ARC_TESTNET_RPC = "https://rpc.testnet.arc.network";
 const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000" as const;
 
 const publicClient = createPublicClient({
   chain: arcTestnet,
-  transport: http(ARC_TESTNET_RPC),
+  transport: arcHttpTransport(),
 });
 
 async function getWalletUsdcBalance(address: `0x${string}`): Promise<string> {

@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ARC_PUBLIC_RPC_FALLBACKS,
+  CIRCLE_PUBLIC_ARC_RPC,
   arcHttpTransport,
+  getPreferredArcRpcUrl,
   isRpcRateLimitError,
   resolveArcRpcUrls,
+  resolveGatewayRpcUrls,
 } from "@/lib/arc-rpc";
 
 describe("isRpcRateLimitError", () => {
@@ -79,5 +82,51 @@ describe("arcHttpTransport", () => {
   it("returns a viem transport (fallback multi-endpoint)", () => {
     const transport = arcHttpTransport("https://rpc.testnet.arc.network");
     expect(typeof transport).toBe("function");
+  });
+});
+
+describe("resolveGatewayRpcUrls", () => {
+  const prev = {
+    primary: process.env.ARC_TESTNET_RPC,
+    publicPrimary: process.env.NEXT_PUBLIC_ARC_TESTNET_RPC,
+    fallbacks: process.env.ARC_TESTNET_RPC_FALLBACKS,
+    publicFallbacks: process.env.NEXT_PUBLIC_ARC_TESTNET_RPC_FALLBACKS,
+  };
+
+  afterEach(() => {
+    if (prev.primary === undefined) delete process.env.ARC_TESTNET_RPC;
+    else process.env.ARC_TESTNET_RPC = prev.primary;
+    if (prev.publicPrimary === undefined) delete process.env.NEXT_PUBLIC_ARC_TESTNET_RPC;
+    else process.env.NEXT_PUBLIC_ARC_TESTNET_RPC = prev.publicPrimary;
+    if (prev.fallbacks === undefined) delete process.env.ARC_TESTNET_RPC_FALLBACKS;
+    else process.env.ARC_TESTNET_RPC_FALLBACKS = prev.fallbacks;
+    if (prev.publicFallbacks === undefined) {
+      delete process.env.NEXT_PUBLIC_ARC_TESTNET_RPC_FALLBACKS;
+    } else {
+      process.env.NEXT_PUBLIC_ARC_TESTNET_RPC_FALLBACKS = prev.publicFallbacks;
+    }
+  });
+
+  it("deprioritizes Circle public RPC when that is the only configured primary", () => {
+    delete process.env.ARC_TESTNET_RPC;
+    delete process.env.NEXT_PUBLIC_ARC_TESTNET_RPC;
+    delete process.env.ARC_TESTNET_RPC_FALLBACKS;
+    const urls = resolveGatewayRpcUrls(CIRCLE_PUBLIC_ARC_RPC);
+    expect(urls[0]).not.toBe(CIRCLE_PUBLIC_ARC_RPC);
+    expect(urls).toContain(CIRCLE_PUBLIC_ARC_RPC);
+    expect(urls.at(-1)).toBe(CIRCLE_PUBLIC_ARC_RPC);
+  });
+
+  it("keeps a private/paid primary first", () => {
+    delete process.env.ARC_TESTNET_RPC;
+    process.env.ARC_TESTNET_RPC = "https://alchemy.example/arc";
+    const urls = resolveGatewayRpcUrls();
+    expect(urls[0]).toBe("https://alchemy.example/arc");
+  });
+
+  it("getPreferredArcRpcUrl returns first gateway URL", () => {
+    delete process.env.ARC_TESTNET_RPC;
+    delete process.env.NEXT_PUBLIC_ARC_TESTNET_RPC;
+    expect(getPreferredArcRpcUrl()).not.toBe(CIRCLE_PUBLIC_ARC_RPC);
   });
 });
