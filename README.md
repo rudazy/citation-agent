@@ -33,7 +33,8 @@ Citation Agent is a crypto research marketplace on **Arc Testnet**. Analysts pub
 | **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect, Gateway pay |
 
 Architecture (unlock → payout sequence): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
-Extended product reference: [docs/platform-overview.md](docs/platform-overview.md)
+Extended product reference: [docs/platform-overview.md](docs/platform-overview.md)  
+Product roadmap (live foundation + judgment marketplace plan): [docs/roadmap.md](docs/roadmap.md)
 
 ---
 

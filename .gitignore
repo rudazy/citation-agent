@@ -34,6 +34,10 @@ TASKS.md
 /terminals/
 /mcps/
 /docs/internal/
+# judgment marketplace vision — local strategy only; do not push until ready
+/docs/judgment-marketplace-vision.md
+/docs/internal/judgment-marketplace-vision.md
+**/judgment-marketplace-vision.md
 /scripts/*demo*
 supabase/.temp/
 .env.keys
