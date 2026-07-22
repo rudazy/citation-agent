@@ -115,8 +115,8 @@ export function ProfileSetupGate() {
             </h1>
           </div>
           <p className="font-mono text-xs leading-relaxed text-[#888]">
-            Publishing identity, settings, and earnings need an account. Reading and
-            unlocking research works without one.
+            Claim identity to open your Creator Desk — publish research or a first
+            Signal, share, and earn. Reading and unlocking works without an account.
           </p>
         </div>
 

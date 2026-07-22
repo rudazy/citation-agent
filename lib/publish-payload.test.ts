@@ -74,4 +74,52 @@ describe("publish-payload", () => {
     const second = publishPayloadDigest({ ...base, body: "D" });
     expect(first).not.toBe(second);
   });
+
+  it("keeps research digests free of signal fields", () => {
+    const research = publishPayloadDigest({
+      title: "A",
+      subheading: "B",
+      body: "C",
+      priceUsdc: "0.001",
+    });
+    const researchExplicit = publishPayloadDigest({
+      title: "A",
+      subheading: "B",
+      body: "C",
+      priceUsdc: "0.001",
+      postKind: "research",
+    });
+    expect(research).toBe(researchExplicit);
+
+    const signal = publishPayloadDigest({
+      title: "A",
+      subheading: "B",
+      body: "C",
+      priceUsdc: "0.001",
+      postKind: "signal",
+      signalDirection: "long",
+      signalConfidence: 4,
+      signalHorizon: "90d",
+      signalInvalidation: "Breaks invalidation level",
+    });
+    expect(signal).not.toBe(research);
+  });
+
+  it("parses signal fields from API body", () => {
+    const payload = publishPayloadFromBody({
+      title: "Thesis",
+      subheading: "Public teaser for the market",
+      body: "Full gated thesis text here.",
+      price_usdc: "0.01",
+      post_kind: "signal",
+      signal_direction: "short",
+      signal_confidence: 5,
+      signal_horizon: "30d",
+      signal_invalidation: "Closes above key resistance",
+    });
+    expect(payload.postKind).toBe("signal");
+    expect(payload.signalDirection).toBe("short");
+    expect(payload.signalConfidence).toBe(5);
+    expect(payload.signalHorizon).toBe("30d");
+  });
 });

@@ -326,6 +326,15 @@ export async function GET(req: NextRequest) {
             : {}),
           comment_count: commentCounts.get(item.id) ?? 0,
           author_is_username: item.source === "database",
+          post_kind: item.postKind ?? "research",
+          ...(item.postKind === "signal"
+            ? {
+                signal_direction: item.signalDirection ?? null,
+                signal_confidence: item.signalConfidence ?? null,
+                signal_horizon: item.signalHorizon ?? null,
+                signal_invalidation: item.signalInvalidation ?? null,
+              }
+            : {}),
         };
       });
 
@@ -451,6 +460,11 @@ export async function POST(req: NextRequest) {
     signedAtMs: publishAuth.signedAtMs,
     coverImageUrl: payload.coverImageUrl,
     scheduledForMs: Number.isFinite(scheduledForMs) ? scheduledForMs : undefined,
+    postKind: payload.postKind,
+    signalDirection: payload.signalDirection,
+    signalConfidence: payload.signalConfidence,
+    signalHorizon: payload.signalHorizon,
+    signalInvalidation: payload.signalInvalidation,
   });
 
   if (!result.ok) {
@@ -479,6 +493,11 @@ export async function POST(req: NextRequest) {
         publish_signed_at: result.post.publish_signed_at,
         published_at: result.post.published_at,
         cover_image_url: result.post.cover_image_url,
+        post_kind: result.post.post_kind ?? "research",
+        signal_direction: result.post.signal_direction,
+        signal_confidence: result.post.signal_confidence,
+        signal_horizon: result.post.signal_horizon,
+        signal_invalidation: result.post.signal_invalidation,
         endpoint: `/api/marketplace/citations?id=${result.post.id}`,
       },
     },

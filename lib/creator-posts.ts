@@ -6,6 +6,13 @@ import {
   MAX_POST_BODY_CHARS,
   MIN_POST_PRICE_USDC,
 } from "@/lib/creator-post-constants";
+import {
+  normalizeSignalFields,
+  type PostKind,
+  type SignalDirection,
+  type SignalHorizon,
+  validateSignalFields,
+} from "@/lib/signal-card";
 
 export { MAX_POST_BODY_CHARS, MIN_POST_PRICE_USDC };
 
@@ -31,6 +38,12 @@ export type CreatorPostRow = {
   cover_image_url: string | null;
   edit_version: number;
   last_edited_at: string | null;
+  /** Present after signal migration; missing on old rows until backfill. */
+  post_kind?: PostKind | null;
+  signal_direction?: SignalDirection | null;
+  signal_confidence?: number | null;
+  signal_horizon?: SignalHorizon | null;
+  signal_invalidation?: string | null;
 };
 
 export type PublishPostInput = {
@@ -49,6 +62,11 @@ export type PublishPostInput = {
   coverImageUrl?: string;
   /** Optional future publish time (ms). Post stays hidden until then. */
   scheduledForMs?: number;
+  postKind?: PostKind;
+  signalDirection?: SignalDirection;
+  signalConfidence?: number;
+  signalHorizon?: SignalHorizon;
+  signalInvalidation?: string;
 };
 
 /** Furthest a post can be scheduled ahead (90 days). */
@@ -115,12 +133,29 @@ export function validatePublishInput(input: PublishPostInput): string | null {
   const title = input.title.trim();
   const subheading = input.subheading.trim();
   const body = input.body.trim();
+  const postKind: PostKind = input.postKind === "signal" ? "signal" : "research";
 
   if (title.length < 3) return "Title must be at least 3 characters";
   if (subheading.length < 10) return "Subheading must be at least 10 characters";
-  if (body.length < 20) return "Body must be at least 20 characters";
+  // Signals: short structured thesis OK; research keeps the longer floor.
+  const minBody = postKind === "signal" ? 12 : 20;
+  if (body.length < minBody) {
+    return postKind === "signal"
+      ? "Signal thesis must be at least 12 characters"
+      : "Body must be at least 20 characters";
+  }
   if (body.length > MAX_POST_BODY_CHARS) {
     return `Body must be ${MAX_POST_BODY_CHARS.toLocaleString()} characters or fewer (currently ${body.length.toLocaleString()})`;
+  }
+
+  if (postKind === "signal") {
+    const signalError = validateSignalFields({
+      direction: input.signalDirection,
+      confidence: input.signalConfidence,
+      horizon: input.signalHorizon,
+      invalidation: input.signalInvalidation,
+    });
+    if (signalError) return signalError;
   }
 
   const price = parsePriceUsdc(input.priceUsdc);
@@ -163,6 +198,8 @@ export function validatePublishInput(input: PublishPostInput): string | null {
 export function rowToCreatorContent(row: CreatorPostRow): CreatorContent {
   const connected = getAddress(row.connected_wallet);
   const payout = getAddress(row.payout_wallet);
+  const postKind: PostKind =
+    row.post_kind === "signal" ? "signal" : "research";
   return {
     id: row.id,
     title: row.title,
@@ -179,6 +216,15 @@ export function rowToCreatorContent(row: CreatorPostRow): CreatorContent {
     coverImageUrl: row.cover_image_url ?? undefined,
     editVersion: row.edit_version ?? 1,
     lastEditedAt: row.last_edited_at ?? undefined,
+    postKind,
+    ...(postKind === "signal"
+      ? {
+          signalDirection: row.signal_direction ?? undefined,
+          signalConfidence: row.signal_confidence ?? undefined,
+          signalHorizon: row.signal_horizon ?? undefined,
+          signalInvalidation: row.signal_invalidation ?? undefined,
+        }
+      : {}),
   };
 }
 
@@ -316,6 +362,17 @@ export async function insertPublishedPost(
     : connectedWallet;
 
   const price = parsePriceUsdc(input.priceUsdc)!;
+  const postKind: PostKind = input.postKind === "signal" ? "signal" : "research";
+  const signal =
+    postKind === "signal"
+      ? normalizeSignalFields({
+          direction: input.signalDirection!,
+          confidence: input.signalConfidence!,
+          horizon: input.signalHorizon!,
+          invalidation: input.signalInvalidation!,
+        })
+      : null;
+
   const row: Omit<
     CreatorPostRow,
     "created_at" | "updated_at" | "paid_count" | "edit_version" | "last_edited_at"
@@ -334,6 +391,11 @@ export async function insertPublishedPost(
     cover_image_url: input.coverImageUrl?.trim() || null,
     // Scheduled publishing = future published_at; every public read gates on it.
     published_at: new Date(input.scheduledForMs ?? Date.now()).toISOString(),
+    post_kind: postKind,
+    signal_direction: signal?.direction ?? null,
+    signal_confidence: signal?.confidence ?? null,
+    signal_horizon: signal?.horizon ?? null,
+    signal_invalidation: signal?.invalidation ?? null,
   };
 
   const { data, error } = await supabase

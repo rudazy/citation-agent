@@ -81,6 +81,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     createdAt: profile.createdAt,
     followerCount: profile.followerCount,
     postCount: profile.postCount,
+    signalCount: profile.signalCount,
     totalReaders: profile.totalReaders,
     following,
     isSelf,
@@ -96,6 +97,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
       paid_count: p.paidCount,
       published_at: p.publishedAt ?? null,
       path: buildReportPath(p.id),
+      post_kind: p.postKind,
+      signal_direction: p.signalDirection ?? null,
+      signal_confidence: p.signalConfidence ?? null,
+      signal_horizon: p.signalHorizon ?? null,
+      signal_invalidation: p.signalInvalidation ?? null,
     })),
   });
 }

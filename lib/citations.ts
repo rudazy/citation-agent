@@ -33,6 +33,13 @@ export type CreatorContent = {
   lastEditedAt?: string;
   /** TrustGate score for connectedWallet, attached server side by consumers. */
   trust?: TrustScore | null;
+  /** research (default) or signal — Phase 1 judgment objects. */
+  postKind?: "research" | "signal";
+  signalDirection?: "long" | "short" | "avoid" | "watch" | "neutral";
+  signalConfidence?: number;
+  signalHorizon?: "30d" | "90d" | "event" | "open";
+  /** Public falsifiability condition for signals. */
+  signalInvalidation?: string;
 };
 
 const CREATORS_DIR = path.join(process.cwd(), "content", "creators");

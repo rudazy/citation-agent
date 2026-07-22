@@ -1,4 +1,13 @@
 import { keccak256, toBytes } from "viem";
+import {
+  isPostKind,
+  isSignalDirection,
+  isSignalHorizon,
+  parseSignalConfidence,
+  type PostKind,
+  type SignalDirection,
+  type SignalHorizon,
+} from "@/lib/signal-card";
 
 export type PublishPayloadInput = {
   title: string;
@@ -8,12 +17,19 @@ export type PublishPayloadInput = {
   payoutWallet?: string;
   tags?: string[];
   coverImageUrl?: string;
+  /** Defaults to research when omitted — keeps legacy digests byte-identical. */
+  postKind?: PostKind;
+  signalDirection?: SignalDirection;
+  signalConfidence?: number;
+  signalHorizon?: SignalHorizon;
+  signalInvalidation?: string;
 };
 
 /**
  * Stable JSON for publish body binding — field order and tag sort are fixed.
  * cover_image_url joins the digest ONLY when set, so signatures for posts
  * without covers stay byte-identical to the pre-cover format.
+ * Signal fields join ONLY when post_kind is signal (research digests unchanged).
  */
 export function canonicalPublishPayload(input: PublishPayloadInput): string {
   const tags = [...(input.tags ?? [])]
@@ -23,12 +39,26 @@ export function canonicalPublishPayload(input: PublishPayloadInput): string {
 
   const payout = input.payoutWallet?.trim() ?? "";
   const cover = input.coverImageUrl?.trim() ?? "";
+  const isSignal = input.postKind === "signal";
 
   return JSON.stringify({
     body: input.body,
     ...(cover ? { cover_image_url: cover } : {}),
     payout_wallet: payout ? payout.toLowerCase() : "",
+    ...(isSignal ? { post_kind: "signal" } : {}),
     price_usdc: input.priceUsdc.trim(),
+    ...(isSignal && input.signalConfidence != null
+      ? { signal_confidence: input.signalConfidence }
+      : {}),
+    ...(isSignal && input.signalDirection
+      ? { signal_direction: input.signalDirection }
+      : {}),
+    ...(isSignal && input.signalHorizon
+      ? { signal_horizon: input.signalHorizon }
+      : {}),
+    ...(isSignal && input.signalInvalidation?.trim()
+      ? { signal_invalidation: input.signalInvalidation.trim() }
+      : {}),
     subheading: input.subheading.trim(),
     tags,
     title: input.title.trim(),
@@ -73,6 +103,16 @@ export function publishPayloadFromBody(body: Record<string, unknown>): PublishPa
       ? tagsRaw.split(",").map((tag) => tag.trim())
       : undefined;
 
+  const kindRaw = body.post_kind ?? body.postKind;
+  const postKind = isPostKind(kindRaw) ? kindRaw : undefined;
+
+  const dirRaw = body.signal_direction ?? body.signalDirection;
+  const confRaw = body.signal_confidence ?? body.signalConfidence;
+  const horizonRaw = body.signal_horizon ?? body.signalHorizon;
+  const invRaw = body.signal_invalidation ?? body.signalInvalidation;
+
+  const confidence = parseSignalConfidence(confRaw);
+
   return {
     title: String(body.title ?? ""),
     subheading: String(body.subheading ?? ""),
@@ -91,5 +131,11 @@ export function publishPayloadFromBody(body: Record<string, unknown>): PublishPa
         : typeof body.coverImageUrl === "string"
           ? body.coverImageUrl
           : undefined,
+    postKind,
+    signalDirection: isSignalDirection(dirRaw) ? dirRaw : undefined,
+    signalConfidence: confidence ?? undefined,
+    signalHorizon: isSignalHorizon(horizonRaw) ? horizonRaw : undefined,
+    signalInvalidation:
+      typeof invRaw === "string" ? invRaw : invRaw != null ? String(invRaw) : undefined,
   };
 }

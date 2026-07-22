@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { getAdminClient } from "@/lib/supabase/admin";
 
-export type VerificationKind = "website" | "x" | "substack";
+export type VerificationKind = "website" | "x" | "substack" | "youtube";
 
 export type ProfileVerification = {
   kind: VerificationKind;
@@ -11,7 +11,7 @@ export type ProfileVerification = {
   verifiedAt: string | null;
 };
 
-const KINDS: VerificationKind[] = ["website", "x", "substack"];
+const KINDS: VerificationKind[] = ["website", "x", "substack", "youtube"];
 
 export function isVerificationKind(value: unknown): value is VerificationKind {
   return typeof value === "string" && (KINDS as string[]).includes(value);

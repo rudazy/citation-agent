@@ -97,6 +97,11 @@ type CitationListing = {
   cover_image_url?: string;
   comment_count?: number;
   author_is_username?: boolean;
+  post_kind?: "research" | "signal";
+  signal_direction?: string | null;
+  signal_confidence?: number | null;
+  signal_horizon?: string | null;
+  signal_invalidation?: string | null;
 };
 
 type ExpandState =
@@ -792,6 +797,20 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                       className="w-full space-y-2 text-left"
                     >
                       <div className="flex flex-wrap items-center gap-2">
+                        {item.post_kind === "signal" && (
+                          <Badge
+                            variant="outline"
+                            className="border-[#c8f135]/35 font-mono text-[10px] text-[#c8f135]"
+                          >
+                            Signal
+                            {item.signal_direction
+                              ? ` · ${item.signal_direction}`
+                              : ""}
+                            {item.signal_confidence != null
+                              ? ` · ${item.signal_confidence}/5`
+                              : ""}
+                          </Badge>
+                        )}
                         <Badge variant="outline" className="border-[#333] font-mono text-[10px]">
                           ${item.price_usdc} {item.token}
                         </Badge>
@@ -1034,6 +1053,14 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                     <p className="font-mono text-xs leading-relaxed text-[#888]">
                       <MentionText text={item.subheading} />
                     </p>
+                    {item.post_kind === "signal" && item.signal_invalidation && (
+                      <p className="font-mono text-[11px] leading-relaxed text-[#666]">
+                        Invalidation: {item.signal_invalidation}
+                        {item.signal_horizon
+                          ? ` · Horizon: ${item.signal_horizon}`
+                          : ""}
+                      </p>
+                    )}
 
                     {isUnlocked && (
                       <div className="rounded border border-[#f5c842]/20 bg-[#0a0a0a] px-3 py-3 sm:px-4 sm:py-4">

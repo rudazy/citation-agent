@@ -7,6 +7,7 @@ import { MarketplaceCitations } from "@/components/marketplace/marketplace-citat
 import { MarketplaceHero } from "@/components/marketplace/marketplace-hero";
 import { MarketplaceStats } from "@/components/marketplace/marketplace-stats";
 import { MarketplaceInfrastructureLayers } from "@/components/marketplace/marketplace-infrastructure-layers";
+import { SignalPublishPanel } from "@/components/marketplace/signal-publish-panel";
 import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
 
 export default function MarketplacePage() {
@@ -18,6 +19,10 @@ export default function MarketplacePage() {
       <MarketplaceHero />
 
       <MarketplaceStats />
+
+      <div id="publish-signal" className="scroll-mt-24">
+        <SignalPublishPanel onPublished={() => setCatalogRefresh((n) => n + 1)} />
+      </div>
 
       <CreatorPublishPanel onPublished={() => setCatalogRefresh((n) => n + 1)} />
 

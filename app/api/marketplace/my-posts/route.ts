@@ -63,6 +63,10 @@ export async function GET(request: Request) {
       unlock_conversion: viewsTotal > 0 ? Number((paidCount / viewsTotal).toFixed(4)) : null,
       top_referrers: views?.topReferrers ?? [],
       endpoint: `/api/marketplace/citations?id=${post.id}`,
+      post_kind: post.postKind ?? "research",
+      signal_direction: post.signalDirection ?? null,
+      signal_confidence: post.signalConfidence ?? null,
+      signal_horizon: post.signalHorizon ?? null,
       trust: trustScoreToSignal(
         scores.get(trustWallet.toLowerCase()) ?? null,
         "free",
@@ -71,9 +75,22 @@ export async function GET(request: Request) {
     };
   });
 
+  const desk = {
+    research_count: items.filter((p) => p.post_kind !== "signal").length,
+    signal_count: items.filter((p) => p.post_kind === "signal").length,
+    total_views: items.reduce((sum, p) => sum + (p.views_total ?? 0), 0),
+    total_unlocks: items.reduce((sum, p) => sum + (p.paid_count ?? 0), 0),
+    total_earnings_usdc: Number(
+      items
+        .reduce((sum, p) => sum + (Number(p.post_earnings_usdc) || 0), 0)
+        .toFixed(6),
+    ),
+  };
+
   return NextResponse.json({
     count: items.length,
     posts: items,
+    desk,
     publisher_wallet: wallet,
     publisher_trust: trustScoreToSignal(
       publisherScore.get(publisherTrustWallet) ?? null,

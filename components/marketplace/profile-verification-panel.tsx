@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 type Verification = {
-  kind: "website" | "x" | "substack";
+  kind: "website" | "x" | "substack" | "youtube";
   url: string;
   code: string;
   verified: boolean;
@@ -19,6 +19,7 @@ const KIND_LABELS: Record<Verification["kind"], string> = {
   website: "Website",
   substack: "Substack",
   x: "X account",
+  youtube: "YouTube",
 };
 
 /**
@@ -104,12 +105,12 @@ export function ProfileVerificationPanel({ className }: { className?: string }) 
         <p className="text-sm font-semibold tracking-wide">Verify your links</p>
       </div>
       <p className="font-mono text-[10px] leading-relaxed text-[#666]">
-        Prove you are the same person as your Substack, website, or X account without
-        exposing your wallet. Get a code, place it on the page (about section or bio),
-        then check.
+        Prove you own your website, X, Substack, or YouTube presence without exposing
+        your wallet. Get a code, place it on the page (about, bio, or channel
+        description), then check.
       </p>
 
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         {(Object.keys(KIND_LABELS) as Verification["kind"][]).map((k) => {
           const v = verifications.find((entry) => entry.kind === k);
           return (
@@ -153,7 +154,9 @@ export function ProfileVerificationPanel({ className }: { className?: string }) 
                   ? "https://x.com/yourhandle"
                   : kind === "substack"
                     ? "https://you.substack.com/about"
-                    : "https://yoursite.com/about"
+                    : kind === "youtube"
+                      ? "https://www.youtube.com/@you/about"
+                      : "https://yoursite.com/about"
               }
               className="border-[#333] bg-[#111] font-mono text-sm"
             />

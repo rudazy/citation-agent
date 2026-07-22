@@ -24,17 +24,17 @@ export function MarketplaceHero() {
 
       <div className="relative space-y-5">
         <Badge className="bg-[#f5c842]/15 text-[#f5c842] border border-[#f5c842]/30 hover:bg-[#f5c842]/15">
-          Crypto research marketplace
+          Judgment marketplace
         </Badge>
 
         <div className="space-y-3 max-w-2xl">
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide leading-snug">
-            Turn crypto research into a revenue asset
+            Turn crypto judgment into a revenue asset
           </h1>
           <p className="text-sm sm:text-[15px] leading-relaxed text-[#a3a3a3] font-mono">
-            Browse paywalled reports, unlock with USDC, follow creators for new
-            work, or draft and publish your own desk. Humans and agents buy the
-            same catalog through Circle Gateway.
+            Browse paywalled research and Signal Cards, unlock with USDC, follow
+            desks for new work, or publish your own. Humans and agents buy the same
+            catalog through Circle Gateway.
           </p>
         </div>
 
@@ -44,6 +44,12 @@ export function MarketplaceHero() {
             className="inline-flex items-center rounded border border-[#f5c842]/40 bg-[#f5c842]/10 px-3 py-1.5 font-mono text-xs text-[#f5c842] hover:bg-[#f5c842]/20"
           >
             Browse catalog
+          </a>
+          <a
+            href="#publish-signal"
+            className="inline-flex items-center rounded border border-[#c8f135]/40 px-3 py-1.5 font-mono text-xs text-[#c8f135] hover:bg-[#c8f135]/10"
+          >
+            Publish a Signal
           </a>
           <a
             href="#publish-research"
@@ -58,9 +64,9 @@ export function MarketplaceHero() {
           <div className="flex gap-3 rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-3">
             <FileSearch size={16} className="mt-0.5 shrink-0 text-[#f5c842]" />
             <div>
-              <p className="text-sm font-medium">For researchers</p>
+              <p className="text-sm font-medium">For creators</p>
               <p className="text-xs text-[#666] font-mono">
-                Draft anytime, sign when ready, share your profile
+                Open a Desk, post research or signals, share proof of judgment
               </p>
             </div>
           </div>

@@ -79,6 +79,35 @@ describe("creator-posts", () => {
     ).toContain("zero address");
   });
 
+  it("validates signal cards with structured conviction fields", () => {
+    const signal = {
+      title: "ETH L2 rotation",
+      subheading: "Public teaser for signal buyers",
+      body: "Gated thesis body.",
+      priceUsdc: "0.001",
+      username: "alpha_reader",
+      connectedWallet: CONNECTED,
+      signedAtMs: Date.now(),
+      postKind: "signal" as const,
+      signalDirection: "long" as const,
+      signalConfidence: 4,
+      signalHorizon: "90d" as const,
+      signalInvalidation: "Daily close below 2k support",
+    };
+
+    expect(validatePublishInput(signal)).toBeNull();
+    expect(
+      validatePublishInput({ ...signal, signalDirection: undefined }),
+    ).toContain("direction");
+    expect(
+      validatePublishInput({
+        ...signal,
+        body: "short",
+      }),
+    ).toContain("thesis");
+  });
+
+
   it("rejects bodies larger than the soft cap", () => {
     const base = {
       title: "Test title",

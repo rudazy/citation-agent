@@ -203,17 +203,19 @@ A new creator should, in minutes:
 
 *Belonging, multi-format judgment, fast first win*
 
-- [ ] **Creator Desks** as the primary home (research + signals + stamps + track record shell)
-- [ ] **Signal Cards** (structured thesis objects; priced unlock or board access)
-- [ ] Identity claim UX (link X / YouTube / site on top of existing verification)
-- [ ] Five-minute onboarding path: claim → Desk → one Signal → share
-- [ ] Outbound share kit (Desk + signal links for X / YouTube descriptions)
-- [ ] Desk-facing analytics v1 (unlocks, revenue, human vs agent demand)
-- [ ] Import / paste path for existing written work (verified listing, no scrape-without-claim)
+- [x] **Creator Desks** as the primary home (research + signals + stamps + track record shell)
+- [x] **Signal Cards** (structured thesis objects; priced unlock or board access)
+- [x] Identity claim UX (link X / YouTube / site on top of existing verification)
+- [x] Five-minute onboarding path: claim → Desk → one Signal → share
+- [x] Outbound share kit (Desk + signal links for X / YouTube descriptions)
+- [x] Desk-facing analytics v1 (unlocks, revenue; human vs agent demand deferred)
+- [x] Import / paste path for existing written work (verified listing, no scrape-without-claim)
 
 **North star:** Creators of more than one type open Desks and post a first Signal without writing a full report.
 
 **Exit:** Non-researcher creators can earn or get meaningful attention from judgment objects, not only long-form posts.
+
+**Status (July 2026):** MVP shipped on Arc Testnet rails — Desks shell on `/u/{username}`, Signal publish + same x402 unlock as research, YouTube verification kind, share kits, desk analytics rollup. Endorsements / stamps economics remain Phase 2.
 
 ---
 

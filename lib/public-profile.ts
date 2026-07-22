@@ -14,6 +14,11 @@ export type PublicProfilePost = {
   tags: string[];
   paidCount: number;
   publishedAt?: string;
+  postKind: "research" | "signal";
+  signalDirection?: CreatorContent["signalDirection"];
+  signalConfidence?: number;
+  signalHorizon?: CreatorContent["signalHorizon"];
+  signalInvalidation?: string;
 };
 
 export type PublicCreatorProfile = {
@@ -21,11 +26,13 @@ export type PublicCreatorProfile = {
   createdAt: string;
   followerCount: number;
   postCount: number;
+  signalCount: number;
   totalReaders: number;
   posts: PublicProfilePost[];
 };
 
 function toPublicPost(post: CreatorContent): PublicProfilePost {
+  const postKind = post.postKind === "signal" ? "signal" : "research";
   return {
     id: post.id,
     title: post.title,
@@ -34,6 +41,15 @@ function toPublicPost(post: CreatorContent): PublicProfilePost {
     tags: post.tags,
     paidCount: post.paidCount,
     publishedAt: post.publishedAt,
+    postKind,
+    ...(postKind === "signal"
+      ? {
+          signalDirection: post.signalDirection,
+          signalConfidence: post.signalConfidence,
+          signalHorizon: post.signalHorizon,
+          signalInvalidation: post.signalInvalidation,
+        }
+      : {}),
   };
 }
 
@@ -50,12 +66,15 @@ export async function getPublicCreatorProfile(
   );
   const followerCount = await countFollowers(profile.id);
   const totalReaders = posts.reduce((sum, p) => sum + (p.paidCount ?? 0), 0);
+  const signalCount = posts.filter((p) => p.postKind === "signal").length;
+  const researchCount = posts.length - signalCount;
 
   return {
     username: profile.username,
     createdAt: profile.createdAt,
     followerCount,
-    postCount: posts.length,
+    postCount: researchCount,
+    signalCount,
     totalReaders,
     posts: posts.map(toPublicPost),
   };
