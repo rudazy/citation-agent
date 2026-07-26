@@ -18,6 +18,12 @@ import {
   buildSectorFacets,
   type SectorFacet,
 } from "@/lib/sectors";
+import { listRecentResolutions } from "@/lib/signal-resolution-store";
+import {
+  deriveResolutionState,
+  type ResolutionStatus,
+  type SignalOutcome,
+} from "@/lib/signal-resolution";
 import {
   countAllTimeUnlocksByDesk,
   demandWindowStart,
@@ -32,12 +38,22 @@ import {
 const LEDGER_SCAN_LIMIT = 20_000;
 const AGENT_WALLET_SCAN_LIMIT = 10_000;
 
+export type ResolvedSignal = {
+  postId: string;
+  title: string;
+  author: string;
+  outcome: SignalOutcome;
+  status: ResolutionStatus;
+  resolvedAt: string;
+};
+
 export type DemandBoard = {
   demand: DemandSnapshot;
   convictionChanges: ConvictionChange[];
   sectors: SectorFacet[];
-  /** True when signal resolution data would be needed but does not exist yet. */
-  resolutionsAvailable: false;
+  /** Signals that just resolved. Available since Phase 3 outcome logging. */
+  recentResolutions: ResolvedSignal[];
+  resolutionsAvailable: true;
 };
 
 /**
@@ -139,13 +155,17 @@ export async function loadDemandBoard(
   // Equal-length period immediately before the window, for growth comparison.
   const priorSince = new Date(since.getTime() - (now.getTime() - since.getTime()));
 
-  const [catalog, agentAddresses, ledger] = await Promise.all([
+  const [catalog, agentAddresses, ledger, resolutions] = await Promise.all([
     loadAllCreatorContent().then(filterPublicResearchCatalog).catch((err) => {
       console.warn("[demand-board] catalog load failed:", err);
       return [];
     }),
     loadAgentAddresses(),
     loadUnlockRows(since, priorSince),
+    listRecentResolutions(8).catch((err) => {
+      console.warn("[demand-board] resolutions load failed:", err);
+      return [];
+    }),
   ]);
 
   const postMeta = new Map<string, DemandPostMeta>();
@@ -191,12 +211,26 @@ export async function loadDemandBoard(
     })),
   );
 
+  // Provisional resolutions are shown — they are public the moment they are
+  // filed — but a disputed one is labelled so the lane never implies a settled
+  // outcome that is still being challenged.
+  const recentResolutions: ResolvedSignal[] = resolutions.map((row) => {
+    const state = deriveResolutionState({ resolution: row }, now);
+    return {
+      postId: row.postId,
+      title: row.title,
+      author: row.author,
+      outcome: state.effectiveOutcome ?? row.outcome,
+      status: state.status,
+      resolvedAt: row.resolvedAt,
+    };
+  });
+
   return {
     demand,
     convictionChanges,
     sectors,
-    // Signal outcome logging (right / wrong / void) is Phase 3. Until that
-    // store exists there is nothing truthful to show for "just resolved".
-    resolutionsAvailable: false,
+    recentResolutions,
+    resolutionsAvailable: true,
   };
 }

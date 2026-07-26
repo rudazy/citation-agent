@@ -10,6 +10,15 @@ import {
   getEndorsementSummariesForPosts,
   listEndorsementsByProfile,
 } from "@/lib/endorsements";
+import { getResolutionsForPosts } from "@/lib/signal-resolution-store";
+import {
+  EMPTY_DESK_ACCURACY,
+  deriveResolutionState,
+  summarizeDeskAccuracy,
+  type DeskAccuracy,
+  type ResolutionStatus,
+  type SignalOutcome,
+} from "@/lib/signal-resolution";
 
 export type PublicProfilePost = {
   id: string;
@@ -22,6 +31,9 @@ export type PublicProfilePost = {
   postKind: "research" | "signal";
   endorsementCount: number;
   endorsedBy: string[];
+  /** Signals only: outcome state once a resolution has been filed. */
+  resolutionStatus?: ResolutionStatus;
+  resolutionOutcome?: SignalOutcome | null;
   signalDirection?: CreatorContent["signalDirection"];
   signalConfidence?: number;
   signalHorizon?: CreatorContent["signalHorizon"];
@@ -50,6 +62,8 @@ export type PublicCreatorProfile = {
   endorsementsReceived: number;
   /** Stamps this desk has given to other creators. */
   endorsementsGiven: number;
+  /** Proof of judgment: settled signal outcomes and whether the desk closes the loop. */
+  accuracy: DeskAccuracy;
   posts: PublicProfilePost[];
   curation: PublicProfileCuration[];
 };
@@ -57,6 +71,7 @@ export type PublicCreatorProfile = {
 function toPublicPost(
   post: CreatorContent,
   endorsements: { count: number; topEndorsers: string[] },
+  resolutionState?: ReturnType<typeof deriveResolutionState>,
 ): PublicProfilePost {
   const postKind = post.postKind === "signal" ? "signal" : "research";
   return {
@@ -72,6 +87,8 @@ function toPublicPost(
     endorsedBy: endorsements.topEndorsers,
     ...(postKind === "signal"
       ? {
+          resolutionStatus: resolutionState?.status ?? "unresolved",
+          resolutionOutcome: resolutionState?.effectiveOutcome ?? null,
           signalDirection: post.signalDirection,
           signalConfidence: post.signalConfidence,
           signalHorizon: post.signalHorizon,
@@ -126,19 +143,42 @@ export async function getPublicCreatorProfile(
   const posts = (await loadPublishedPostsForProfile(profile)).filter(
     isPublicResearchListing,
   );
-  const [followerCount, endorsementIndex, curation] = await Promise.all([
+  const signals = posts.filter((p) => p.postKind === "signal");
+
+  const [followerCount, endorsementIndex, curation, resolutions] = await Promise.all([
     countFollowers(profile.id),
     getEndorsementSummariesForPosts(posts.map((p) => p.id)),
     loadCuration(profile.id),
+    getResolutionsForPosts(signals.map((p) => p.id)),
   ]);
 
   const totalReaders = posts.reduce((sum, p) => sum + (p.paidCount ?? 0), 0);
-  const signalCount = posts.filter((p) => p.postKind === "signal").length;
+  const signalCount = signals.length;
   const researchCount = posts.length - signalCount;
 
   const publicPosts = posts.map((post) =>
-    toPublicPost(post, endorsementIndex.get(post.id) ?? { count: 0, topEndorsers: [] }),
+    toPublicPost(
+      post,
+      endorsementIndex.get(post.id) ?? { count: 0, topEndorsers: [] },
+      post.postKind === "signal"
+        ? deriveResolutionState({
+            resolution: resolutions.get(post.id) ?? null,
+            publishedAt: post.publishedAt,
+            horizon: post.signalHorizon,
+          })
+        : undefined,
+    ),
   );
+
+  const accuracy = signalCount
+    ? summarizeDeskAccuracy(
+        signals.map((post) => ({
+          resolution: resolutions.get(post.id) ?? null,
+          publishedAt: post.publishedAt,
+          horizon: post.signalHorizon,
+        })),
+      )
+    : EMPTY_DESK_ACCURACY;
 
   return {
     username: profile.username,
@@ -152,6 +192,7 @@ export async function getPublicCreatorProfile(
       0,
     ),
     endorsementsGiven: curation.length,
+    accuracy,
     posts: publicPosts,
     curation,
   };

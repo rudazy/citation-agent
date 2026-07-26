@@ -29,6 +29,7 @@ import { BackingHint } from "@/components/marketplace/backing-hint";
 import { CitationBodyMarkdown } from "@/components/marketplace/citation-body-markdown";
 import { EndorseButton } from "@/components/marketplace/endorse-button";
 import { PostCommentsSection } from "@/components/marketplace/post-comments-section";
+import { ResolveSignalPanel } from "@/components/marketplace/resolve-signal-panel";
 import {
   TrustSignalBadge,
   type PublicTrustSignal,
@@ -1081,6 +1082,13 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                           ? ` · Horizon: ${item.signal_horizon}`
                           : ""}
                       </p>
+                    )}
+
+                    {item.post_kind === "signal" && (
+                      <ResolveSignalPanel
+                        postId={item.id}
+                        isOwner={item.is_own_post ?? false}
+                      />
                     )}
 
                     {isUnlocked && (

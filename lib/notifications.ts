@@ -8,7 +8,10 @@ export type NotificationType =
   | "endorsement"
   | "curator_credit"
   | "publish_research"
-  | "publish_signal";
+  | "publish_signal"
+  | "signal_resolved"
+  | "resolution_disputed"
+  | "resolution_adjudicated";
 
 export type NotificationRow = {
   id: string;
@@ -116,6 +119,12 @@ export function notificationText(row: NotificationRow): string {
       return `${actor} published new research`;
     case "publish_signal":
       return `${actor} published a new signal`;
+    case "signal_resolved":
+      return `${actor} resolved a signal you follow`;
+    case "resolution_disputed":
+      return "Your signal outcome was disputed with a USDC stake";
+    case "resolution_adjudicated":
+      return "A disputed outcome on your signal was settled";
     default:
       return "New activity";
   }

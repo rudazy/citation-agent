@@ -5,6 +5,11 @@ import { BadgeCheck, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MentionText } from "@/components/marketplace/mention-text";
+import { ResolutionBadge } from "@/components/marketplace/resolution-badge";
+import type {
+  ResolutionStatus,
+  SignalOutcome,
+} from "@/lib/signal-resolution";
 import { buildMarketplacePostPath } from "@/lib/post-share-url";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import {
@@ -27,6 +32,8 @@ export type ProfilePostCardData = {
   post_kind?: "research" | "signal";
   endorsement_count?: number;
   endorsed_by?: string[];
+  resolution_status?: ResolutionStatus | null;
+  resolution_outcome?: SignalOutcome | null;
   signal_direction?: string | null;
   signal_confidence?: number | null;
   signal_horizon?: string | null;
@@ -76,6 +83,12 @@ export function ProfilePostCard({ post }: Props) {
                   ? ` · ${SIGNAL_HORIZON_LABELS[horizon]}`
                   : ""}
               </span>
+            )}
+            {isSignal && post.resolution_status && (
+              <ResolutionBadge
+                status={post.resolution_status}
+                outcome={post.resolution_outcome}
+              />
             )}
             <span className="font-mono text-[10px] text-[#666]">
               {post.paid_count} reader{post.paid_count === 1 ? "" : "s"}

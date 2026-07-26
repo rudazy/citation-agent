@@ -93,8 +93,16 @@ export async function GET(req: NextRequest) {
         signal_count: facet.signalCount,
         top_tags: facet.topTags,
       })),
-      // Signal outcome logging is Phase 3; surfaced explicitly so clients do not
-      // have to guess why a "just resolved" lane is absent.
+      recent_resolutions: board.recentResolutions.map((row) => ({
+        post_id: row.postId,
+        title: row.title,
+        author: row.author,
+        outcome: row.outcome,
+        status: row.status,
+        resolved_at: row.resolvedAt,
+        path: buildReportPath(row.postId),
+        profile_path: buildProfilePath(row.author),
+      })),
       resolutions_available: board.resolutionsAvailable,
     });
   } catch (err) {

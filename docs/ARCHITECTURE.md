@@ -98,7 +98,16 @@ This is the main marketplace path. MetaMask/WalletConnect can fund and deposit; 
    GET /api/marketplace/tip?username=&amount=  (same x402/Gateway path)
    payTo = profile tip_wallet if set, else payout_wallet, else post/publisher fallbacks.
 
-9. Optional: back research (attestation)
+9. Optional: resolve a signal (proof of judgment)
+   Creator: POST /api/marketplace/resolutions  (right / wrong / void, immutable)
+   Provisional for 72h. Anyone may challenge by staking USDC against
+   `resolution:{postId}` via the same Attestation.attest path, then
+   POST /api/marketplace/resolutions/dispute with the tx hash — verified on Arc
+   for target and minimum stake before the dispute is accepted. A disputed
+   outcome is excluded from accuracy until an operator settles it via
+   POST /api/marketplace/resolutions/adjudicate (operator signature).
+
+10. Optional: back research (attestation)
    Approve USDC → Attestation.attest(target, amount) or POST /api/attestation
    for session agent. Platform fee (0.1 USDC) → immutable operator; stake locked
    to target. Claims index is Arcscan-first; agent stake uses multi-RPC fallback
@@ -167,6 +176,7 @@ See `agent.mts` and `lib/agent-gateway.ts`.
 | Curator economics | `lib/curator-share.ts` (pure rates/math), `lib/unlock-attribution.ts` (ledger), `lib/endorsements.ts` |
 | Referral capture | `lib/referral.ts` (pure links), `lib/referral-client.ts`, `app/api/marketplace/referral` |
 | Demand aggregation | `lib/demand-surfaces.ts`, `lib/demand-board.ts`, `lib/conviction-changes.ts`, `lib/sectors.ts` |
+| Signal resolution | `lib/signal-resolution.ts` (pure state machine), `lib/signal-resolution-store.ts` (persistence + on-chain dispute verification), `lib/signal-resolution-view.ts` |
 | Attestation | `contracts/Attestation.sol`, `lib/attestation.ts`, `lib/attestation-client.ts`, `lib/attestation-index.ts` |
 
 Citation-specific (must become pluggable in a standalone primitive): Supabase table shapes, catalog merge, TrustGate scoring, creator profiles.

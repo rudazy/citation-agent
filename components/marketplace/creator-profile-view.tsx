@@ -56,6 +56,17 @@ type ProfilePayload = {
   endorsementsReceived?: number;
   endorsementsGiven?: number;
   curation?: CurationEntry[];
+  accuracy?: {
+    scored: number;
+    right: number;
+    wrong: number;
+    voided: number;
+    accuracy_pct: number | null;
+    provisional: number;
+    disputed: number;
+    expired_unresolved: number;
+    resolution_rate_pct: number | null;
+  };
   following: boolean;
   isSelf: boolean;
   verified_links?: string[];
@@ -234,6 +245,63 @@ export function CreatorProfileView({ username }: { username: string }) {
             </p>
           </div>
         </div>
+
+        {/* Proof of judgment. Two numbers on purpose: accuracy alone is gameable
+            by only ever resolving winners, so the resolution rate sits beside it. */}
+        {(data.accuracy?.scored ?? 0) + (data.accuracy?.expired_unresolved ?? 0) > 0 && (
+          <div className="space-y-2 border-t border-[#1f1f1f] pt-4">
+            <p className="font-mono text-[10px] uppercase tracking-wide text-[#666]">
+              Proof of judgment
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {(
+                [
+                  [
+                    "Accuracy",
+                    data.accuracy?.accuracy_pct == null
+                      ? "—"
+                      : `${data.accuracy.accuracy_pct}%`,
+                    "Right / (right + wrong) on settled outcomes",
+                  ],
+                  [
+                    "Settled",
+                    String(data.accuracy?.scored ?? 0),
+                    "Outcomes that survived the dispute window",
+                  ],
+                  [
+                    "Resolution rate",
+                    data.accuracy?.resolution_rate_pct == null
+                      ? "—"
+                      : `${data.accuracy.resolution_rate_pct}%`,
+                    "Share of due signals this desk actually closed",
+                  ],
+                  [
+                    "Unresolved",
+                    String(data.accuracy?.expired_unresolved ?? 0),
+                    "Past horizon with no outcome filed",
+                  ],
+                ] as const
+              ).map(([label, value, hint]) => (
+                <div key={label} className="space-y-0.5" title={hint}>
+                  <p className="font-mono text-[9px] uppercase tracking-wide text-[#555]">
+                    {label}
+                  </p>
+                  <p className="font-mono text-sm tabular-nums text-[#f5f5f5]">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {((data.accuracy?.provisional ?? 0) > 0 ||
+              (data.accuracy?.disputed ?? 0) > 0) && (
+              <p className="font-mono text-[10px] text-[#666]">
+                {data.accuracy?.provisional ?? 0} provisional ·{" "}
+                {data.accuracy?.disputed ?? 0} disputed (excluded from accuracy
+                until settled)
+              </p>
+            )}
+          </div>
+        )}
 
         {data.isSelf && formatBackingHint(data.researcher_backing) && (
           <p className="border-t border-[#1f1f1f] pt-3 font-mono text-[10px] text-[#888]">

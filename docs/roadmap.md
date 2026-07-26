@@ -254,10 +254,9 @@ single-payee x402 rails — no split was introduced. Paying accrued credit out i
 deliberately deferred so the endorsement graph could ship without reworking
 settlement.
 
-**Resolutions deferred to Phase 3.** The "signals that just resolved" surface
-needs outcome logging (right / wrong / void / open), which Phase 3 owns and no
-store exists for yet. Rather than fake it, the demand API returns
-`resolutions_available: false` so clients know the lane is absent by design.
+**Resolutions were deferred to Phase 3 and are now live.** The "signals that
+just resolved" lane shipped with Phase 3 outcome logging; the demand API returns
+`resolutions_available: true`.
 *Rising* is defined as period-over-period growth against the preceding
 equal-length window, not share of lifetime unlocks — the latter scores every
 desk in a young marketplace identically and just mirrors the top-desk list.
@@ -270,14 +269,32 @@ desk in a young marketplace identically and just mirrors the top-desk list.
 
 - [ ] **Creator Score** components (accuracy, demand, endorsement impact, retention, stake quality)
 - [ ] Public methodology and anti-sybil / anti-wash rules
-- [ ] Signal resolution / outcome logging (right / wrong / void / open)
+- [x] Signal resolution / outcome logging (right / wrong / void / open)
 - [ ] **Challenges** (themed contests, prizes, featured placement, badges, score boost)
 - [ ] Leaderboards by Proof of Judgment dimensions (not vanity alone)
-- [ ] Version history and richer research asset pages (revenue, citations, AI vs human)
+- [x] Version history *(`post_versions` + changelog on `/r/{id}`, shipped earlier)*; richer asset pages still open
 
 **North star:** People check a Citation Desk before trusting a public crypto take.
 
 **Exit:** Creator Score is understandable, hard enough to game, and used in discovery ranking.
+
+**Status (July 2026): resolution logging shipped.** A desk files an outcome on
+its own signal against the invalidation it pre-committed at publish. The
+resolution is **provisional** for 72 hours, during which anyone can challenge it
+by staking USDC against `resolution:{postId}` through the existing
+Attestation.sol rails — no new contract. A disputed outcome is frozen out of
+accuracy until an operator adjudicates; "upheld" vs "overturned" is derived by
+comparing the adjudicated outcome to the original call.
+
+**Two public numbers, deliberately.** Accuracy asks *when you called it, were
+you right*; resolution rate asks *do you close the loop, or bury losers*.
+Accuracy alone is trivially gamed by resolving only winners, so a signal whose
+horizon passes with no outcome is shown as `expired unresolved` and drags the
+resolution rate down. Only `30d` and `90d` horizons expire — `event` and `open`
+signals are never marked overdue, since the desk never claimed a deadline.
+
+This also closes the Phase 2 gap: the demand board's "just resolved" lane is
+live and `resolutions_available` now returns `true`.
 
 ---
 

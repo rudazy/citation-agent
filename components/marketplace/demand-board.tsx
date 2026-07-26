@@ -12,6 +12,11 @@ import {
   type DemandWindow,
 } from "@/lib/demand-surfaces";
 import { SIGNAL_DIRECTION_LABELS, type SignalDirection } from "@/lib/signal-card";
+import { ResolutionBadge } from "@/components/marketplace/resolution-badge";
+import type {
+  ResolutionStatus,
+  SignalOutcome,
+} from "@/lib/signal-resolution";
 import { cn } from "@/lib/utils";
 
 type DemandPayload = {
@@ -62,6 +67,16 @@ type DemandPayload = {
     to_post_id: string;
     to_title: string | null;
     changed_at: string;
+    path: string;
+    profile_path: string;
+  }>;
+  recent_resolutions: Array<{
+    post_id: string;
+    title: string;
+    author: string;
+    outcome: SignalOutcome;
+    status: ResolutionStatus;
+    resolved_at: string;
     path: string;
     profile_path: string;
   }>;
@@ -298,6 +313,36 @@ export function DemandBoard() {
                     <span className="shrink-0 font-mono text-[10px] text-[#555]">
                       @{post.author}
                     </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {data && data.recent_resolutions?.length > 0 && (
+            <section className="space-y-2 border-t border-[#1f1f1f] pt-4">
+              <p className="font-mono text-[9px] uppercase tracking-wide text-[#555]">
+                Just resolved
+              </p>
+              <ul className="space-y-1.5">
+                {data.recent_resolutions.map((row) => (
+                  <li
+                    key={row.post_id}
+                    className="flex flex-wrap items-baseline gap-2"
+                  >
+                    <ResolutionBadge status={row.status} outcome={row.outcome} />
+                    <Link
+                      href={row.path}
+                      className="truncate font-mono text-[11px] text-[#a3a3a3] hover:text-[#f5c842]"
+                    >
+                      {row.title}
+                    </Link>
+                    <Link
+                      href={row.profile_path}
+                      className="shrink-0 font-mono text-[10px] text-[#555] hover:text-[#f5c842]"
+                    >
+                      @{row.author}
+                    </Link>
                   </li>
                 ))}
               </ul>

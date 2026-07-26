@@ -30,7 +30,8 @@ Citation Agent is a crypto research marketplace on **Arc Testnet**. Analysts pub
 | **Discussion** | Threaded comments on unlocked posts | `post_comments`, unlock gate, agent session only |
 | **Endorsements** | Stamp work you stand behind · Curation tab | `post_endorsements`, stamp counts on cards and desks |
 | **Curator credit** | Referral links accrue credit on routed unlocks | `unlock_attributions` ledger (off-chain accrual) |
-| **Demand** | Agent vs human buying, top and rising desks | Aggregated from `creator_earnings` + `user_agent_wallets` |
+| **Proof of judgment** | Signal outcomes, accuracy, resolution rate | `signal_resolutions` + USDC dispute window on existing attestation rails |
+| **Demand** | Agent vs human buying, top and rising desks, just resolved | Aggregated from `creator_earnings` + `user_agent_wallets` |
 | **Niches** | Browse by sector · deep-links the topic filter | Static tag→sector map (`lib/sectors.ts`) |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, Arcscan-first claims index, multi-RPC stake |
@@ -391,6 +392,40 @@ sequenceDiagram
 
 ---
 
+## Proof of judgment — signal resolution
+
+A desk files an outcome on its own Signal Card against the **invalidation condition it pre-committed at publish**. The resolution is written once and cannot be edited: an editable outcome log would be worthless as proof.
+
+An outcome is **provisional** for 72 hours. During that window anyone can challenge it by staking USDC against `resolution:{postId}` through the existing `Attestation.sol` rails — no new contract, no new payment path. The stake tx is verified on Arc before the dispute is accepted. A disputed outcome is frozen out of accuracy until an operator adjudicates.
+
+| State | Meaning | Counts toward accuracy |
+| --- | --- | --- |
+| `unresolved` | No outcome yet, horizon still running | No |
+| `expired_unresolved` | Horizon passed, no outcome filed | No — drags resolution rate down |
+| `provisional` | Filed, inside the 72h dispute window | No |
+| `final` | Window closed undisputed | Yes |
+| `disputed` | Challenged with a USDC stake | No — frozen until settled |
+| `adjudicated` | Operator settled the dispute | Yes (adjudicated outcome stands) |
+
+**Two public numbers, on purpose.** Accuracy asks *when you called it, were you right* — `right / (right + wrong)`, with `void` excluded from the denominator. Resolution rate asks *do you close the loop, or bury losers*. Accuracy alone is trivially gamed by only ever resolving winners, so silence is made visible rather than rewarded.
+
+Only `30d` and `90d` horizons expire. `event` and `open` signals are never marked overdue — penalising a creator for a deadline they never claimed would be wrong.
+
+```mermaid
+stateDiagram-v2
+  [*] --> unresolved: signal published
+  unresolved --> expired_unresolved: horizon passes, no outcome
+  unresolved --> provisional: desk files right / wrong / void
+  expired_unresolved --> provisional: desk files late
+  provisional --> final: 72h passes, no challenge
+  provisional --> disputed: USDC stake filed against the outcome
+  disputed --> adjudicated: operator settles
+  final --> [*]
+  adjudicated --> [*]
+```
+
+---
+
 ## Demand surfaces and niche discovery
 
 The marketplace carries a collapsed **Demand** board and a **Browse by niche** lane under the catalog. Both are read-only aggregations over the existing unlock ledger — no new writes, no new payment rails — and lazy-load on first expand.
@@ -402,12 +437,13 @@ The marketplace carries a collapsed **Demand** board and a **Browse by niche** l
 | Rising desks | **Period-over-period growth** vs the preceding equal-length window |
 | Top signals / research | Unlocks per post in the window |
 | Conviction changes | A desk publishing a new signal on a theme it covered, with a different direction |
+| Just resolved | Newest signal outcomes, labelled provisional / disputed / final |
 | Niches | Free-form tags folded into 9 stable sectors, deep-linking `?tag=` into the catalog filter |
 
 Two deliberate design choices worth stating:
 
 - **Rising is growth, not share of lifetime.** Share-of-lifetime scores every desk identically in a marketplace younger than the window, which makes the lane a duplicate of the top-desk list.
-- **Resolutions are absent by design.** "Signals that just resolved" needs outcome logging (right / wrong / void), which is Phase 3 and has no store yet. The API returns `resolutions_available: false` rather than faking it.
+- **Resolutions shipped in Phase 3.** The "just resolved" lane is live and `resolutions_available` returns `true`. Provisional and disputed outcomes are labelled, so the lane never implies a settled result that is still being challenged.
 
 ```mermaid
 flowchart LR
@@ -579,7 +615,11 @@ npm run test
 | `GET /api/marketplace/referral` | Public | Read the stored referral code (httpOnly cookie) |
 | `POST /api/marketplace/referral` | Public | Store a `?ref=` code after validating it against a real profile |
 | `DELETE /api/marketplace/referral` | Public | Clear the stored code |
-| `GET /api/marketplace/demand?window=` | Public | Aggregate demand board: agent vs human, top/rising desks, conviction changes, sectors. Aggregates only — never returns ledger rows, payers, or wallets |
+| `GET /api/marketplace/demand?window=` | Public | Aggregate demand board: agent vs human, top/rising desks, conviction changes, sectors, just-resolved. Aggregates only — never returns ledger rows, payers, or wallets |
+| `GET /api/marketplace/resolutions?postId=` | Public | Signal outcome + derived state (status, dispute window, accuracy eligibility) |
+| `POST /api/marketplace/resolutions` | Session + username | File an outcome on your own signal (right / wrong / void). Immutable |
+| `POST /api/marketplace/resolutions/dispute` | On-chain stake | Challenge an outcome; tx verified against `Attestation.sol` for target and minimum stake |
+| `POST /api/marketplace/resolutions/adjudicate` | Operator signature | Settle a disputed outcome |
 
 ### Profile
 
