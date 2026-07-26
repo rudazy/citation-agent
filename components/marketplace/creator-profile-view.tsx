@@ -7,6 +7,7 @@ import {
   FileText,
   Loader2,
   Radio,
+  Stamp,
   Users,
 } from "lucide-react";
 import { Panel } from "@/components/layout/panel";
@@ -27,9 +28,23 @@ import {
   type ResearchBackingStats,
 } from "@/lib/research-backing";
 import { formatUsernameDisplay } from "@/lib/username";
+import { formatPaymentDate } from "@/lib/format-datetime";
+import { buildMarketplacePostPath } from "@/lib/post-share-url";
+import { buildProfilePath } from "@/lib/profile-url";
 import { cn } from "@/lib/utils";
 
-type DeskTab = "all" | "research" | "signals";
+type DeskTab = "all" | "research" | "signals" | "curation";
+
+type CurationEntry = {
+  post_id: string;
+  title: string;
+  author: string;
+  price_usdc: string;
+  post_kind: "research" | "signal";
+  note: string | null;
+  created_at: string;
+  path: string;
+};
 
 type ProfilePayload = {
   username: string;
@@ -38,6 +53,9 @@ type ProfilePayload = {
   postCount: number;
   signalCount?: number;
   totalReaders: number;
+  endorsementsReceived?: number;
+  endorsementsGiven?: number;
+  curation?: CurationEntry[];
   following: boolean;
   isSelf: boolean;
   verified_links?: string[];
@@ -98,8 +116,10 @@ export function CreatorProfileView({ username }: { username: string }) {
   const signalCount = data?.signalCount ?? data?.posts.filter((p) => p.post_kind === "signal").length ?? 0;
   const researchCount = data?.postCount ?? 0;
 
+  const curation = useMemo(() => data?.curation ?? [], [data]);
+
   const filteredPosts = useMemo(() => {
-    if (!data) return [];
+    if (!data || tab === "curation") return [];
     if (tab === "research") {
       return data.posts.filter((p) => p.post_kind !== "signal");
     }
@@ -170,7 +190,7 @@ export function CreatorProfileView({ username }: { username: string }) {
 
         <DeskShareKit username={data.username} />
 
-        <div className="grid grid-cols-2 gap-3 border-t border-[#1f1f1f] pt-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 border-t border-[#1f1f1f] pt-4 sm:grid-cols-5">
           <div className="space-y-1">
             <p className="font-mono text-[10px] text-[#666] uppercase tracking-wide">
               Research
@@ -202,6 +222,15 @@ export function CreatorProfileView({ username }: { username: string }) {
             <p className="text-xl font-semibold tracking-wide text-[#f5f5f5] flex items-center gap-1.5">
               <Users size={16} className="text-[#f5c842]" />
               {followerCount}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <p className="font-mono text-[10px] text-[#666] uppercase tracking-wide">
+              Endorsed
+            </p>
+            <p className="text-xl font-semibold tracking-wide text-[#f5f5f5] flex items-center gap-1.5">
+              <BadgeCheck size={16} className="text-[#f5c842]" />
+              {data.endorsementsReceived ?? 0}
             </p>
           </div>
         </div>
@@ -280,6 +309,7 @@ export function CreatorProfileView({ username }: { username: string }) {
                 ["all", "All"],
                 ["research", "Research"],
                 ["signals", "Signals"],
+                ["curation", `Curation${curation.length ? ` ${curation.length}` : ""}`],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -299,7 +329,63 @@ export function CreatorProfileView({ username }: { username: string }) {
           </div>
         </div>
 
-        {filteredPosts.length === 0 ? (
+        {tab === "curation" ? (
+          curation.length === 0 ? (
+            <p className="rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-8 text-center font-mono text-xs text-[#666]">
+              This desk has not endorsed anyone else&apos;s work yet.
+            </p>
+          ) : (
+            <div className="grid gap-3">
+              {curation.map((entry) => (
+                <article
+                  key={entry.post_id}
+                  className="rounded border border-[#1f1f1f] bg-[#111]/80 p-4 space-y-2 transition-colors hover:border-[#f5c842]/25"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#f5c842]">
+                      <Stamp size={11} />
+                      Endorsed
+                    </span>
+                    <span className="font-mono text-[10px] text-[#666]">
+                      {entry.post_kind === "signal" ? "Signal" : "Research"} · $
+                      {entry.price_usdc} USDC
+                    </span>
+                    <span className="font-mono text-[10px] text-[#666]">
+                      {formatPaymentDate(entry.created_at)}
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-semibold tracking-wide text-[#f5f5f5]">
+                    {entry.title}
+                  </h3>
+                  <p className="font-mono text-[10px] text-[#888]">
+                    by{" "}
+                    <Link
+                      href={buildProfilePath(entry.author)}
+                      className="text-[#a3a3a3] underline-offset-2 hover:text-[#f5c842] hover:underline"
+                    >
+                      @{entry.author}
+                    </Link>
+                  </p>
+                  {entry.note && (
+                    <p className="font-mono text-xs leading-relaxed text-[#888]">
+                      &ldquo;{entry.note}&rdquo;
+                    </p>
+                  )}
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 border-[#333] font-mono text-xs text-[#a3a3a3]"
+                  >
+                    <Link href={buildMarketplacePostPath(entry.post_id)}>
+                      View in catalog
+                    </Link>
+                  </Button>
+                </article>
+              ))}
+            </div>
+          )
+        ) : filteredPosts.length === 0 ? (
           <p className="rounded border border-[#1f1f1f] bg-[#111]/80 px-4 py-8 text-center font-mono text-xs text-[#666]">
             {tab === "signals" ? (
               <span className="inline-flex items-center gap-1.5 justify-center">

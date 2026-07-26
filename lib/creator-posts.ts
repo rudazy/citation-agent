@@ -343,6 +343,51 @@ export async function getPostMetaById(id: string): Promise<PostMeta | null> {
   };
 }
 
+export type PostSummary = {
+  id: string;
+  title: string;
+  author: string;
+  priceUsdc: string;
+  postKind: PostKind;
+};
+
+/**
+ * Bulk card metadata for a known set of post ids, without pulling bodies.
+ * Used by curation lists where only the headline of each post is shown.
+ */
+export async function getPostSummariesByIds(
+  ids: string[],
+): Promise<Map<string, PostSummary>> {
+  const out = new Map<string, PostSummary>();
+  const unique = [...new Set(ids)].filter(Boolean);
+  if (unique.length === 0) return out;
+
+  const supabase = getAdminClient();
+  if (!supabase) return out;
+
+  const { data, error } = await supabase
+    .from("creator_posts")
+    .select("id, title, author_name, price_usdc, post_kind")
+    .eq("status", "published")
+    .in("id", unique.slice(0, 200));
+
+  if (error) {
+    console.warn("[creator-posts] summary lookup failed:", error.message);
+    return out;
+  }
+
+  for (const row of data ?? []) {
+    out.set(String(row.id), {
+      id: String(row.id),
+      title: String(row.title),
+      author: String(row.author_name),
+      priceUsdc: String(row.price_usdc),
+      postKind: row.post_kind === "signal" ? "signal" : "research",
+    });
+  }
+  return out;
+}
+
 export async function insertPublishedPost(
   input: PublishPostInput,
 ): Promise<PublishPostResult> {

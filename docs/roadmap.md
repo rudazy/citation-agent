@@ -223,16 +223,44 @@ A new creator should, in minutes:
 
 *Why buyers and agents open the product daily*
 
-- [ ] Demand surfaces: agent purchases, top Desks, conviction changes, resolutions
-- [ ] **Endorsements** with curator economics when stamps convert to unlocks
-- [ ] Referral attribution (audience owner earns when they route unlocks)
-- [ ] Follow + notify when a followed Desk publishes a signal or report
-- [ ] Niche discovery (sectors / themes) and rising-desk lane
-- [ ] Lightweight weekly rhythm (e.g. top signals, scoreboard of resolutions)
+- [x] Demand surfaces: agent purchases, top Desks, conviction changes *(resolutions deferred — see below)*
+- [x] **Endorsements** with curator economics when stamps convert to unlocks
+- [x] Referral attribution (audience owner earns when they route unlocks)
+- [x] Follow + notify when a followed Desk publishes a signal or report
+- [x] Niche discovery (sectors / themes) and rising-desk lane
+- [x] Lightweight weekly rhythm (top signals scoreboard)
 
 **North star:** Repeat human buyers + repeat agent unlocks without requiring new creator spam.
 
 **Exit:** Daily/weekly demand loops exist; endorsement graph produces discovery edges.
+
+**Status (July 2026): complete.**
+
+*Endorsement graph* — desks stamp work they stand behind; stamps appear on
+catalog cards and desk boards, and each desk has a Curation tab. Referral links
+(`?ref=`) carry through both unlock paths, and routed unlocks accrue curator
+credit at 10% (endorsed) or 5% (plain referral). Follower notifications fire on
+publish for research and signals.
+
+*Demand loops* — a Demand board on the marketplace splits unlocks by AI agent vs
+human buyer over 1d / 7d / 30d windows, with top desks, a rising-desk lane, top
+signals for the period, conviction changes, and a live unlock feed. Niche
+discovery folds free-form tags into stable sectors that deep-link into the
+catalog's topic filter.
+
+**Curator settlement note:** credit accrues in an off-chain attribution ledger.
+Unlocks still settle 100% on-chain to the creator payout wallet on the existing
+single-payee x402 rails — no split was introduced. Paying accrued credit out is
+deliberately deferred so the endorsement graph could ship without reworking
+settlement.
+
+**Resolutions deferred to Phase 3.** The "signals that just resolved" surface
+needs outcome logging (right / wrong / void / open), which Phase 3 owns and no
+store exists for yet. Rather than fake it, the demand API returns
+`resolutions_available: false` so clients know the lane is absent by design.
+*Rising* is defined as period-over-period growth against the preceding
+equal-length window, not share of lifetime unlocks — the latter scores every
+desk in a young marketplace identically and just mirrors the top-desk list.
 
 ---
 
@@ -294,7 +322,7 @@ A new creator should, in minutes:
 | Research / signal unlocks | Live → expand | Creator-earned USDC; marketplace economics evolve carefully |
 | Tips | Live | Direct support to creators |
 | Attestation fees | Live | Platform fee on stake |
-| Endorsement / referral cuts | Phase 2 | Curators and distributors earn when they convert demand |
+| Endorsement / referral cuts | Phase 2 | Curators and distributors earn when they convert demand. Ledger live (10% endorsed / 5% referral); credit accrues pending payout |
 | Desk memberships | Phase 4 | Recurring desk access |
 | Agent API usage | Phase 4 | Machine-native demand |
 | Pro desk plans | Phase 5 | Higher limits / priority |

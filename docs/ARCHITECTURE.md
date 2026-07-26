@@ -81,7 +81,12 @@ This is the main marketplace path. MetaMask/WalletConnect can fund and deposit; 
    c. withGateway → BatchFacilitatorClient.verify → .settle
    d. On success: recordPaymentEvent + recordCitationRoyalty (full amount to creator
       when fullToCreator); response 200 + markdown/JSON body.
-   e. Client caches body in sessionStorage; prior unlocks for this agent wallet
+   e. If the request carried ?ref={username}, recordUnlockAttribution credits that
+      curator off-chain in unlock_attributions (10% endorsed / 5% referral,
+      settled_at = null). Settlement above is unchanged — there is no on-chain
+      split. Rejected for unknown curators, the post author, the buyer crediting
+      themselves, or a repeat (post_id, payer) pair. Never fails the unlock.
+   f. Client caches body in sessionStorage; prior unlocks for this agent wallet
       are also visible via creator_earnings on later catalog loads.
 
 7. Creator payout
@@ -127,8 +132,11 @@ sequenceDiagram
   API->>Fac: verify + settle
   Fac->>Chain: batch settlement to payTo
   API->>DB: payment_events + creator_earnings
+  opt Unlock carried ?ref=curator
+    API->>DB: unlock_attributions · curator credit accrues off-chain
+  end
   API-->>UI: 200 + report body
-  Note over DB: Creator sees royalty on dashboard; full unlock amount to payout_wallet
+  Note over DB: Creator sees royalty on dashboard · full unlock amount to payout_wallet
 ```
 
 ---
@@ -156,6 +164,9 @@ See `agent.mts` and `lib/agent-gateway.ts`.
 | Gateway deposit / pay UI + server | `app/api/gateway/*`, `lib/gateway-metamask.ts`, `lib/gateway-pay.ts`, `components/dashboard/*gateway*` |
 | Unlock client | `lib/citation-unlock-client.ts`, `lib/x402-client.ts` |
 | Royalty record | `lib/royalties.ts`, `lib/record-payment-event.ts` |
+| Curator economics | `lib/curator-share.ts` (pure rates/math), `lib/unlock-attribution.ts` (ledger), `lib/endorsements.ts` |
+| Referral capture | `lib/referral.ts` (pure links), `lib/referral-client.ts`, `app/api/marketplace/referral` |
+| Demand aggregation | `lib/demand-surfaces.ts`, `lib/demand-board.ts`, `lib/conviction-changes.ts`, `lib/sectors.ts` |
 | Attestation | `contracts/Attestation.sol`, `lib/attestation.ts`, `lib/attestation-client.ts`, `lib/attestation-index.ts` |
 
 Citation-specific (must become pluggable in a standalone primitive): Supabase table shapes, catalog merge, TrustGate scoring, creator profiles.

@@ -27,6 +27,7 @@ import { AttestModal } from "@/components/attest";
 import { AttestTrigger } from "@/components/attest/attest-trigger";
 import { BackingHint } from "@/components/marketplace/backing-hint";
 import { CitationBodyMarkdown } from "@/components/marketplace/citation-body-markdown";
+import { EndorseButton } from "@/components/marketplace/endorse-button";
 import { PostCommentsSection } from "@/components/marketplace/post-comments-section";
 import {
   TrustSignalBadge,
@@ -61,7 +62,11 @@ import {
 import { depositToGatewayViaMetaMask } from "@/lib/gateway-metamask";
 import { depositAgentGatewayViaApi } from "@/lib/gateway-pay";
 import { formatPaymentDate } from "@/lib/format-datetime";
-import { copyPostShareLink, getPostIdFromSearchParams } from "@/lib/post-share-url";
+import {
+  copyPostShareLink,
+  getCatalogTagFromSearchParams,
+  getPostIdFromSearchParams,
+} from "@/lib/post-share-url";
 import { buildProfilePath } from "@/lib/profile-url";
 import { resolveCatalogAuthHeaders } from "@/lib/citation-catalog-auth";
 import { fetchWithRetry } from "@/lib/client-fetch";
@@ -96,6 +101,9 @@ type CitationListing = {
   published_at?: string;
   cover_image_url?: string;
   comment_count?: number;
+  endorsement_count?: number;
+  endorsed_by?: string[];
+  viewer_endorsed?: boolean;
   author_is_username?: boolean;
   post_kind?: "research" | "signal";
   signal_direction?: string | null;
@@ -137,6 +145,7 @@ type Props = {
 export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const searchParams = useSearchParams();
   const deepLinkPostId = getPostIdFromSearchParams(searchParams);
+  const deepLinkTag = getCatalogTagFromSearchParams(searchParams);
   const deepLinkHandledRef = useRef<string | null>(null);
 
   const [listings, setListings] = useState<CitationListing[]>([]);
@@ -152,7 +161,12 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
   const [gatewayFunding, setGatewayFunding] = useState(false);
   const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<CatalogSortMode>("latest");
-  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [tagFilter, setTagFilter] = useState<string>(deepLinkTag ?? "all");
+
+  // Niche lane deep link (?tag=) drives the same filter as the Topic select.
+  useEffect(() => {
+    setTagFilter(deepLinkTag ?? "all");
+  }, [deepLinkTag]);
 
   const availableTags = useMemo(() => {
     const tags = new Set<string>();
@@ -1039,6 +1053,13 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                         label="Back this researcher"
                         variant="ghost"
                         className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
+                      />
+                      <EndorseButton
+                        postId={item.id}
+                        initialEndorsed={item.viewer_endorsed ?? false}
+                        initialCount={item.endorsement_count ?? 0}
+                        isOwnPost={item.is_own_post ?? false}
+                        className="h-7 px-2 text-[10px]"
                       />
                     </div>
                   </div>

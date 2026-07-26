@@ -3,8 +3,13 @@ import {
   countFollowers,
   loadPublishedPostsForProfile,
 } from "@/lib/creator-follows";
-import type { CreatorContent } from "@/lib/citations";
+import { loadMarkdownContent, type CreatorContent } from "@/lib/citations";
+import { getPostSummariesByIds } from "@/lib/creator-posts";
 import { isPublicResearchListing } from "@/lib/catalog-filter";
+import {
+  getEndorsementSummariesForPosts,
+  listEndorsementsByProfile,
+} from "@/lib/endorsements";
 
 export type PublicProfilePost = {
   id: string;
@@ -15,10 +20,23 @@ export type PublicProfilePost = {
   paidCount: number;
   publishedAt?: string;
   postKind: "research" | "signal";
+  endorsementCount: number;
+  endorsedBy: string[];
   signalDirection?: CreatorContent["signalDirection"];
   signalConfidence?: number;
   signalHorizon?: CreatorContent["signalHorizon"];
   signalInvalidation?: string;
+};
+
+/** A post this desk has stamped — the curation half of a Creator Desk. */
+export type PublicProfileCuration = {
+  postId: string;
+  title: string;
+  author: string;
+  priceUsdc: string;
+  postKind: "research" | "signal";
+  note: string | null;
+  createdAt: string;
 };
 
 export type PublicCreatorProfile = {
@@ -28,10 +46,18 @@ export type PublicCreatorProfile = {
   postCount: number;
   signalCount: number;
   totalReaders: number;
+  /** Stamps this desk has received across its own work. */
+  endorsementsReceived: number;
+  /** Stamps this desk has given to other creators. */
+  endorsementsGiven: number;
   posts: PublicProfilePost[];
+  curation: PublicProfileCuration[];
 };
 
-function toPublicPost(post: CreatorContent): PublicProfilePost {
+function toPublicPost(
+  post: CreatorContent,
+  endorsements: { count: number; topEndorsers: string[] },
+): PublicProfilePost {
   const postKind = post.postKind === "signal" ? "signal" : "research";
   return {
     id: post.id,
@@ -42,6 +68,8 @@ function toPublicPost(post: CreatorContent): PublicProfilePost {
     paidCount: post.paidCount,
     publishedAt: post.publishedAt,
     postKind,
+    endorsementCount: endorsements.count,
+    endorsedBy: endorsements.topEndorsers,
     ...(postKind === "signal"
       ? {
           signalDirection: post.signalDirection,
@@ -51,6 +79,40 @@ function toPublicPost(post: CreatorContent): PublicProfilePost {
         }
       : {}),
   };
+}
+
+/**
+ * Resolve stamped post ids to card metadata. Published posts come from a single
+ * bulk query; seed listings live in content files, so fall back to those.
+ */
+async function loadCuration(
+  profileId: string,
+): Promise<PublicProfileCuration[]> {
+  const stamps = await listEndorsementsByProfile(profileId);
+  if (stamps.length === 0) return [];
+
+  const summaries = await getPostSummariesByIds(stamps.map((s) => s.postId));
+  const seeds = new Map(loadMarkdownContent().map((post) => [post.id, post]));
+
+  return stamps
+    .map((stamp) => {
+      const summary = summaries.get(stamp.postId);
+      const seed = summary ? null : seeds.get(stamp.postId);
+      if (!summary && !seed) return null;
+
+      return {
+        postId: stamp.postId,
+        title: summary?.title ?? seed!.title,
+        author: summary?.author ?? seed!.author,
+        priceUsdc: summary?.priceUsdc ?? seed!.priceUsdc,
+        postKind: (summary?.postKind ?? seed!.postKind ?? "research") === "signal"
+          ? ("signal" as const)
+          : ("research" as const),
+        note: stamp.note,
+        createdAt: stamp.createdAt,
+      };
+    })
+    .filter((row): row is PublicProfileCuration => row !== null);
 }
 
 export async function getPublicCreatorProfile(
@@ -64,10 +126,19 @@ export async function getPublicCreatorProfile(
   const posts = (await loadPublishedPostsForProfile(profile)).filter(
     isPublicResearchListing,
   );
-  const followerCount = await countFollowers(profile.id);
+  const [followerCount, endorsementIndex, curation] = await Promise.all([
+    countFollowers(profile.id),
+    getEndorsementSummariesForPosts(posts.map((p) => p.id)),
+    loadCuration(profile.id),
+  ]);
+
   const totalReaders = posts.reduce((sum, p) => sum + (p.paidCount ?? 0), 0);
   const signalCount = posts.filter((p) => p.postKind === "signal").length;
   const researchCount = posts.length - signalCount;
+
+  const publicPosts = posts.map((post) =>
+    toPublicPost(post, endorsementIndex.get(post.id) ?? { count: 0, topEndorsers: [] }),
+  );
 
   return {
     username: profile.username,
@@ -76,7 +147,13 @@ export async function getPublicCreatorProfile(
     postCount: researchCount,
     signalCount,
     totalReaders,
-    posts: posts.map(toPublicPost),
+    endorsementsReceived: publicPosts.reduce(
+      (sum, p) => sum + p.endorsementCount,
+      0,
+    ),
+    endorsementsGiven: curation.length,
+    posts: publicPosts,
+    curation,
   };
 }
 

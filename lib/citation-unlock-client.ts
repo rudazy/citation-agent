@@ -4,8 +4,26 @@
 
 import { payViaAgentWallet } from "@/lib/gateway-pay";
 import { formatCitationPaymentMemo } from "@/lib/payment-memo";
+import { appendReferralToPath } from "@/lib/referral";
+import { getStoredReferral } from "@/lib/referral-client";
 import { payGatewayWithMetaMask } from "@/lib/x402-client";
 import type { EthereumProvider } from "@/lib/ethereum-provider";
+
+/**
+ * Unlock path carrying the stored referral code, if any.
+ *
+ * The code rides the query string rather than the cookie because the agent
+ * unlock path proxies through /api/gateway/pay server-side, where the browser
+ * cookie does not propagate but the path (including its query) does.
+ */
+async function buildUnlockPath(listingId: string): Promise<string> {
+  const path = `/api/marketplace/citations?id=${encodeURIComponent(listingId)}`;
+  try {
+    return appendReferralToPath(path, await getStoredReferral());
+  } catch {
+    return path;
+  }
+}
 
 export type CitationUnlockPayload = {
   citation?: {
@@ -82,7 +100,7 @@ export async function unlockCitationViaMetaMask(params: {
   ethereum: EthereumProvider;
   catalogAuthHeaders?: Record<string, string>;
 }): Promise<CitationUnlockResult> {
-  const path = `/api/marketplace/citations?id=${encodeURIComponent(params.listingId)}`;
+  const path = await buildUnlockPath(params.listingId);
   const memo = formatCitationPaymentMemo(params.listingId, params.author);
 
   try {
@@ -128,7 +146,7 @@ export async function unlockCitationViaAgent(params: {
   author: string;
   catalogAuthHeaders?: Record<string, string>;
 }): Promise<CitationUnlockResult> {
-  const path = `/api/marketplace/citations?id=${encodeURIComponent(params.listingId)}`;
+  const path = await buildUnlockPath(params.listingId);
   const memo = formatCitationPaymentMemo(params.listingId, params.author);
 
   try {

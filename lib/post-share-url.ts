@@ -2,6 +2,16 @@ import { buildReportPath, buildReportUrl } from "@/lib/profile-url";
 
 export const POST_SHARE_QUERY_PARAM = "post";
 
+/** Deep-links the catalog to a topic filter (used by the niche discovery lane). */
+export const CATALOG_TAG_QUERY_PARAM = "tag";
+
+export function getCatalogTagFromSearchParams(
+  params: URLSearchParams | { get(name: string): string | null },
+): string | null {
+  const raw = params.get(CATALOG_TAG_QUERY_PARAM)?.trim().toLowerCase();
+  return raw || null;
+}
+
 /** Canonical share path for a research asset (`/r/{id}`). */
 export function buildPostSharePath(postId: string): string {
   return buildReportPath(postId);

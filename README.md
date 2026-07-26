@@ -28,6 +28,10 @@ Citation Agent is a crypto research marketplace on **Arc Testnet**. Analysts pub
 | **Commerce** | Per-report USDC unlock · optional tips | x402 v2, Gateway batch settlement, royalty ledger |
 | **Identity** | `@username` on posts, comments, `@mentions` | `platform_profiles` + `profile_wallets` |
 | **Discussion** | Threaded comments on unlocked posts | `post_comments`, unlock gate, agent session only |
+| **Endorsements** | Stamp work you stand behind · Curation tab | `post_endorsements`, stamp counts on cards and desks |
+| **Curator credit** | Referral links accrue credit on routed unlocks | `unlock_attributions` ledger (off-chain accrual) |
+| **Demand** | Agent vs human buying, top and rising desks | Aggregated from `creator_earnings` + `user_agent_wallets` |
+| **Niches** | Browse by sector · deep-links the topic filter | Static tag→sector map (`lib/sectors.ts`) |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, Arcscan-first claims index, multi-RPC stake |
 | **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect, Gateway pay |
@@ -49,12 +53,12 @@ flowchart TB
   end
 
   subgraph Application["Application · Next.js"]
-    Marketplace["/marketplace · catalog · publish · follow"]
+    Marketplace["/marketplace · catalog · publish · demand · niches"]
     Setup["/profile · account setup"]
-    Profiles["/u/username · tip · back · View · settings"]
+    Profiles["/u/username · tip · back · endorse · curation · settings"]
     Reports["/r/postId · share landing"]
     Dashboard["/dashboard · royalties · claims · settlement trace"]
-    APIs["API routes · x402 · profile · drafts · follow · tip · attest"]
+    APIs["API routes · x402 · profile · drafts · follow · tip · attest · endorse · referral · demand"]
   end
 
   subgraph Settlement["Settlement · Circle"]
@@ -71,7 +75,7 @@ flowchart TB
   end
 
   subgraph Persistence["Persistence"]
-    Supabase[("Supabase · posts · drafts · profiles · follows · comments · earnings")]
+    Supabase[("Supabase · posts · drafts · profiles · follows · comments · earnings · endorsements · attributions")]
     Seeds["content/creators/*.md"]
   end
 
@@ -345,6 +349,100 @@ sequenceDiagram
 
 ---
 
+## Endorsements and curator credit
+
+Desks **endorse** research or signals they stand behind. A stamp is a public taste signal and the entry point to curator economics: endorsing mints a referral link, and unlocks routed through it accrue **curator credit**.
+
+**Settlement is unchanged.** An unlock still pays 100% on-chain to the creator's payout wallet through the same single-payee x402 rails. Curator credit accrues off-chain in `unlock_attributions` with `settled_at = null`; paying it out is deliberately deferred (see [roadmap](docs/roadmap.md)).
+
+| Rule | Value |
+| --- | --- |
+| Endorsed rate | 10% of the unlock price |
+| Plain referral rate | 5% |
+| Rounding | Truncated to 6dp, so credit can never exceed gross |
+| Self-endorsement | Blocked — you cannot stamp your own post |
+| Self-referral | Blocked — buyer wallet resolving to the curator earns nothing |
+| Double credit | Blocked — unique on `(post_id, payer)`; repeat unlocks do not re-mint |
+
+The referral code rides the **unlock query string**, not the cookie. The MetaMask path sends cookies, but the agent path proxies server-side through `/api/gateway/pay` where cookies do not propagate and only the path survives.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Curator as Curator desk
+  participant Buyer
+  participant Landing as /r/id or /u/name
+  participant Ref as /api/marketplace/referral
+  participant API as citations?id=&ref=
+  participant DB as Supabase
+
+  Curator->>API: POST /api/marketplace/endorsements
+  API->>DB: post_endorsements row
+  API-->>Curator: share_path with ?ref=curator
+  Curator->>Buyer: shares referral link
+  Buyer->>Landing: opens ?ref=curator
+  Landing->>Ref: POST · validate against a real profile
+  Ref-->>Buyer: httpOnly cookie (30d)
+  Buyer->>API: unlock · ref carried on the query string
+  Note over API: 100% settles on-chain to the creator
+  API->>DB: creator_earnings + unlock_attributions
+  Note over DB: source = endorsement (10%) · credit pending
+```
+
+---
+
+## Demand surfaces and niche discovery
+
+The marketplace carries a collapsed **Demand** board and a **Browse by niche** lane under the catalog. Both are read-only aggregations over the existing unlock ledger — no new writes, no new payment rails — and lazy-load on first expand.
+
+| Surface | Derived from |
+| --- | --- |
+| Agent vs human split | Payer wallet matched against `user_agent_wallets` (lowercased both sides) |
+| Top desks | Unlock count then earnings, in the selected window |
+| Rising desks | **Period-over-period growth** vs the preceding equal-length window |
+| Top signals / research | Unlocks per post in the window |
+| Conviction changes | A desk publishing a new signal on a theme it covered, with a different direction |
+| Niches | Free-form tags folded into 9 stable sectors, deep-linking `?tag=` into the catalog filter |
+
+Two deliberate design choices worth stating:
+
+- **Rising is growth, not share of lifetime.** Share-of-lifetime scores every desk identically in a marketplace younger than the window, which makes the lane a duplicate of the top-desk list.
+- **Resolutions are absent by design.** "Signals that just resolved" needs outcome logging (right / wrong / void), which is Phase 3 and has no store yet. The API returns `resolutions_available: false` rather than faking it.
+
+```mermaid
+flowchart LR
+  subgraph Ledger["Existing data · read only"]
+    Earnings[("creator_earnings")]
+    AgentWallets[("user_agent_wallets")]
+    Catalog["Published catalog"]
+  end
+
+  subgraph Aggregate["lib · pure summarizers"]
+    Demand["demand-surfaces · agent vs human · top · rising"]
+    Conviction["conviction-changes · direction flips"]
+    Sectors["sectors · tag to niche"]
+  end
+
+  API["GET /api/marketplace/demand · window 1d · 7d · 30d"]
+  Board["Demand board"]
+  Lanes["Browse by niche"]
+  Filter["Catalog topic filter"]
+
+  Earnings --> Demand
+  AgentWallets --> Demand
+  Catalog --> Demand
+  Catalog --> Conviction
+  Catalog --> Sectors
+  Demand --> API
+  Conviction --> API
+  Sectors --> API
+  API --> Board
+  API --> Lanes
+  Lanes -->|"?tag="| Filter
+```
+
+---
+
 ## Stack
 
 | Layer | Technology |
@@ -386,11 +484,22 @@ Edit `.env.local` with real values. **Never commit `.env.local` or any `*_PRIVAT
 
 ### Full marketplace (publish, royalties UI, agent restore, comments)
 
-Also set Supabase URL + anon/publishable key + **`SUPABASE_SERVICE_ROLE_KEY`** (never commit), then apply migrations in `supabase/migrations/` (agent wallets, publish, usernames, comments, drafts, follows). Per file:
+Also set Supabase URL + anon/publishable key + **`SUPABASE_SERVICE_ROLE_KEY`** (never commit), then apply migrations in `supabase/migrations/` (agent wallets, publish, usernames, comments, drafts, follows, signals, endorsements, attributions).
+
+With the Supabase CLI linked to your project:
+
+```cmd
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
+```
+
+Or per file, without the CLI:
 
 ```cmd
 npx tsx scripts/apply-sql-migration.mts supabase/migrations/<migration>.sql
 ```
+
+If migrations were applied by hand in the SQL editor, the CLI's history table will not know about them and `db push` will try to replay everything. Verify the schema first, then record them without executing: `npx supabase migration repair --status applied <version...>`.
 
 Optional TrustGate badges: append vars from [`.env.local.example`](.env.local.example) into `.env.local`.
 
@@ -405,9 +514,9 @@ Open [http://localhost:3000](http://localhost:3000). Create a session agent wall
 | Route | Purpose |
 | --- | --- |
 | `/` | Redirects to `/marketplace` |
-| `/marketplace` | Catalog, publish/drafts, follow discovery, following feed, unlock |
+| `/marketplace` | Publish (signal, research), catalog, demand board, niche lanes, following feed, unlock |
 | `/profile` | Account setup (no username) · redirects to `/u/{you}` when ready |
-| `/u/{username}` | Public creator profile · tip · back · follow · owner settings / earnings |
+| `/u/{username}` | Public desk · tip · back · follow · endorse · Curation tab · owner settings / earnings |
 | `/r/{postId}` | Shareable report teaser · unlock CTA into catalog |
 | `/dashboard` | Payments, royalties, withdrawals, operator fees, claims, settlement trace tab |
 
@@ -462,8 +571,15 @@ npm run test
 | `DELETE /api/marketplace/follow?username=` | Session + username | Unfollow |
 | `GET /api/marketplace/follow/recommendations` | Session | Publishers with ≥1 published report |
 | `GET /api/marketplace/following/feed` | Session | Recent posts from followed creators |
-| `GET /api/marketplace/profiles/{username}` | Public | Public profile metadata + report teasers |
+| `GET /api/marketplace/profiles/{username}` | Public | Public desk metadata, report teasers, endorsement counts, curation list |
 | `GET /api/marketplace/gateway-balance` | Session / wallet | Creator Gateway balance for unlock-earnings UI |
+| `GET /api/marketplace/endorsements?postId=` | Public | Endorsers of a post |
+| `POST /api/marketplace/endorsements` | Session + username | Stamp a post (not your own); returns `share_path` with `?ref=` |
+| `DELETE /api/marketplace/endorsements?postId=` | Session + username | Remove your stamp |
+| `GET /api/marketplace/referral` | Public | Read the stored referral code (httpOnly cookie) |
+| `POST /api/marketplace/referral` | Public | Store a `?ref=` code after validating it against a real profile |
+| `DELETE /api/marketplace/referral` | Public | Clear the stored code |
+| `GET /api/marketplace/demand?window=` | Public | Aggregate demand board: agent vs human, top/rising desks, conviction changes, sectors. Aggregates only — never returns ledger rows, payers, or wallets |
 
 ### Profile
 

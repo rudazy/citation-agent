@@ -30,6 +30,15 @@ import {
 import { getPriorUnlockIds } from "@/lib/citation-prior-unlock";
 import { resolveCitationViewerWallets } from "@/lib/citation-viewer-wallets";
 import {
+  getEndorsedPostIds,
+  getEndorsementSummariesForPosts,
+  getEndorsementSummary,
+  type EndorsementSummary,
+} from "@/lib/endorsements";
+import { REFERRAL_QUERY_PARAM } from "@/lib/referral";
+import { recordUnlockAttribution } from "@/lib/unlock-attribution";
+import { notifyFollowersOfPublish } from "@/lib/notifications";
+import {
   authorBackingTarget,
   indexBackingSummaries,
   reportBackingTarget,
@@ -38,6 +47,7 @@ import {
 import {
   getProfilePayoutWallet,
   requirePublisherUsername,
+  resolveProfileForWallets,
   setProfilePayoutWallet,
 } from "@/lib/platform-profile";
 import { resolvePublishPayout } from "@/lib/publish-payout";
@@ -121,6 +131,7 @@ function buildCreatorCitationAccessResponse(content: CreatorContent) {
 const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
   const id = req.nextUrl.searchParams.get("id");
   const query = req.nextUrl.searchParams.get("query") ?? undefined;
+  const referralCode = req.nextUrl.searchParams.get(REFERRAL_QUERY_PARAM);
 
   if (!id) {
     return NextResponse.json(
@@ -156,6 +167,24 @@ const paidHandler = async (req: NextRequest, ctx: GatewayContext) => {
 
   if (content.source === "database") {
     await incrementPostPaidCount(content.id);
+  }
+
+  // Curator credit accrues off-chain; settlement above is unchanged. Never let
+  // an attribution failure surface on an unlock the buyer already paid for.
+  try {
+    await recordUnlockAttribution({
+      postId: content.id,
+      referralCode,
+      authorUsername: content.author,
+      payer: ctx.payer,
+      grossUsdc: content.priceUsdc,
+      gatewayTx: ctx.gatewayTx,
+    });
+  } catch (err) {
+    console.warn(
+      "[citations] unlock attribution failed:",
+      err instanceof Error ? err.message : err,
+    );
   }
 
   return buildCitationUnlockResponse(content, settledToCreator);
@@ -213,9 +242,12 @@ export async function GET(req: NextRequest) {
       const citationIds = content.map((item) => item.id);
 
       let creatorOwned = new Set<string>();
+      let viewerProfileId: string | null = null;
       try {
         const viewerWallets = await resolveCitationViewerWallets(req);
         creatorOwned = getCreatorOwnedPostIds(viewerWallets, content);
+        const viewerProfile = await resolveProfileForWallets([...viewerWallets]);
+        viewerProfileId = viewerProfile?.id ?? null;
       } catch (err) {
         console.warn(
           "[citations] Creator access lookup failed; continuing without publisher auto-unlock:",
@@ -231,13 +263,22 @@ export async function GET(req: NextRequest) {
       };
       const emptyComments = new Map<string, number>();
       const emptyPrior = new Set<string>();
+      const emptyEndorsements = new Map<string, EndorsementSummary>();
+      const emptyEndorsed = new Set<string>();
 
       // Default load: skip per-target on-chain attestation fills (slow + flaky).
       // Explicit ?refresh=1 still does the full path for operators.
       const enrichmentBudgetMs = forceBackingRefresh ? 25_000 : 8_000;
 
-      const [scores, backingIndex, priorUnlocks, ledgerStats, commentCounts] =
-        await Promise.all([
+      const [
+        scores,
+        backingIndex,
+        priorUnlocks,
+        ledgerStats,
+        commentCounts,
+        endorsementIndex,
+        viewerEndorsed,
+      ] = await Promise.all([
           catalogSoft(
             "trust scores",
             catalogRace(
@@ -281,6 +322,18 @@ export async function GET(req: NextRequest) {
             getCommentCountsForPosts(citationIds),
             emptyComments,
           ),
+          catalogSoft(
+            "endorsements",
+            getEndorsementSummariesForPosts(citationIds),
+            emptyEndorsements,
+          ),
+          catalogSoft(
+            "viewer endorsements",
+            viewerProfileId
+              ? getEndorsedPostIds(viewerProfileId, citationIds)
+              : Promise.resolve(emptyEndorsed),
+            emptyEndorsed,
+          ),
         ]);
 
       const paidTrustAvailable = isPaidTrustLookupAvailable();
@@ -290,6 +343,7 @@ export async function GET(req: NextRequest) {
           priorUnlocks.has(item.id) || creatorOwned.has(item.id);
         const ledger = getCitationLedgerStats(ledgerStats, item.id);
         const paidCount = Math.max(item.paidCount, ledger.allTimeReaders);
+        const endorsements = getEndorsementSummary(endorsementIndex, item.id);
         return {
           id: item.id,
           title: item.title,
@@ -325,6 +379,9 @@ export async function GET(req: NextRequest) {
             ? { edit_version: item.editVersion, last_edited_at: item.lastEditedAt ?? null }
             : {}),
           comment_count: commentCounts.get(item.id) ?? 0,
+          endorsement_count: endorsements.count,
+          endorsed_by: endorsements.topEndorsers,
+          viewer_endorsed: viewerEndorsed.has(item.id),
           author_is_username: item.source === "database",
           post_kind: item.postKind ?? "research",
           ...(item.postKind === "signal"
@@ -478,6 +535,24 @@ export async function POST(req: NextRequest) {
       "[citations] Could not link publisher wallet after publish:",
       err instanceof Error ? err.message : err,
     );
+  }
+
+  // Tell followers a desk they follow just published. Scheduled posts notify
+  // when they go live, not at draft time, so only publish immediately here.
+  if (result.post.status === "published") {
+    try {
+      await notifyFollowersOfPublish({
+        creatorProfileId: profileResult.profile.id,
+        creatorUsername: profileResult.profile.username,
+        postId: result.post.id,
+        postKind: result.post.post_kind === "signal" ? "signal" : "research",
+      });
+    } catch (err) {
+      console.warn(
+        "[citations] Follower publish notification failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return NextResponse.json(

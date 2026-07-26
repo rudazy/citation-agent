@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BarChart3, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { curatorRateLabel, formatCreditUsdc } from "@/lib/curator-share";
 import { cacheMyPostsAuth } from "@/lib/my-posts-auth-cache";
 import { myPostsHeaders, signMyPostsAuth } from "@/lib/publish-client";
 import {
@@ -16,6 +17,19 @@ type DeskStats = {
   total_views: number;
   total_unlocks: number;
   total_earnings_usdc: number;
+  endorsements_received?: number;
+  attributed_unlocks?: number;
+  curator_credit_pending_usdc?: string;
+  curator_endorsement_unlocks?: number;
+  curator_referral_unlocks?: number;
+};
+
+const EMPTY_DESK: DeskStats = {
+  research_count: 0,
+  signal_count: 0,
+  total_views: 0,
+  total_unlocks: 0,
+  total_earnings_usdc: 0,
 };
 
 /**
@@ -48,15 +62,7 @@ export function DeskAnalyticsStrip({ className }: { className?: string }) {
         throw new Error(data.error ?? `Failed (${res.status})`);
       }
       const data = (await res.json()) as { desk?: DeskStats };
-      setStats(
-        data.desk ?? {
-          research_count: 0,
-          signal_count: 0,
-          total_views: 0,
-          total_unlocks: 0,
-          total_earnings_usdc: 0,
-        },
-      );
+      setStats(data.desk ?? EMPTY_DESK);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load analytics");
       setStats(null);
@@ -107,26 +113,62 @@ export function DeskAnalyticsStrip({ className }: { className?: string }) {
         <p className="font-mono text-[10px] text-[#c8a050]">{error}</p>
       )}
       {stats && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {(
-            [
-              ["Research", stats.research_count],
-              ["Signals", stats.signal_count],
-              ["Views", stats.total_views],
-              ["Unlocks", stats.total_unlocks],
-              ["Earned", `$${stats.total_earnings_usdc}`],
-            ] as const
-          ).map(([label, value]) => (
-            <div key={label} className="space-y-0.5">
-              <p className="font-mono text-[9px] uppercase tracking-wide text-[#555]">
-                {label}
-              </p>
-              <p className="font-mono text-sm tabular-nums text-[#f5f5f5]">
-                {value}
-              </p>
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {(
+              [
+                ["Research", stats.research_count],
+                ["Signals", stats.signal_count],
+                ["Views", stats.total_views],
+                ["Unlocks", stats.total_unlocks],
+                ["Earned", `$${stats.total_earnings_usdc}`],
+              ] as const
+            ).map(([label, value]) => (
+              <div key={label} className="space-y-0.5">
+                <p className="font-mono text-[9px] uppercase tracking-wide text-[#555]">
+                  {label}
+                </p>
+                <p className="font-mono text-sm tabular-nums text-[#f5f5f5]">
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2 border-t border-[#1f1f1f] pt-3">
+            <p className="font-mono text-[9px] uppercase tracking-wide text-[#555]">
+              Curation
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(
+                [
+                  ["Stamps received", stats.endorsements_received ?? 0],
+                  ["Unlocks routed", stats.attributed_unlocks ?? 0],
+                  ["From stamps", stats.curator_endorsement_unlocks ?? 0],
+                  [
+                    "Credit pending",
+                    `$${formatCreditUsdc(stats.curator_credit_pending_usdc ?? 0)}`,
+                  ],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label} className="space-y-0.5">
+                  <p className="font-mono text-[9px] uppercase tracking-wide text-[#555]">
+                    {label}
+                  </p>
+                  <p className="font-mono text-sm tabular-nums text-[#f5f5f5]">
+                    {value}
+                  </p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+            <p className="font-mono text-[10px] leading-relaxed text-[#666]">
+              Curator credit accrues from unlocks routed through your referral
+              links — {curatorRateLabel("endorsement")} on work you endorsed,{" "}
+              {curatorRateLabel("referral")} otherwise. Unlocks still settle in
+              full on-chain to the creator; accrued credit is not yet payable.
+            </p>
+          </div>
+        </>
       )}
     </div>
   );

@@ -1,6 +1,14 @@
 import { getAdminClient } from "@/lib/supabase/admin";
 
-export type NotificationType = "follow" | "comment" | "reply" | "sale";
+export type NotificationType =
+  | "follow"
+  | "comment"
+  | "reply"
+  | "sale"
+  | "endorsement"
+  | "curator_credit"
+  | "publish_research"
+  | "publish_signal";
 
 export type NotificationRow = {
   id: string;
@@ -100,7 +108,68 @@ export function notificationText(row: NotificationRow): string {
       return `${actor} replied to your comment`;
     case "sale":
       return "Your report was unlocked — you earned a royalty";
+    case "endorsement":
+      return `${actor} endorsed your work`;
+    case "curator_credit":
+      return "An unlock you routed earned you curator credit";
+    case "publish_research":
+      return `${actor} published new research`;
+    case "publish_signal":
+      return `${actor} published a new signal`;
     default:
       return "New activity";
   }
+}
+
+/**
+ * Fan out a publish notification to a creator's followers.
+ *
+ * Best-effort and bounded: a single batched insert, capped so a desk with a
+ * large following cannot stall the publish request that triggered it.
+ */
+export async function notifyFollowersOfPublish(params: {
+  creatorProfileId: string;
+  creatorUsername: string;
+  postId: string;
+  postKind: "research" | "signal";
+  limit?: number;
+}): Promise<number> {
+  const supabase = getAdminClient();
+  if (!supabase) return 0;
+
+  const limit = params.limit ?? 500;
+  const { data, error } = await supabase
+    .from("creator_follows")
+    .select("follower_profile_id")
+    .eq("creator_profile_id", params.creatorProfileId)
+    .limit(limit);
+
+  if (error) {
+    console.warn("[notifications] follower lookup failed:", error.message);
+    return 0;
+  }
+
+  const followerIds = [
+    ...new Set((data ?? []).map((row) => String(row.follower_profile_id))),
+  ].filter((id) => id && id !== params.creatorProfileId);
+  if (followerIds.length === 0) return 0;
+
+  const type: NotificationType =
+    params.postKind === "signal" ? "publish_signal" : "publish_research";
+  const actor = params.creatorUsername.trim().toLowerCase() || null;
+
+  const { error: insertError } = await supabase.from("notifications").insert(
+    followerIds.map((profileId) => ({
+      profile_id: profileId,
+      type,
+      actor_username: actor,
+      post_id: params.postId,
+    })),
+  );
+
+  if (insertError) {
+    console.warn("[notifications] publish fan-out failed:", insertError.message);
+    return 0;
+  }
+  return followerIds.length;
 }

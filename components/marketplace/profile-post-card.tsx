@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { BadgeCheck, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MentionText } from "@/components/marketplace/mention-text";
@@ -25,6 +25,8 @@ export type ProfilePostCardData = {
   published_at: string | null;
   path: string;
   post_kind?: "research" | "signal";
+  endorsement_count?: number;
+  endorsed_by?: string[];
   signal_direction?: string | null;
   signal_confidence?: number | null;
   signal_horizon?: string | null;
@@ -93,6 +95,16 @@ export function ProfilePostCard({ post }: Props) {
           {isSignal && post.signal_invalidation && (
             <p className="font-mono text-[10px] text-[#666] leading-relaxed">
               Invalidation: {post.signal_invalidation}
+            </p>
+          )}
+          {(post.endorsement_count ?? 0) > 0 && (
+            <p className="flex items-center gap-1.5 font-mono text-[10px] text-[#888]">
+              <BadgeCheck size={12} className="shrink-0 text-[#f5c842]" />
+              Endorsed by{" "}
+              {(post.endorsed_by ?? []).map((u) => `@${u}`).join(", ")}
+              {post.endorsement_count! > (post.endorsed_by?.length ?? 0)
+                ? ` +${post.endorsement_count! - (post.endorsed_by?.length ?? 0)} more`
+                : ""}
             </p>
           )}
           {post.tags.length > 0 && (

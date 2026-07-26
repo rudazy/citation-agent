@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Link2, Share2 } from "lucide-react";
+import { Link2, Share2, Stamp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { buildDeskShareText } from "@/lib/signal-card";
 import { buildProfileUrl } from "@/lib/profile-url";
+import { curatorRateLabel } from "@/lib/curator-share";
+import { withReferral } from "@/lib/referral";
 
 type Props = {
   username: string;
@@ -30,9 +32,32 @@ export function DeskShareKit({ username, className }: Props) {
     }
   }, [username]);
 
+  // Referral link: unlocks routed through it accrue curator credit to this desk.
+  const copyReferralLink = useCallback(async () => {
+    try {
+      const url = withReferral(
+        buildProfileUrl(username, window.location.origin),
+        username,
+      );
+      await navigator.clipboard.writeText(url);
+      toast.success("Referral link copied", {
+        description: `Unlocks routed through this link earn you ${curatorRateLabel(
+          "referral",
+        )} curator credit (${curatorRateLabel("endorsement")} on work you endorsed).`,
+      });
+    } catch (err) {
+      toast.error("Could not copy referral link", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }, [username]);
+
   const copyShareKit = useCallback(async () => {
     try {
-      const url = buildProfileUrl(username, window.location.origin);
+      const url = withReferral(
+        buildProfileUrl(username, window.location.origin),
+        username,
+      );
       const text = buildDeskShareText({ username, url });
       await navigator.clipboard.writeText(text);
       setPreview(text);
@@ -58,6 +83,16 @@ export function DeskShareKit({ username, className }: Props) {
         >
           <Link2 size={14} />
           Copy desk link
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => void copyReferralLink()}
+          className="gap-1.5 font-mono text-xs text-[#888] hover:text-[#f5c842]"
+        >
+          <Stamp size={14} />
+          Referral link
         </Button>
         <Button
           type="button"

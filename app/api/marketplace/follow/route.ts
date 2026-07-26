@@ -4,73 +4,17 @@ import {
   listFollowedCreators,
   unfollowCreator,
 } from "@/lib/creator-follows";
-import { getProfileByWallet } from "@/lib/platform-profile";
-import { provisionAgentWalletForSession } from "@/lib/agent-wallet";
-import { resolveUserAgent } from "@/lib/resolve-user-agent";
+import { requireAgentProfile } from "@/lib/agent-profile-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { formatUsernameDisplay, normalizeUsernameInput } from "@/lib/username";
 import { buildProfilePath } from "@/lib/profile-url";
 
-type AgentProfileOk = {
-  ok: true;
-  agent: { address: `0x${string}` };
-  profile: { id: string; username: string };
-};
-
-type AgentProfileErr = { ok: false; response: NextResponse };
-
-async function requireAgentProfile(): Promise<AgentProfileOk | AgentProfileErr> {
-  let agent = await resolveUserAgent();
-  if (!agent) {
-    try {
-      await provisionAgentWalletForSession();
-      agent = await resolveUserAgent();
-    } catch (err) {
-      return {
-        ok: false,
-        response: NextResponse.json(
-          {
-            error:
-              err instanceof Error ? err.message : "Failed to create agent wallet",
-          },
-          { status: 500 },
-        ),
-      };
-    }
-  }
-  if (!agent) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Agent wallet unavailable" },
-        { status: 503 },
-      ),
-    };
-  }
-
-  const profile = await getProfileByWallet(agent.address);
-  if (!profile) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        {
-          error: "Choose a username before following creators",
-          code: "username_required",
-        },
-        { status: 400 },
-      ),
-    };
-  }
-
-  return {
-    ok: true,
-    agent: { address: agent.address },
-    profile: { id: profile.id, username: profile.username },
-  };
-}
+const USERNAME_REQUIRED = "Choose a username before following creators";
 
 export async function GET() {
-  const resolved = await requireAgentProfile();
+  const resolved = await requireAgentProfile({
+    usernameRequiredMessage: USERNAME_REQUIRED,
+  });
   if (!resolved.ok) return resolved.response;
 
   const followed = await listFollowedCreators(resolved.profile.id);
@@ -98,7 +42,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Valid username is required" }, { status: 400 });
   }
 
-  const resolved = await requireAgentProfile();
+  const resolved = await requireAgentProfile({
+    usernameRequiredMessage: USERNAME_REQUIRED,
+  });
   if (!resolved.ok) return resolved.response;
 
   const rate = checkRateLimit(resolved.agent.address, {
@@ -133,7 +79,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Valid username is required" }, { status: 400 });
   }
 
-  const resolved = await requireAgentProfile();
+  const resolved = await requireAgentProfile({
+    usernameRequiredMessage: USERNAME_REQUIRED,
+  });
   if (!resolved.ok) return resolved.response;
 
   const result = await unfollowCreator(resolved.profile.id, username);

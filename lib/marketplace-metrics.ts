@@ -32,11 +32,22 @@ export type MarketplaceMetrics = {
 type EarningRow = { created_at: string; royalty_usdc: string };
 type CreatorLike = Pick<CreatorContent, "author" | "connectedWallet">;
 
+/**
+ * Identity-level seed check, usable from surfaces that only have a name and a
+ * wallet string (the unlock ledger) rather than a full listing.
+ */
+export function isRealCreatorIdentity(
+  name: string | null | undefined,
+  wallet: string | null | undefined,
+): boolean {
+  if ((name ?? "").trim().toLowerCase() === CITATION_TEAM_NAME) return false;
+  if (SEED_WALLETS.has((wallet ?? "").trim().toLowerCase())) return false;
+  return true;
+}
+
 /** A published listing counts as a real external creator unless it is in-house seed. */
 export function isRealExternalCreator(post: CreatorLike): boolean {
-  if ((post.author ?? "").trim().toLowerCase() === CITATION_TEAM_NAME) return false;
-  if (SEED_WALLETS.has((post.connectedWallet ?? "").toLowerCase())) return false;
-  return true;
+  return isRealCreatorIdentity(post.author, post.connectedWallet);
 }
 
 /** Distinct real external creators, keyed by author name (case-insensitive). */

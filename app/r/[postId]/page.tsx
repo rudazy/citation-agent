@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { ReportLanding } from "@/components/marketplace/report-landing";
+import { ReferralCapture } from "@/components/marketplace/referral-capture";
 import { getPostMetaById, loadPublishedPostIds } from "@/lib/creator-posts";
 
 type Props = { params: Promise<{ postId: string }> };
@@ -69,6 +70,9 @@ async function ReportBody({ params }: Props) {
 export default function ReportPage({ params }: Props) {
   return (
     <>
+      <Suspense fallback={null}>
+        <ReferralCapture />
+      </Suspense>
       <Suspense fallback={null}>
         <ReportBody params={params} />
       </Suspense>
