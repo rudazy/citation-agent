@@ -8,7 +8,13 @@ import {
 } from "viem";
 import { arcTestnet } from "viem/chains";
 import { arcHttpTransport } from "@/lib/arc-rpc";
-import { ATTESTATION_ABI, getAttestationAddress } from "@/lib/attestation";
+import {
+  ATTESTATION_ABI,
+  getAttestationAddress,
+  getHistoricalAttestationAddresses,
+  getIndexedAttestationAddresses,
+  historicalDeployBlock,
+} from "@/lib/attestation";
 import {
   canonicalizeAttestationTarget,
   classifyTarget,
@@ -403,6 +409,12 @@ async function enrichLogs(
   return { rows: results, complete, errorMessage };
 }
 
+/**
+ * Direct contract read for a single target, used only when the index is empty.
+ *
+ * Current contract only: a target that exists solely on a superseded contract is
+ * served from the stored event index instead (see fetchIndexedAttestationsResult).
+ */
 async function readOnChainClaims(target: string): Promise<IndexedAttestation[]> {
   const contractAddress = getAttestationAddress();
   if (!contractAddress) return [];
@@ -482,12 +494,55 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
     });
   }
 
-  // 2) Merge any previously stored rows (covers gaps if Arcscan paginated).
-  const stored = await loadAttestationEvents(contractAddress);
+  // 2) Merge previously stored rows for the current contract AND any superseded
+  //    ones. This is what keeps pre-cutover claims rendering: v1 has no exit path
+  //    so its history is frozen, but the claims it holds are still real.
+  //    Covers Arcscan pagination gaps for the current contract at the same time.
+  const indexedAddresses = getIndexedAttestationAddresses();
+  const stored = await loadAttestationEvents(indexedAddresses);
+  const storedByAddress = new Map<string, number>();
   for (const row of stored) {
+    storedByAddress.set(
+      row.contractAddress.toLowerCase(),
+      (storedByAddress.get(row.contractAddress.toLowerCase()) ?? 0) + 1,
+    );
     const key = `${row.txHash}:${row.logIndex}`;
     if (!byKey.has(key)) {
       byKey.set(key, storedToIndexed(row));
+    }
+  }
+
+  // 2b) Self-healing backfill: a superseded contract with nothing in the store
+  //     means the index was wiped or never ran. Pull it from Arcscan once and
+  //     persist, so history is not silently lost. Skipped in the normal case.
+  for (const historical of getHistoricalAttestationAddresses()) {
+    if ((storedByAddress.get(historical.toLowerCase()) ?? 0) > 0) continue;
+    try {
+      const backfill = await indexAttestationsFromArcscan({
+        contractAddress: historical,
+        deployBlock: historicalDeployBlock(),
+        latestBlock: latest,
+        persist: true,
+      });
+      for (const row of backfill.rows) {
+        const key = `${row.txHash}:${row.logIndex}`;
+        if (byKey.has(key)) continue;
+        byKey.set(key, {
+          target: row.target,
+          canonicalTarget: row.canonicalTarget,
+          claim: row.claim,
+          amountUnits: row.amountUnits,
+          amountUsdc: row.amountUsdc,
+          staker: row.staker,
+          timestamp: row.timestamp,
+          txHash: row.txHash,
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[attestation-index] historical backfill failed for ${historical}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 

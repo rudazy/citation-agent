@@ -461,6 +461,49 @@ export async function attestViaConnectedWallet(params: {
   return { approvalTxHash, attestTxHash };
 }
 
+/**
+ * Take a stake back out of the contract.
+ *
+ * `withdraw` after the lock, `reclaimExpiredFreeze` when the arbiter froze the
+ * stake and never settled it. Both are staker-only and move no money anywhere
+ * but back to the caller, so there is no approval step — unlike `attest`, which
+ * pulls funds in.
+ *
+ * The contract re-checks every condition, so a UI that offers the action a
+ * moment early costs a revert, never funds.
+ */
+export async function exitStakeViaConnectedWallet(params: {
+  ethereum: EthereumProvider;
+  account: `0x${string}`;
+  contractAddress: `0x${string}`;
+  target: string;
+  index: number;
+  action: "withdraw" | "reclaim";
+}): Promise<{ txHash: string }> {
+  const { ethereum, account, contractAddress, target, index, action } = params;
+
+  if (!Number.isInteger(index) || index < 0) {
+    throw new Error("Invalid stake index");
+  }
+  if (!target.trim()) throw new Error("Target is required");
+
+  await switchToArcTestnet(ethereum);
+
+  const data = encodeFunctionData({
+    abi: ATTESTATION_ABI,
+    functionName: action === "withdraw" ? "withdraw" : "reclaimExpiredFreeze",
+    args: [target.trim(), BigInt(index)],
+  });
+
+  const txHash = (await ethereum.request({
+    method: "eth_sendTransaction",
+    params: [{ from: account, to: contractAddress, data, gas: "0x30d40" }],
+  })) as string;
+
+  await waitForReceipt(ethereum, txHash);
+  return { txHash };
+}
+
 export type AgentWalletStatusResponse = {
   configured: boolean;
   address: `0x${string}` | null;

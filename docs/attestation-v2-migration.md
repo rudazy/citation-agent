@@ -178,29 +178,43 @@ Then verify (see the full command in `script/DeployAttestationV2.s.sol`) and set
 starting a v2 scan 9M blocks early will hit the Arc RPC limits documented in
 `tasks/lessons.md`.
 
-## Follow-up wiring (not done in this session)
+## Wiring status
 
-The contract alone does not change product behaviour. Still open:
+**Done — cutover complete.**
 
-1. `lib/attestation.ts` — update `ATTESTATION_ABI` with the v2 functions, events,
-   and the extended `Attest` tuple (`unlockAt`, `frozenAt`, `status`)
-2. Keep v1 as a **read-only historical address** so the 38 existing attestations
-   keep rendering in `components/attest/attestation-registry.tsx` and the Claims
-   UI. New writes go to v2 only
+1. ✅ `lib/attestation.ts` — `ATTESTATION_ABI` carries v2's **9-field** `Attest`
+   tuple plus the lifecycle functions and events. A regression test pins the
+   tuple shape, because a short decode does not throw; it silently mislabels
+   trailing values.
+2. ✅ v1 kept as a **read-only historical address** (`ATTESTATION_V1_ADDRESS`).
+   `loadAttestationEvents` accepts several contracts and the index merges them,
+   so pre-cutover claims keep rendering. A self-healing Arcscan backfill runs only
+   if a superseded contract has nothing in the store.
+
+**Still open:**
+
 3. Auto-`freeze` the challenger's stake when a dispute is filed in
    `lib/signal-resolution-store.ts:202`, and `release` or `slash` it in
-   `adjudicateResolution` (`lib/signal-resolution-store.ts:308`)
+   `adjudicateResolution` (`lib/signal-resolution-store.ts:308`).
+   **Blocked on a decision:** `lib/operator.ts:56` verifies a client-side
+   signature and there is no operator private key server-side, so arbiter calls
+   need either a new server key or a manual MetaMask step.
 4. Record the settlement tx and beneficiary on `signal_resolutions` and surface
    where slashed funds went, so operator discretion is publicly auditable — the
    record is what makes a trusted arbiter acceptable
-5. Add a Withdraw action to the attestation registry, gated on the contract's
-   `isWithdrawable(target, index)` view
-6. Decide whether the 261.84 USDC stranded in v1 is written off publicly or
-   quietly. It cannot be recovered either way
+5. ✅ **Withdraw UI shipped.** `GET /api/attestation/stakes?target=…&staker=…`
+   reads `getAttestations` from the current contract, where array position *is*
+   the index `withdraw`/`reclaimExpiredFreeze` expect. `lib/attestation-stake.ts`
+   derives the permitted action (pure, clock injected) and
+   `components/attest/my-stakes-panel.tsx` renders it inside the registry
+   detail view. A wallet whose stakes predate the cutover is told plainly that
+   they sit on a contract with no withdrawal path.
+6. Decide whether the USDC stranded in v1 is written off publicly or quietly. It
+   cannot be recovered either way.
 
-> Until step 2 ships, the live app still writes to v1 and **stakes filed today are
-> still trapped**. The contract is the fix; deploying and wiring it is what
-> delivers the fix.
+**Note on disputes:** `verify-attestation-tx.ts` checks stake txs against the
+current contract only, so a dispute opened against a v1 stake tx is now rejected.
+That is correct — v1 stakes are unrecoverable, so no new dispute should use one.
 
 ## Test harness note
 

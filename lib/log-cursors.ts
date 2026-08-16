@@ -122,19 +122,35 @@ export type StoredAttestationEvent = {
   blockTimestamp: number;
 };
 
+/**
+ * Stored events for one or several contracts.
+ *
+ * Several is the normal case after the v2 cutover: the current contract plus the
+ * superseded ones whose claims must keep rendering.
+ */
 export async function loadAttestationEvents(
-  contractAddress: string,
+  contractAddress: string | string[],
 ): Promise<StoredAttestationEvent[]> {
   const supabase = getAdminClient();
   if (!supabase) return [];
 
-  const { data, error } = await supabase
+  const addresses = (
+    Array.isArray(contractAddress) ? contractAddress : [contractAddress]
+  )
+    .map(normalizeAddress)
+    .filter((a) => a.length > 0);
+  if (addresses.length === 0) return [];
+
+  const query = supabase
     .from("attestation_event_index")
     .select(
       "contract_address, tx_hash, log_index, target, claim, amount_units, staker, block_number, block_timestamp",
-    )
-    .eq("contract_address", normalizeAddress(contractAddress))
-    .order("block_number", { ascending: false });
+    );
+
+  const { data, error } = await (addresses.length === 1
+    ? query.eq("contract_address", addresses[0])
+    : query.in("contract_address", addresses)
+  ).order("block_number", { ascending: false });
 
   if (error) {
     console.warn("[log-cursors] load events failed:", error.message);

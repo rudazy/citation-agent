@@ -35,7 +35,7 @@ Citation Agent is a crypto research marketplace on **Arc Testnet**. Analysts pub
 | **Niches** | Browse by sector · deep-links the topic filter | Static tag→sector map (`lib/sectors.ts`) |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, Arcscan-first claims index, multi-RPC stake |
-| **Stake lifecycle** | Withdraw, release, slash, reclaim | `AttestationV2.sol` — tested, not yet deployed |
+| **Stake lifecycle** | Withdraw, release, slash, reclaim | `AttestationV2.sol` live; v1 kept as read-only history |
 | **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect, Gateway pay |
 
 Architecture (unlock → payout sequence): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
@@ -325,7 +325,7 @@ Backing is framed as commerce copy on catalog cards (`Back this research` / `Bac
 
 **Claims index** prefers **Arcscan** transaction history over public `eth_getLogs` (the public Arc RPC rate-limits under dashboard load). Agent-wallet stakes go through `POST /api/attestation` with a multi-endpoint RPC fallback; if the route returns rate-limited **before** broadcast, nothing was staked and a retry is safe.
 
-**Stake lifecycle.** The deployed `Attestation.sol` has no exit path — staked USDC stays in the contract permanently, for backing and disputes alike. `AttestationV2.sol` adds the full lifecycle (time-locked withdrawal, arbiter release, slash to a named beneficiary, and staker reclaim if a freeze is abandoned) and is tested but **not yet deployed**. See [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
+**Stake lifecycle.** New stakes settle on `AttestationV2.sol`, which gives every stake a guaranteed exit: time-locked withdrawal by the staker, arbiter release, slash to a named beneficiary, and staker reclaim if a freeze is abandoned for 30 days. A staker sees their own stakes and the currently permitted action inside the registry detail view, backed by `GET /api/attestation/stakes` — the aggregated claims index decodes `attest` calldata and so cannot know a stake's array index, which `withdraw` requires. The superseded v1 contract had no exit path at all — its stakes are permanently locked there and are shown as read-only history. See [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
 
 ```mermaid
 sequenceDiagram
@@ -663,6 +663,7 @@ forge test
 | `POST /api/trustgate/score` | Payment proof | Paid verify; Supabase-backed cache |
 | `POST /api/attestation` | Session agent | Server-side stake · multi-RPC; 503 if rate-limited before broadcast |
 | `GET /api/attestation/claims` | Public | Registry (Arcscan-first index); `?refresh=1` busts cache |
+| `GET /api/attestation/stakes` | Public | Individual stakes for a target with array index and lifecycle status, read from the current contract; `?staker=` filters |
 
 Catalog merges **markdown seeds** (`content/creators/`) and **Supabase posts** (`creator_posts`). Markdown seeds resolve trust identity to `NEXT_PUBLIC_OPERATOR_ADDRESS` unless `MARKETPLACE_IDENTITY_WALLET` is set.
 
@@ -683,8 +684,10 @@ Catalog merges **markdown seeds** (`content/creators/`) and **Supabase posts** (
 | `DEPLOYER_PRIVATE_KEY` | Script-only attestation deploy; falls back to `BUYER_PRIVATE_KEY`. **Never commit.** |
 | `PUBLISHER_PRIVATE_KEY` | Script-only seed publisher. **Never commit.** |
 | `DEPOSIT_AMOUNT` | Optional CLI Gateway deposit size (default `1`) |
-| `ATTESTATION_ADDRESS` / `NEXT_PUBLIC_ATTESTATION_ADDRESS` | `Attestation.sol` |
-| `ATTESTATION_DEPLOY_BLOCK` | Event indexer start block |
+| `ATTESTATION_ADDRESS` / `NEXT_PUBLIC_ATTESTATION_ADDRESS` | `AttestationV2.sol` — new stakes settle here |
+| `ATTESTATION_DEPLOY_BLOCK` | Event indexer start block for the current contract |
+| `ATTESTATION_V1_ADDRESS` | Superseded contracts, read-only, comma-separated — keeps pre-cutover claims rendering |
+| `ATTESTATION_V1_DEPLOY_BLOCK` | Start block used only if a superseded contract needs re-indexing |
 | `NEXT_PUBLIC_OPERATOR_ADDRESS` | Platform fee recipient; markdown seed trust identity |
 | `ARC_TESTNET_RPC` / `NEXT_PUBLIC_ARC_TESTNET_RPC` | Server / client RPC primary (public Arc default if unset) |
 | `ARC_TESTNET_RPC_FALLBACKS` | Optional comma-separated extras; built-in public fallbacks (Blockdaemon, dRPC, QuickNode, thirdweb) always append |
@@ -708,17 +711,18 @@ Catalog merges **markdown seeds** (`content/creators/`) and **Supabase posts** (
 
 ## Deployed contracts (Arc Testnet)
 
-| Contract | Address |
-| --- | --- |
-| Attestation (v1) | `0xc8886a68f2160a57a01b32aae542b6eec5ca3d02` |
-| USDC | `0x3600000000000000000000000000000000000000` |
-| Gateway wallet | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` |
+| Contract | Address | Status |
+| --- | --- | --- |
+| AttestationV2 | `0x9b3716057b1da571658ed1A862865870bbcAc7c4` | Current — new stakes settle here |
+| Attestation (v1) | `0xc8886a68f2160a57a01b32aae542b6eec5ca3d02` | Superseded, read-only history |
+| USDC | `0x3600000000000000000000000000000000000000` | Arc Testnet |
+| Gateway wallet | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` | |
 
-Indexer start block: `48323587` (override with `ATTESTATION_DEPLOY_BLOCK` if redeployed).
+Indexer start block: `57331332` (`ATTESTATION_DEPLOY_BLOCK`). v1 stays configured as `ATTESTATION_V1_ADDRESS` so pre-cutover claims keep rendering; its stakes are permanently locked in that contract and cannot be moved.
 
-[Attestation verified on Arcscan](https://testnet.arcscan.app/address/0xc8886a68f2160a57a01b32aae542b6eec5ca3d02#code)
+[AttestationV2 verified on Arcscan](https://testnet.arcscan.app/address/0x9b3716057b1da571658ed1a862865870bbcac7c4#code) · [v1 verified on Arcscan](https://testnet.arcscan.app/address/0xc8886a68f2160a57a01b32aae542b6eec5ca3d02#code)
 
-`AttestationV2.sol` is not deployed. It takes the settlement token as a constructor argument rather than hardcoding it, so the same audited source targets testnet and a future mainnet — Circle documents `0x3600…0000` as testnet and has not published mainnet addresses. Deploy and wiring steps: [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
+v2 takes the settlement token as a constructor argument rather than hardcoding it, so the same audited source targets testnet and a future mainnet — Circle documents `0x3600…0000` as testnet and has not published mainnet addresses. See [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
 
 ---
 

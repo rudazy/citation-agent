@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AttestModal } from "./AttestModal";
 import { AttestTrigger } from "./attest-trigger";
+import { MyStakesPanel } from "./my-stakes-panel";
 import type { TargetKind } from "@/lib/attestation-client";
 
 const EXPLORER = "https://testnet.arcscan.app/tx/";
@@ -433,6 +434,13 @@ function DetailPanel({
                 onSupport={onSupport}
               />
             ))}
+
+            {/* Renders only when the connected wallet has a stake here — on the
+                current contract, or on a superseded one with no exit path. */}
+            <MyStakesPanel
+              target={detail.target}
+              indexedStakers={detail.claims.map((c) => c.staker)}
+            />
           </div>
 
           <div className="sticky bottom-0 pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] lg:static lg:pb-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a] to-transparent lg:bg-none">
