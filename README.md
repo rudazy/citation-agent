@@ -35,6 +35,7 @@ Citation Agent is a crypto research marketplace on **Arc Testnet**. Analysts pub
 | **Niches** | Browse by sector · deep-links the topic filter | Static tag→sector map (`lib/sectors.ts`) |
 | **Trust** | Optional score on cards | TrustGate arc-score (free) + paid verify (cached) |
 | **Backing** | Stake behind a report or researcher | `Attestation.sol`, Arcscan-first claims index, multi-RPC stake |
+| **Stake lifecycle** | Withdraw, release, slash, reclaim | `AttestationV2.sol` — tested, not yet deployed |
 | **Agents** | CLI research loop · browser agent wallet | Session wallet, WalletConnect, Gateway pay |
 
 Architecture (unlock → payout sequence): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
@@ -324,6 +325,8 @@ Backing is framed as commerce copy on catalog cards (`Back this research` / `Bac
 
 **Claims index** prefers **Arcscan** transaction history over public `eth_getLogs` (the public Arc RPC rate-limits under dashboard load). Agent-wallet stakes go through `POST /api/attestation` with a multi-endpoint RPC fallback; if the route returns rate-limited **before** broadcast, nothing was staked and a retry is safe.
 
+**Stake lifecycle.** The deployed `Attestation.sol` has no exit path — staked USDC stays in the contract permanently, for backing and disputes alike. `AttestationV2.sol` adds the full lifecycle (time-locked withdrawal, arbiter release, slash to a named beneficiary, and staker reclaim if a freeze is abandoned) and is tested but **not yet deployed**. See [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -397,6 +400,8 @@ sequenceDiagram
 A desk files an outcome on its own Signal Card against the **invalidation condition it pre-committed at publish**. The resolution is written once and cannot be edited: an editable outcome log would be worthless as proof.
 
 An outcome is **provisional** for 72 hours. During that window anyone can challenge it by staking USDC against `resolution:{postId}` through the existing `Attestation.sol` rails — no new contract, no new payment path. The stake tx is verified on Arc before the dispute is accepted. A disputed outcome is frozen out of accuracy until an operator adjudicates.
+
+Adjudication currently settles the **outcome** only, not the stake: the deployed contract cannot return or slash a challenger's USDC. `AttestationV2.sol` closes that gap and is tested but not yet deployed — see [Research backing and reputation](#research-backing-and-reputation).
 
 | State | Meaning | Counts toward accuracy |
 | --- | --- | --- |
@@ -584,6 +589,13 @@ Unit tests (no live keys required for the default suite):
 npm run test
 ```
 
+**Contract tests** need [Foundry](https://book.getfoundry.sh/getting-started/installation) plus `forge-std`, which is gitignored and therefore absent from a fresh clone — install it once or `forge build` will fail:
+
+```cmd
+forge install foundry-rs/forge-std --no-git
+forge test
+```
+
 ---
 
 ## API summary
@@ -698,13 +710,15 @@ Catalog merges **markdown seeds** (`content/creators/`) and **Supabase posts** (
 
 | Contract | Address |
 | --- | --- |
-| Attestation | `0xc8886a68f2160a57a01b32aae542b6eec5ca3d02` |
+| Attestation (v1) | `0xc8886a68f2160a57a01b32aae542b6eec5ca3d02` |
 | USDC | `0x3600000000000000000000000000000000000000` |
 | Gateway wallet | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` |
 
 Indexer start block: `48323587` (override with `ATTESTATION_DEPLOY_BLOCK` if redeployed).
 
 [Attestation verified on Arcscan](https://testnet.arcscan.app/address/0xc8886a68f2160a57a01b32aae542b6eec5ca3d02#code)
+
+`AttestationV2.sol` is not deployed. It takes the settlement token as a constructor argument rather than hardcoding it, so the same audited source targets testnet and a future mainnet — Circle documents `0x3600…0000` as testnet and has not published mainnet addresses. Deploy and wiring steps: [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
 
 ---
 
