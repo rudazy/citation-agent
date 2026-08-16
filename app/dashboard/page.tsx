@@ -68,6 +68,7 @@ import { DEMO_SETTLEMENT_ID } from "@/lib/marketplace";
 import { SupabaseSetupBanner } from "@/components/dashboard/supabase-setup-banner";
 import { PlatformSummaryCards } from "@/components/dashboard/platform-summary-cards";
 import { SellerGatewayControls } from "@/components/dashboard/seller-gateway-controls";
+import { DisputeQueue } from "@/components/dashboard/dispute-queue";
 import { formatPaymentDate } from "@/lib/format-datetime";
 import { useAttestationFees } from "@/hooks/use-attestation-fees";
 import { usePaymentEvents } from "@/hooks/use-transactions";
@@ -958,6 +959,12 @@ export default function Dashboard() {
             </p>
             <SellerGatewayControls getAuthHeaders={getOperatorAuthHeaders} />
           </Panel>
+
+          {/* Disputed stakes waiting on an arbiter transaction. Renders nothing
+              when the queue is empty. */}
+          <div className="mb-3">
+            <DisputeQueue getAuthHeaders={getOperatorAuthHeaders} />
+          </div>
           <div className="mb-3 flex justify-end">
             <button
               type="button"

@@ -191,17 +191,16 @@ starting a v2 scan 9M blocks early will hit the Arc RPC limits documented in
    so pre-cutover claims keep rendering. A self-healing Arcscan backfill runs only
    if a superseded contract has nothing in the store.
 
-**Still open:**
-
-3. Auto-`freeze` the challenger's stake when a dispute is filed in
-   `lib/signal-resolution-store.ts:202`, and `release` or `slash` it in
-   `adjudicateResolution` (`lib/signal-resolution-store.ts:308`).
-   **Blocked on a decision:** `lib/operator.ts:56` verifies a client-side
-   signature and there is no operator private key server-side, so arbiter calls
-   need either a new server key or a manual MetaMask step.
-4. Record the settlement tx and beneficiary on `signal_resolutions` and surface
-   where slashed funds went, so operator discretion is publicly auditable — the
-   record is what makes a trusted arbiter acceptable
+3. ✅ **Dispute settlement wired.** Resolved the arbiter-key question by keeping
+   the existing model: **no server-side key**, the operator signs freeze /
+   release / slash in their own wallet from a dashboard queue, and the API
+   verifies each tx against the contract before recording it. Manual freeze is
+   safe on timing — a challenger's stake is locked 7 days against a 72h dispute
+   window, so there is roughly a 7-day margin.
+4. ✅ Settlement tx, action, and beneficiary are recorded on
+   `signal_resolutions` and exposed by `serializeResolution`, so where a slashed
+   stake went is publicly auditable. That record is the reason operator
+   discretion over the beneficiary is acceptable at all.
 5. ✅ **Withdraw UI shipped.** `GET /api/attestation/stakes?target=…&staker=…`
    reads `getAttestations` from the current contract, where array position *is*
    the index `withdraw`/`reclaimExpiredFreeze` expect. `lib/attestation-stake.ts`

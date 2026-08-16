@@ -504,6 +504,58 @@ export async function exitStakeViaConnectedWallet(params: {
   return { txHash };
 }
 
+/**
+ * Send an arbiter transaction from the connected wallet.
+ *
+ * Arbiter powers live with the operator wallet, and there is deliberately no
+ * server-side key — a hot key able to slash any stake is a worse trade than a
+ * manual signing step. The caller records the resulting hash server-side, where
+ * it is verified against the contract before being trusted.
+ */
+export async function arbiterActionViaConnectedWallet(params: {
+  ethereum: EthereumProvider;
+  account: `0x${string}`;
+  contractAddress: `0x${string}`;
+  target: string;
+  index: number;
+  action: "freeze" | "unfreeze" | "release" | "slash";
+  /** Required for `slash`, ignored otherwise. */
+  beneficiary?: `0x${string}`;
+}): Promise<{ txHash: string }> {
+  const { ethereum, account, contractAddress, target, index, action } = params;
+
+  if (!Number.isInteger(index) || index < 0) {
+    throw new Error("Invalid stake index");
+  }
+  if (!target.trim()) throw new Error("Target is required");
+  if (action === "slash" && !params.beneficiary) {
+    throw new Error("A slash needs a beneficiary address");
+  }
+
+  await switchToArcTestnet(ethereum);
+
+  const data =
+    action === "slash"
+      ? encodeFunctionData({
+          abi: ATTESTATION_ABI,
+          functionName: "slash",
+          args: [target.trim(), BigInt(index), params.beneficiary!],
+        })
+      : encodeFunctionData({
+          abi: ATTESTATION_ABI,
+          functionName: action,
+          args: [target.trim(), BigInt(index)],
+        });
+
+  const txHash = (await ethereum.request({
+    method: "eth_sendTransaction",
+    params: [{ from: account, to: contractAddress, data, gas: "0x30d40" }],
+  })) as string;
+
+  await waitForReceipt(ethereum, txHash);
+  return { txHash };
+}
+
 export type AgentWalletStatusResponse = {
   configured: boolean;
   address: `0x${string}` | null;

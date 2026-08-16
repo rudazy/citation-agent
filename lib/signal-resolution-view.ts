@@ -60,6 +60,15 @@ export function serializeResolution(
           adjudicated_at: resolution.adjudicatedAt ?? null,
           adjudicated_outcome: resolution.adjudicatedOutcome ?? null,
           adjudication_note: resolution.adjudicationNote,
+          // Where the challenger's stake ended up. Public on purpose: the
+          // operator's discretion over slash beneficiaries is only acceptable
+          // because the result is auditable by anyone.
+          stake_frozen_at: resolution.stakeFrozenAt ?? null,
+          freeze_tx: resolution.freezeTx ?? null,
+          settlement_action: resolution.settlementAction ?? null,
+          settlement_beneficiary: resolution.settlementBeneficiary ?? null,
+          settlement_tx: resolution.settlementTx ?? null,
+          settled_at: resolution.settledAt ?? null,
         }
       : {}),
   };

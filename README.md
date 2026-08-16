@@ -401,7 +401,9 @@ A desk files an outcome on its own Signal Card against the **invalidation condit
 
 An outcome is **provisional** for 72 hours. During that window anyone can challenge it by staking USDC against `resolution:{postId}` through the existing `Attestation.sol` rails — no new contract, no new payment path. The stake tx is verified on Arc before the dispute is accepted. A disputed outcome is frozen out of accuracy until an operator adjudicates.
 
-Adjudication currently settles the **outcome** only, not the stake: the deployed contract cannot return or slash a challenger's USDC. `AttestationV2.sol` closes that gap and is tested but not yet deployed — see [Research backing and reputation](#research-backing-and-reputation).
+Adjudication settles the **stake** as well as the outcome, and the direction is derived rather than chosen: an adjudication that overturns the creator's call releases the stake back to the challenger, one that upholds it slashes the stake to a beneficiary the operator names. Slashing requires a prior on-chain freeze plus a 24h delay, so a seizure is always announced before funds move, and the settlement action, beneficiary, and transaction are all public on the resolution record.
+
+Arbiter transactions are signed by the operator's own wallet from the dashboard — there is deliberately no server-side arbiter key, since a hot key able to slash any stake is a worse trade than a manual signing step. The API verifies every submitted transaction against the contract before recording it.
 
 | State | Meaning | Counts toward accuracy |
 | --- | --- | --- |
@@ -630,7 +632,10 @@ forge test
 | `GET /api/marketplace/demand?window=` | Public | Aggregate demand board: agent vs human, top/rising desks, conviction changes, sectors, just-resolved. Aggregates only — never returns ledger rows, payers, or wallets |
 | `GET /api/marketplace/resolutions?postId=` | Public | Signal outcome + derived state (status, dispute window, accuracy eligibility) |
 | `POST /api/marketplace/resolutions` | Session + username | File an outcome on your own signal (right / wrong / void). Immutable |
-| `POST /api/marketplace/resolutions/dispute` | On-chain stake | Challenge an outcome; tx verified against `Attestation.sol` for target and minimum stake |
+| `POST /api/marketplace/resolutions/dispute` | On-chain stake | Challenge an outcome; tx verified against the attestation contract for target and minimum stake |
+| `GET /api/marketplace/resolutions/queue` | Operator signature | Disputes still awaiting an arbiter action |
+| `POST /api/marketplace/resolutions/freeze` | Operator signature | Record an on-chain freeze of a disputed stake |
+| `POST /api/marketplace/resolutions/settle` | Operator signature | Record the release or slash; direction derived from the adjudication, beneficiary read from the chain |
 | `POST /api/marketplace/resolutions/adjudicate` | Operator signature | Settle a disputed outcome |
 
 ### Profile
