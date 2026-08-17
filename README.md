@@ -250,7 +250,7 @@ flowchart LR
 | Surface | Purpose |
 | --- | --- |
 | `/profile` | Compulsory setup when no username; redirects to `/u/{you}` when ready |
-| `/u/{username}` | Public desk: stats, reports, follow, tip, back · **owner** also gets settings |
+| `/u/{username}` | Public desk: stats including backer count, reports, follow, tip, back · **owner** also gets settings and their own stakes with lock countdown |
 | Owner settings | Payout wallet · optional tip wallet override · unlock earnings · verification |
 | Report cards on profile | Teaser only · **View** opens catalog deep-link for unlock/read |
 | Hero **Follow** | Discover publishers who have at least one live report |
@@ -323,9 +323,9 @@ sequenceDiagram
 
 Backing is framed as commerce copy on catalog cards (`Back this research` / `Back this researcher`). Stakes are public on-chain claims grouped by canonical target (`author:…`, `citation:…`). Minimum stake **0.1 USDC** plus **0.1 USDC** platform fee. Reputation is optional per card — free badge when configured, paid verify when the user opts in.
 
-**Claims index** prefers **Arcscan** transaction history over public `eth_getLogs` (the public Arc RPC rate-limits under dashboard load). Agent-wallet stakes go through `POST /api/attestation` with a multi-endpoint RPC fallback; if the route returns rate-limited **before** broadcast, nothing was staked and a retry is safe.
+**Claims index** prefers **Arcscan** transaction history over public `eth_getLogs` (the public Arc RPC rate-limits under dashboard load). The merge key is the transaction hash: Arcscan's tx list has no log index (it stores `0`) while `eth_getLogs` uses the real `Attested` index, so keying on both kept every stake twice and doubled USDC totals. Agent-wallet stakes go through `POST /api/attestation` with a multi-endpoint RPC fallback; if the route returns rate-limited **before** broadcast, nothing was staked and a retry is safe.
 
-**Stake lifecycle.** New stakes settle on `AttestationV2.sol`, which gives every stake a guaranteed exit: time-locked withdrawal by the staker, arbiter release, slash to a named beneficiary, and staker reclaim if a freeze is abandoned for 30 days. A staker sees their own stakes and the currently permitted action inside the registry detail view, backed by `GET /api/attestation/stakes` — the aggregated claims index decodes `attest` calldata and so cannot know a stake's array index, which `withdraw` requires. The superseded v1 contract had no exit path at all — its stakes are permanently locked there and are shown as read-only history. See [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
+**Stake lifecycle.** New stakes settle on `AttestationV2.sol`, which gives every stake a guaranteed exit: time-locked withdrawal by the staker, arbiter release, slash to a named beneficiary, and staker reclaim if a freeze is abandoned for 30 days. A staker sees every stake they hold — lock countdown and the currently permitted action — on their own desk (`/u/{you}`), not only inside a single target on the claims registry. `GET /api/attestation/stakes?staker=` lists across targets; `POST /api/attestation/exit` withdraws from the session agent wallet; MetaMask stakes still sign in the browser. The aggregated claims index decodes `attest` calldata and so cannot know a stake's array index, which `withdraw` requires — that still comes from `getAttestations`. The superseded v1 contract had no exit path at all — its stakes are permanently locked there and are shown as read-only history. Each public desk also shows how many wallets back it and the USDC total. See [docs/attestation-v2-migration.md](docs/attestation-v2-migration.md).
 
 ```mermaid
 sequenceDiagram
@@ -559,7 +559,7 @@ Open [http://localhost:3000](http://localhost:3000). Create a session agent wall
 | `/` | Redirects to `/marketplace` |
 | `/marketplace` | Publish (signal, research), catalog, demand board, niche lanes, following feed, unlock |
 | `/profile` | Account setup (no username) · redirects to `/u/{you}` when ready |
-| `/u/{username}` | Public desk · tip · back · follow · endorse · Curation tab · owner settings / earnings |
+| `/u/{username}` | Public desk · backers · tip · back · follow · endorse · Curation tab · owner stakes / settings / earnings |
 | `/r/{postId}` | Shareable report teaser · unlock CTA into catalog |
 | `/dashboard` | Payments, royalties, withdrawals, operator fees, claims, settlement trace tab |
 
@@ -667,8 +667,9 @@ forge test
 | `GET /api/trustgate/score?postId=` | Public | Free or cached score |
 | `POST /api/trustgate/score` | Payment proof | Paid verify; Supabase-backed cache |
 | `POST /api/attestation` | Session agent | Server-side stake · multi-RPC; 503 if rate-limited before broadcast |
-| `GET /api/attestation/claims` | Public | Registry (Arcscan-first index); `?refresh=1` busts cache |
-| `GET /api/attestation/stakes` | Public | Individual stakes for a target with array index and lifecycle status, read from the current contract; `?staker=` filters |
+| `POST /api/attestation/exit` | Session agent | Withdraw or reclaim a stake filed from the agent wallet; do not retry after a hash is returned |
+| `GET /api/attestation/claims` | Public | Registry (Arcscan-first index, deduped by tx hash); `?refresh=1` busts cache |
+| `GET /api/attestation/stakes` | Public | `?target=` lists that target (optional `?staker=` filter); `?staker=` alone lists that wallet across targets. Index and status come from the current contract |
 
 Catalog merges **markdown seeds** (`content/creators/`) and **Supabase posts** (`creator_posts`). Markdown seeds resolve trust identity to `NEXT_PUBLIC_OPERATOR_ADDRESS` unless `MARKETPLACE_IDENTITY_WALLET` is set.
 

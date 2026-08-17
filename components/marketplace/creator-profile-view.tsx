@@ -7,6 +7,7 @@ import {
   FileText,
   Loader2,
   Radio,
+  Shield,
   Stamp,
   Users,
 } from "lucide-react";
@@ -23,8 +24,10 @@ import {
   ProfilePostCard,
   type ProfilePostCardData,
 } from "@/components/marketplace/profile-post-card";
+import { DeskMyStakes } from "@/components/marketplace/desk-my-stakes";
 import {
   formatBackingHint,
+  formatUsdcAmount,
   type ResearchBackingStats,
 } from "@/lib/research-backing";
 import { formatUsernameDisplay } from "@/lib/username";
@@ -201,7 +204,7 @@ export function CreatorProfileView({ username }: { username: string }) {
 
         <DeskShareKit username={data.username} />
 
-        <div className="grid grid-cols-2 gap-3 border-t border-[#1f1f1f] pt-4 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 border-t border-[#1f1f1f] pt-4 sm:grid-cols-3 lg:grid-cols-6">
           <div className="space-y-1">
             <p className="font-mono text-[10px] text-[#666] uppercase tracking-wide">
               Research
@@ -242,6 +245,20 @@ export function CreatorProfileView({ username }: { username: string }) {
             <p className="text-xl font-semibold tracking-wide text-[#f5f5f5] flex items-center gap-1.5">
               <BadgeCheck size={16} className="text-[#f5c842]" />
               {data.endorsementsReceived ?? 0}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <p className="font-mono text-[10px] text-[#666] uppercase tracking-wide">
+              Backers
+            </p>
+            <p className="text-xl font-semibold tracking-wide text-[#f5f5f5] flex items-center gap-1.5">
+              <Shield size={16} className="text-[#f5c842]" />
+              {data.researcher_backing?.backers ?? 0}
+            </p>
+            <p className="font-mono text-[10px] text-[#666] tabular-nums">
+              {data.researcher_backing
+                ? `${formatUsdcAmount(data.researcher_backing.total_usdc)} USDC`
+                : "0 USDC"}
             </p>
           </div>
         </div>
@@ -303,14 +320,9 @@ export function CreatorProfileView({ username }: { username: string }) {
           </div>
         )}
 
-        {data.isSelf && formatBackingHint(data.researcher_backing) && (
-          <p className="border-t border-[#1f1f1f] pt-3 font-mono text-[10px] text-[#888]">
-            Your backing: {formatBackingHint(data.researcher_backing)}
-          </p>
-        )}
-
         {data.isSelf && (
           <div className="space-y-4 border-t border-[#1f1f1f] pt-4">
+            <DeskMyStakes />
             <DeskAnalyticsStrip />
             {signalCount === 0 && (
               <div className="rounded border border-[#c8f135]/25 bg-[#c8f135]/5 px-3 py-3 space-y-2">

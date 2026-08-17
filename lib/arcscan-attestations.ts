@@ -123,7 +123,8 @@ function decodeAttestTx(
     return {
       contractAddress,
       txHash: tx.hash as `0x${string}`,
-      // txlist has no log index; one attest per successful tx is the normal path
+      // txlist has no log index. Do not merge this 0 with eth_getLogs'
+      // real Attested index — the claims index keys by tx hash alone.
       logIndex: 0,
       target,
       claim,

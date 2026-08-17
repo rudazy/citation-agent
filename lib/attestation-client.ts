@@ -504,6 +504,32 @@ export async function exitStakeViaConnectedWallet(params: {
   return { txHash };
 }
 
+/** Exit a stake filed from the session agent wallet. */
+export async function exitStakeViaAgentWallet(params: {
+  target: string;
+  index: number;
+  action: "withdraw" | "reclaim";
+}): Promise<{ txHash: string }> {
+  const res = await fetch("/api/attestation/exit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  let data: { error?: string; txHash?: string };
+  try {
+    data = (await res.json()) as typeof data;
+  } catch {
+    data = {};
+  }
+  if (!res.ok || !data.txHash) {
+    throw new Error(
+      data.error ??
+        `Exit failed (HTTP ${res.status}). Check Arcscan before retrying so you do not send twice.`,
+    );
+  }
+  return { txHash: data.txHash };
+}
+
 /**
  * Send an arbiter transaction from the connected wallet.
  *

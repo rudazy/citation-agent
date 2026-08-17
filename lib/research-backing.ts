@@ -44,7 +44,7 @@ export function indexBackingSummaries(
   return map;
 }
 
-function formatUsdcAmount(raw: string): string {
+export function formatUsdcAmount(raw: string): string {
   const n = parseFloat(raw);
   if (!Number.isFinite(n) || n <= 0) return "0";
   if (n >= 100) return n.toFixed(0);

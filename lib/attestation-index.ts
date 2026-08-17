@@ -39,6 +39,11 @@ import {
   type StoredAttestationEvent,
 } from "@/lib/log-cursors";
 import { getTrustScores, type TrustScore } from "@/lib/trustgate";
+import {
+  attestationTxKey,
+  checksumStaker,
+  dedupeIndexedAttestations,
+} from "@/lib/attestation-claim-merge";
 
 export type IndexedAttestation = {
   target: string;
@@ -91,14 +96,15 @@ function toPublicClaim(
   row: IndexedAttestation,
   scores: Map<string, TrustScore | null>,
 ): PublicClaim {
+  const staker = checksumStaker(row.staker);
   return {
     target: row.canonicalTarget,
     claim: row.claim,
     amountUsdc: row.amountUsdc,
-    staker: row.staker,
+    staker,
     timestamp: row.timestamp,
-    txHash: row.txHash,
-    trust: scores.get(row.staker.toLowerCase()) ?? null,
+    txHash: (attestationTxKey(row.txHash) as `0x${string}` | null) ?? null,
+    trust: scores.get(staker.toLowerCase()) ?? null,
   };
 }
 
@@ -186,15 +192,16 @@ function logDedupeKey(log: Log): string {
 
 function storedToIndexed(row: StoredAttestationEvent): IndexedAttestation {
   const amountUnits = BigInt(row.amountUnits);
+  const txHash = attestationTxKey(row.txHash) as `0x${string}` | null;
   return {
     target: row.target,
     canonicalTarget: canonicalizeAttestationTarget(row.target),
     claim: row.claim,
     amountUnits,
     amountUsdc: formatUnits(amountUnits, 6),
-    staker: row.staker,
+    staker: checksumStaker(row.staker),
     timestamp: row.blockTimestamp,
-    txHash: row.txHash,
+    txHash,
   };
 }
 
@@ -448,6 +455,9 @@ async function readOnChainClaims(target: string): Promise<IndexedAttestation[]> 
  *
  * Primary: Arcscan contract txlist (public eth_getLogs on Arc is unreliable).
  * Secondary: durable Supabase event index + optional eth_getLogs tip catch-up.
+ * Dedupes by tx hash, not txHash:logIndex — Arcscan fabricates logIndex 0,
+ * while logs use the real Attested index (never 0). Merging on both kept
+ * every stake twice and doubled the USDC totals.
  * Never throws for index failures; returns partial rows instead.
  */
 export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult> {
@@ -482,15 +492,17 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
   });
 
   for (const row of arcscan.rows) {
-    byKey.set(`${row.txHash}:${row.logIndex}`, {
+    const key = attestationTxKey(row.txHash);
+    if (!key) continue;
+    byKey.set(key, {
       target: row.target,
       canonicalTarget: row.canonicalTarget,
       claim: row.claim,
       amountUnits: row.amountUnits,
       amountUsdc: row.amountUsdc,
-      staker: row.staker,
+      staker: checksumStaker(row.staker),
       timestamp: row.timestamp,
-      txHash: row.txHash,
+      txHash: key as `0x${string}`,
     });
   }
 
@@ -506,8 +518,8 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
       row.contractAddress.toLowerCase(),
       (storedByAddress.get(row.contractAddress.toLowerCase()) ?? 0) + 1,
     );
-    const key = `${row.txHash}:${row.logIndex}`;
-    if (!byKey.has(key)) {
+    const key = attestationTxKey(row.txHash);
+    if (key && !byKey.has(key)) {
       byKey.set(key, storedToIndexed(row));
     }
   }
@@ -525,17 +537,17 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
         persist: true,
       });
       for (const row of backfill.rows) {
-        const key = `${row.txHash}:${row.logIndex}`;
-        if (byKey.has(key)) continue;
+        const key = attestationTxKey(row.txHash);
+        if (!key || byKey.has(key)) continue;
         byKey.set(key, {
           target: row.target,
           canonicalTarget: row.canonicalTarget,
           claim: row.claim,
           amountUnits: row.amountUnits,
           amountUsdc: row.amountUsdc,
-          staker: row.staker,
+          staker: checksumStaker(row.staker),
           timestamp: row.timestamp,
-          txHash: row.txHash,
+          txHash: key as `0x${string}`,
         });
       }
     } catch (err) {
@@ -560,7 +572,13 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
       if (logScan.logs.length > 0) {
         const enriched = await enrichLogs(client, contractAddress, logScan.logs);
         for (const row of enriched.rows) {
-          byKey.set(`${row.txHash}:${row.logIndex}`, row);
+          const key = attestationTxKey(row.txHash);
+          if (!key) continue;
+          byKey.set(key, {
+            ...row,
+            staker: checksumStaker(row.staker),
+            txHash: key as `0x${string}`,
+          });
         }
       }
     } catch (err) {
@@ -576,7 +594,9 @@ export async function fetchIndexedAttestationsResult(): Promise<IndexLoadResult>
     await setLogCursor(contractAddress, latestResult.value);
   }
 
-  const rows = [...byKey.values()].sort((a, b) => b.timestamp - a.timestamp);
+  const rows = dedupeIndexedAttestations([...byKey.values()]).sort(
+    (a, b) => b.timestamp - a.timestamp,
+  );
   const complete = arcscan.complete && rows.length > 0
     ? true
     : arcscan.complete;
@@ -801,7 +821,9 @@ export async function getTargetClaims(target: string): Promise<{
 }> {
   const canonical = canonicalizeAttestationTarget(target);
   const loaded = await fetchIndexedAttestationsResult();
-  let claims = loaded.rows.filter((row) => row.canonicalTarget === canonical);
+  let claims = dedupeIndexedAttestations(
+    loaded.rows.filter((row) => row.canonicalTarget === canonical),
+  );
 
   if (claims.length === 0) {
     for (const candidate of [canonical, target.trim()]) {

@@ -5,6 +5,7 @@ import {
   formatDuration,
   isTerminal,
   ownStakes,
+  partitionWalletStakes,
   stakeAction,
   statusLabel,
   type StakeRecord,
@@ -139,6 +140,57 @@ describe("ownStakes", () => {
     expect(ownStakes(rows, null)).toEqual([]);
     expect(ownStakes(rows, "")).toEqual([]);
     expect(ownStakes(rows, "   ")).toEqual([]);
+  });
+});
+
+describe("partitionWalletStakes", () => {
+  it("keeps on-chain v2 rows and hides the matching index history", () => {
+    const liveRow = stake({ target: "author:anonymous", amountUsdc: "2" });
+    const { live, legacy } = partitionWalletStakes(
+      [
+        {
+          target: "author:anonymous",
+          claim: "Quality researcher",
+          amountUsdc: "2",
+          timestamp: NOW,
+          staker: WALLET,
+          txHash: "0xba34029f697545d74d63b2906c73c79a26d7b089e0ab5ef5c71c5f599517c567",
+        },
+      ],
+      [liveRow],
+    );
+    expect(live).toEqual([liveRow]);
+    expect(legacy).toEqual([]);
+  });
+
+  it("treats index-only targets as legacy (v1, no exit path)", () => {
+    const hint = {
+      target: "author:ludarep",
+      claim: "Developer",
+      amountUsdc: "5",
+      timestamp: NOW - 10,
+      staker: WALLET,
+      txHash: "0xbac955fe6b457b05cc998aac23f9f4c8707521b31da751165b4991b415114335" as const,
+    };
+    const { live, legacy } = partitionWalletStakes([hint], []);
+    expect(live).toEqual([]);
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].target).toBe("author:ludarep");
+  });
+
+  it("collapses duplicate index rows of the same tx on a legacy target", () => {
+    const tx =
+      "0xba34029f697545d74d63b2906c73c79a26d7b089e0ab5ef5c71c5f599517c567" as const;
+    const hint = {
+      target: "author:anonymous",
+      claim: "Quality researcher",
+      amountUsdc: "2",
+      timestamp: NOW,
+      staker: WALLET,
+      txHash: tx,
+    };
+    const { legacy } = partitionWalletStakes([hint, { ...hint }], []);
+    expect(legacy).toHaveLength(1);
   });
 });
 

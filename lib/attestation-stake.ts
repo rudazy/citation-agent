@@ -1,3 +1,6 @@
+import { canonicalizeAttestationTarget } from "@/lib/attestation-client";
+import { attestationTxKey } from "@/lib/attestation-claim-merge";
+
 /**
  * Stake lifecycle view logic for AttestationV2.
  *
@@ -143,4 +146,48 @@ export function activeStakeTotalUsdc(stakes: StakeRecord[]): string {
     .filter((s) => !isTerminal(s.status))
     .reduce((sum, s) => sum + (parseFloat(s.amountUsdc) || 0), 0);
   return total.toFixed(6).replace(/\.?0+$/, "") || "0";
+}
+
+/** A claims-index row used only to discover targets and leftover v1 stakes. */
+export type IndexedStakeHint = {
+  target: string;
+  claim: string;
+  amountUsdc: string;
+  timestamp: number;
+  staker: `0x${string}`;
+  txHash: `0x${string}` | null;
+};
+
+/**
+ * Split a wallet's history into live v2 stakes (withdrawable once unlocked)
+ * and leftover v1 rows (no exit path on that contract).
+ *
+ * The index is event history, so a withdrawn v2 stake still appears there.
+ * On-chain `getAttestations` is the authority for anything on the current
+ * contract; the index only fills targets the current contract has never seen.
+ */
+export function partitionWalletStakes(
+  indexed: IndexedStakeHint[],
+  onChain: StakeRecord[],
+): { live: StakeRecord[]; legacy: IndexedStakeHint[] } {
+  const liveTargets = new Set(
+    onChain.map((row) => canonicalizeAttestationTarget(row.target)),
+  );
+
+  const seenTx = new Set<string>();
+  const legacy: IndexedStakeHint[] = [];
+  for (const row of indexed) {
+    const target = canonicalizeAttestationTarget(row.target);
+    if (liveTargets.has(target)) continue;
+    const key = attestationTxKey(row.txHash);
+    if (key) {
+      if (seenTx.has(key)) continue;
+      seenTx.add(key);
+    }
+    legacy.push({ ...row, target });
+  }
+
+  const live = [...onChain].sort((a, b) => b.timestamp - a.timestamp);
+  legacy.sort((a, b) => b.timestamp - a.timestamp);
+  return { live, legacy };
 }
