@@ -16,6 +16,8 @@ type AppHeaderProps = {
   backLabel?: string;
   trailing?: React.ReactNode;
   className?: string;
+  /** Drop the centred cap so the bar lines up with an edge-to-edge page shell. */
+  wide?: boolean;
 };
 
 function NavLink({
@@ -51,6 +53,7 @@ export function AppHeader({
   backLabel = "Marketplace",
   trailing,
   className,
+  wide = false,
 }: AppHeaderProps) {
   // Payment Trace left the top nav; it remains reachable as the dashboard
   // trace tab (/dashboard?tab=trace) and the marketplace trace card.
@@ -76,7 +79,12 @@ export function AppHeader({
         className,
       )}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3">
+      <div
+        className={cn(
+          "mx-auto flex items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3",
+          wide ? "max-w-none" : "max-w-6xl",
+        )}
+      >
         <div className="flex items-center gap-2 sm:gap-5 min-w-0 flex-1">
           {showBack && (
             <Button variant="ghost" size="sm" className="hidden sm:inline-flex" asChild>

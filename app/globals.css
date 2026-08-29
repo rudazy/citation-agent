@@ -159,6 +159,23 @@
     }
   }
 }
+/* Article prose keeps a readable measure no matter how wide the page shell gets
+   (marketplace runs edge-to-edge). 36rem is 80 characters of Geist Mono at the
+   body's 12px — a fixed length, not `ch`, so headings at 14px cap to the same
+   column as paragraphs and the h2 rule does not overhang the text. Tables, code
+   blocks, images, mermaid and SVG figures are exempt — they earn the width. */
+.citation-body-markdown > p,
+.citation-body-markdown > ul,
+.citation-body-markdown > ol,
+.citation-body-markdown > blockquote,
+.citation-body-markdown > h1,
+.citation-body-markdown > h2,
+.citation-body-markdown > h3,
+.citation-body-markdown > h4,
+.citation-body-markdown > section {
+  max-width: 36rem;
+}
+
 /* Syntax highlighting (rehype-highlight) — grayscale base with lime/gold/orange
    accents to match the report palette. Scoped to rendered article bodies. */
 .citation-body-markdown .hljs-comment,

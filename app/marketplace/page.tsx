@@ -17,8 +17,10 @@ export default function MarketplacePage() {
   const [traceId, setTraceId] = useState(DEMO_SETTLEMENT_ID);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
 
+  // Edge-to-edge shell — <main> supplies the gutters. Nothing here caps width;
+  // article prose holds its own readable measure (see .citation-body-markdown).
   return (
-    <div className="mx-auto max-w-4xl w-full min-w-0 space-y-6 sm:space-y-8">
+    <div className="w-full min-w-0 space-y-6 sm:space-y-8">
       <Suspense fallback={null}>
         <ReferralCapture />
       </Suspense>

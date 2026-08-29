@@ -983,87 +983,87 @@ export function MarketplaceCitations({ refreshKey = 0 }: Props) {
                       </div>
                     )}
 
-                    <div className="flex flex-wrap gap-1.5 justify-end w-full">
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5 px-4 pb-4">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void copyShareLink(item.id)}
+                    className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
+                  >
+                    <Link2 size={12} className="mr-1" />
+                    Copy link
+                  </Button>
+                  {showVerifyReputation && (
+                    <div className="flex items-center gap-0.5">
                       <Button
                         type="button"
                         size="sm"
                         variant="ghost"
-                        onClick={() => void copyShareLink(item.id)}
-                        className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
+                        disabled={trustLoading}
+                        onClick={() => void runTrustLookup(item, defaultPayer)}
+                        className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842]"
                       >
-                        <Link2 size={12} className="mr-1" />
-                        Copy link
+                        {trustLoading ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Shield size={12} className="mr-1" />
+                        )}
+                        Verify reputation ({PAID_TRUST_FEE})
                       </Button>
-                      {showVerifyReputation && (
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={trustLoading}
-                            onClick={() => void runTrustLookup(item, defaultPayer)}
-                            className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842]"
-                          >
-                            {trustLoading ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Shield size={12} className="mr-1" />
-                            )}
-                            Verify reputation ({PAID_TRUST_FEE})
-                          </Button>
-                          {canChoosePayer && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  disabled={trustLoading}
-                                  aria-label="Choose reputation payer"
-                                  className="h-7 px-1.5 text-[10px] text-[#666]"
-                                >
-                                  ···
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => void runTrustLookup(item, "agent")}
-                                >
-                                  Agent wallet (default)
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => void runTrustLookup(item, "metamask")}
-                                >
-                                  MetaMask / connected wallet
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                        </div>
+                      {canChoosePayer && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={trustLoading}
+                              aria-label="Choose reputation payer"
+                              className="h-7 px-1.5 text-[10px] text-[#666]"
+                            >
+                              ···
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => void runTrustLookup(item, "agent")}
+                            >
+                              Agent wallet (default)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => void runTrustLookup(item, "metamask")}
+                            >
+                              MetaMask / connected wallet
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
-                      <AttestTrigger
-                        target={`citation:${item.id}`}
-                        onAttest={openAttest}
-                        label="Back this research"
-                        variant="ghost"
-                        className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
-                      />
-                      <AttestTrigger
-                        target={`author:${item.author}`}
-                        onAttest={openAttest}
-                        label="Back this researcher"
-                        variant="ghost"
-                        className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
-                      />
-                      <EndorseButton
-                        postId={item.id}
-                        initialEndorsed={item.viewer_endorsed ?? false}
-                        initialCount={item.endorsement_count ?? 0}
-                        isOwnPost={item.is_own_post ?? false}
-                        className="h-7 px-2 text-[10px]"
-                      />
                     </div>
-                  </div>
+                  )}
+                  <AttestTrigger
+                    target={`citation:${item.id}`}
+                    onAttest={openAttest}
+                    label="Back this research"
+                    variant="ghost"
+                    className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
+                  />
+                  <AttestTrigger
+                    target={`author:${item.author}`}
+                    onAttest={openAttest}
+                    label="Back this researcher"
+                    variant="ghost"
+                    className="h-7 px-2 text-[10px] font-mono text-[#888] hover:text-[#f5c842] border-transparent"
+                  />
+                  <EndorseButton
+                    postId={item.id}
+                    initialEndorsed={item.viewer_endorsed ?? false}
+                    initialCount={item.endorsement_count ?? 0}
+                    isOwnPost={item.is_own_post ?? false}
+                    className="h-7 px-2 text-[10px]"
+                  />
                 </div>
 
                 {listingExpanded && (
